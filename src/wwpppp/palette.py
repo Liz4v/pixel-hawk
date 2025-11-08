@@ -22,7 +22,7 @@ class Palette:
 
     def open_image(self, path: str | pathlib.Path) -> Image.Image | None:
         image = Image.open(path)
-        paletted = self.ensure_palette(image)
+        paletted = self.ensure(image)
         if image is paletted or image is None:
             return image
         logger.info("Overwriting %s with paletted version...", path.name)
@@ -30,7 +30,7 @@ class Palette:
         paletted.save(path)
         return paletted
 
-    def ensure_palette(self, image: Image.Image) -> Image.Image | None:
+    def ensure(self, image: Image.Image) -> Image.Image | None:
         if image.mode == "P" and bytes(image.getpalette()) == self.raw:
             return image
         with image.convert("RGBA") as rgba:

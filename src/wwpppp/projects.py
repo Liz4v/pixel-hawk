@@ -15,20 +15,15 @@ _RE_HAS_COORDS = re.compile(r"[- _](\d+)[- _](\d+)[- _](\d+)[- _](\d+)\.png$", f
 
 
 class Project:
-    def __init__(self, path: pathlib.Path, rect: Rectangle):
-        self.path = path
-        self.rect = rect
-        self._image = None
-
-    @property
-    def image(self):
-        if self._image is None:
-            self._image = PALETTE.open_image(self.path)
-        return self._image
+    @classmethod
+    def iter(cls) -> typing.Iterable["Project"]:
+        PROJ_PATH.mkdir(parents=True, exist_ok=True)
+        logger.info("Searching for projects in %s", PROJ_PATH)
+        return filter(None, map(Project.try_open, PROJ_PATH.iterdir()))
 
     @classmethod
     def try_open(cls, path: pathlib.Path) -> "Project" | None:
-        cached = DISK_CACHE.get(path.name)
+        cached = CachedProjectMetadata(path)
         if cached:
             try:
                 return cls(path, *cached)
@@ -49,38 +44,55 @@ class Project:
         image.close()  # we'll reopen later if needed
 
         rect = Rectangle(point, size)
-        return cls(path, *DISK_CACHE.set(path.name, rect))
+        return cls(path, *cached(rect))
+
+    def __init__(self, path: pathlib.Path, rect: Rectangle):
+        self.path = path
+        self.rect = rect
+        self._image = None
+
+    @property
+    def image(self):
+        if self._image is None:
+            self._image = PALETTE.open_image(self.path)
+        return self._image
 
 
-def get_project_paths() -> typing.Generator[Project]:
-    PROJ_PATH.mkdir(parents=True, exist_ok=True)
-    logger.info("Searching for projects in %s", PROJ_PATH)
-    return filter(None, map(Project.try_open, PROJ_PATH.iterdir()))
+class CachedProjectMetadata(list):
+    _db = None
 
+    @classmethod
+    def _cursor(cls):
+        if cls._db is None:
+            cls._db = sqlite3.connect(PROJ_PATH / "projects.db")
+            cursor = cls._db.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS cache (
+                    filename TEXT,
+                    mtime INT,
+                    contents BLOB,
+                    PRIMARY KEY (filename)
+                )
+            """)
+            cls._db.commit()
+        return cls._db.cursor()
 
-class DiskCache:
-    def __init__(self):
-        self.cache_file = PROJ_PATH / "cache.sqlite"
-        self.db = sqlite3.connect(self.cache_file)
-        self._check_table_exists()
-
-    def _check_table_exists(self):
-        cursor = self.db.cursor()
-        cursor.execute("CREATE TABLE IF NOT EXISTS cache (filename TEXT, contents BLOB, PRIMARY KEY (filename))")
-        self.db.commit()
-
-    def get(self, key: str) -> dict | None:
-        cursor = self.db.cursor()
-        cursor.execute("SELECT contents FROM cache WHERE filename = ?", (key,))
+    def __init__(self, path: pathlib.Path):
+        self.key = path.name
+        self.check = int(path.stat().st_mtime)
+        cursor = self._cursor()
+        cursor.execute(
+            "SELECT contents FROM cache WHERE filename = ? AND mtime = ?",
+            (self.key, self.check),
+        )
         row = cursor.fetchone()
-        if row:
-            return pickle.loads(row[0])
+        super().__init__(pickle.loads(row[0]) if row else ())
 
-    def set(self, key: str, *args) -> tuple:
-        cursor = self.db.cursor()
-        cursor.execute("REPLACE INTO cache (filename, contents) VALUES (?, ?)", (key, pickle.dumps(args)))
-        self.db.commit()
+    def __call__(self, *args) -> tuple:
+        cursor = self._cursor()
+        cursor.execute(
+            "REPLACE INTO cache (filename, mtime, contents) VALUES (?, ?, ?)",
+            (self.key, self.check, pickle.dumps(args)),
+        )
+        self._db.commit()
         return args
-
-
-DISK_CACHE = DiskCache()

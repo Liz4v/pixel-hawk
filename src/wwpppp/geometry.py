@@ -21,6 +21,9 @@ class Point(typing.NamedTuple):
     def __sub__(self, other: "Point") -> "Point":
         return Point(self.x - other.x, self.y - other.y)
 
+    def __mul__(self, scalar: int) -> "Point":
+        return Point(self.x * scalar, self.y * scalar)
+
 
 class Size(typing.NamedTuple):
     w: int = 0
@@ -41,9 +44,11 @@ class Rectangle(typing.NamedTuple):
         return f"{self.point}-{self.size}"
 
     def __bool__(self) -> bool:
+        """Non-empty rectangle"""
         return bool(self.size)
 
     def __contains__(self, other: "Rectangle") -> bool:
+        """Check if this rectangle fully contains another rectangle"""
         return (
             self.point.x <= other.point.x
             and other.point.x + other.size.w <= self.point.x + self.size.w
@@ -52,6 +57,7 @@ class Rectangle(typing.NamedTuple):
         )
 
     def __sub__(self, other: Point) -> "Rectangle":
+        """Offset rectangle by a point"""
         return Rectangle(self.point - other, self.size)
 
     def __mul__(self, other: "Rectangle") -> "Rectangle":
@@ -66,12 +72,14 @@ class Rectangle(typing.NamedTuple):
 
     @property
     @functools.cache
-    def box(self) -> tuple[int, int, int, int]:
+    def pilbox(self) -> tuple[int, int, int, int]:
+        """PIL box tuple for cropping: (left, upper, right, lower)"""
         return (self.point.x, self.point.y, self.point.x + self.size.w, self.point.y + self.size.h)
 
     @property
     @functools.cache
     def tiles(self) -> frozenset[tuple[int, int]]:
+        """Set of tile coordinates (tx, ty) covered by this rectangle"""
         x_start = self.point.x // 1000
         x_end = (self.point.x + self.size.w - 1) // 1000
         y_start = self.point.y // 1000
