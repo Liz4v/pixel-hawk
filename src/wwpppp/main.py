@@ -2,7 +2,7 @@ from collections import defaultdict
 
 from loguru import logger
 
-from .ingest import search_tiles
+from .ingest import search_tiles, stitch_tiles
 from .projects import Project
 
 
@@ -22,6 +22,9 @@ def main():
             seen_tiles.add(found.tile)
     # Rebuild partials as needed
     targets = {proj.path: proj for tile in seen_tiles for proj in tile_to_project[tile]}
+    for proj in targets.values():
+        current = stitch_tiles(proj.rect)
+        proj.compare_with_current(current)
 
 
 if __name__ == "__main__":

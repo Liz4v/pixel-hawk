@@ -72,3 +72,20 @@ def search_tiles() -> typing.Iterable[FoundTile]:
             )
         # maybe delete or move the file after processing?
         # path.unlink()
+
+
+def stitch_tiles(rect: Rectangle) -> Image.Image:
+    """Stitch together tiles covering the given rectangle from cache"""
+    image = PALETTE.new(rect.size)
+    for tile in rect.tiles:
+        cache_path = DIRS.user_cache_path / f"tile-{tile[0]}_{tile[1]}.png"
+        if not cache_path.exists():
+            logger.warning("Tile %s missing from cache, leaving transparent", tile)
+            continue
+        with Image.open(cache_path) as tile_image:
+            offset = Point(
+                (tile[0] * 1000) - rect.point.x,
+                (tile[1] * 1000) - rect.point.y,
+            )
+            image.paste(tile_image, offset.pilbox())
+    return image

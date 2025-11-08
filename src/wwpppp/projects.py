@@ -3,6 +3,7 @@ import pickle
 import re
 import sqlite3
 import typing
+from tkinter import Image
 
 from loguru import logger
 
@@ -52,10 +53,32 @@ class Project:
         self._image = None
 
     @property
-    def image(self):
+    def image(self) -> Image.Image:
         if self._image is None:
             self._image = PALETTE.open_image(self.path)
         return self._image
+
+    def compare_with_current(self, current: Image.Image) -> None:
+        """Compare each pixel between both images. It will generate a new image only with the differences."""
+        newdata = map(pixel_compare, current.getdata(), self.image.getdata())
+        fix_data, remaining_data = map(bytes, zip(*newdata))
+
+        with PALETTE.new(self.rect.size) as remaining:
+            remaining.putdata(remaining_data)
+            remaining.save(self.path.with_suffix(".remaining.png"))
+
+        fix_path = self.path.with_suffix(".fix.png")
+        if fix_data == remaining_data:
+            fix_path.unlink(missing_ok=True)
+            return
+        with PALETTE.new(self.rect.size) as fix:
+            fix.putdata(fix_data)
+            fix.save(fix_path)
+
+
+def pixel_compare(current: int, desired: int) -> tuple[int, int]:
+    """Returns a tuple of (fix, remaining) pixel values."""
+    return (desired if current else 0, desired if desired != current else 0)
 
 
 class CachedProjectMetadata(list):
