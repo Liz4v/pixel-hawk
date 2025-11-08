@@ -3,9 +3,9 @@ import pickle
 import re
 import sqlite3
 import typing
-from tkinter import Image
 
 from loguru import logger
+from PIL import Image
 
 from .geometry import Point, Rectangle, Size
 from .palette import PALETTE
@@ -23,7 +23,7 @@ class Project:
         return filter(None, map(Project.try_open, PROJ_PATH.iterdir()))
 
     @classmethod
-    def try_open(cls, path: pathlib.Path) -> "Project" | None:
+    def try_open(cls, path: pathlib.Path) -> typing.Self | None:
         cached = CachedProjectMetadata(path)
         if cached:
             try:

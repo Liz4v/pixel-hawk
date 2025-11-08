@@ -34,7 +34,7 @@ class FoundTile(typing.NamedTuple):
     def obtain(self) -> bool:
         """Extract the tile image from the source image, storing in cache if not fully transparent"""
         rect = Rectangle(self.offset * 1000, Size(1000, 1000))
-        with self.source.image.crop(rect.pilbox()) as cropped:
+        with self.source.image.crop(rect.pilbox) as cropped:
             image = PALETTE.ensure(cropped)
         with image:
             _, maximum = image.getextrema()

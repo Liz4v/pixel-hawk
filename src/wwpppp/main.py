@@ -10,7 +10,7 @@ def main():
     # Load projects and index by tile
     tile_to_project = defaultdict(list[Project])
     for proj in Project.iter():
-        logger.info("Project found: %s at coords %s", proj.path, proj.coords)
+        logger.info("Project found: %s at coords %s", proj.path, proj.rect)
         for tile in proj.rect.tiles:
             tile_to_project[tile].append(proj)
     # Find and save relevant updates from inbox directory
