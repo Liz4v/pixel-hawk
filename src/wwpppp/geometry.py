@@ -68,3 +68,12 @@ class Rectangle(typing.NamedTuple):
     @functools.cache
     def box(self) -> tuple[int, int, int, int]:
         return (self.point.x, self.point.y, self.point.x + self.size.w, self.point.y + self.size.h)
+
+    @property
+    @functools.cache
+    def tiles(self) -> frozenset[tuple[int, int]]:
+        x_start = self.point.x // 1000
+        x_end = (self.point.x + self.size.w - 1) // 1000
+        y_start = self.point.y // 1000
+        y_end = (self.point.y + self.size.h - 1) // 1000
+        return frozenset((tx, ty) for tx in range(x_start, x_end + 1) for ty in range(y_start, y_end + 1))

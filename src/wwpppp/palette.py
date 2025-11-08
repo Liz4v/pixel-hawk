@@ -1,7 +1,7 @@
-import functools
 import itertools
 import pathlib
 
+from loguru import logger
 from PIL import Image
 
 _COLORS = """
@@ -12,36 +12,38 @@ _COLORS = """
 """
 
 
-@functools.cache
 class Palette:
-    def __init__(self):
-        colors = [bytes.fromhex(c) for c in _COLORS.split()]
+    def __init__(self, colors: list[bytes]):
         self.raw = bytes(itertools.chain.from_iterable(colors))
-        self.dict = {c: i for i, c in enumerate(colors)}
-        del self.dict[colors[0]]  # remove transparency placeholder color
+        self.dict = {(*c, 255): i for i, c in enumerate(colors) if i}
 
         self.image = Image.new("P", (1, 1))
         self.image.putpalette(self.raw)
 
-    def open_image(self, path: str | pathlib.Path) -> Image.Image:
+    def open_image(self, path: str | pathlib.Path) -> Image.Image | None:
         image = Image.open(path)
         paletted = self.ensure_palette(image)
-        if image is paletted:
+        if image is paletted or image is None:
             return image
-        print(f"Overwriting {path} with paletted version...")
+        logger.info("Overwriting %s with paletted version...", path.name)
         image.close()
         paletted.save(path)
         return paletted
 
-    def ensure_palette(self, image: Image.Image) -> Image.Image:
-        if image.mode == "P" and image.getpalette() == list(self.raw):
+    def ensure_palette(self, image: Image.Image) -> Image.Image | None:
+        if image.mode == "P" and bytes(image.getpalette()) == self.raw:
             return image
-        rgba = image.convert("RGBA")
-        image.close()
-        data = bytes(0 if a == 0 else self.dict.get(bytes(rgb), 0) for *rgb, a in rgba.getdata())
-        rgba.close()
+        with image.convert("RGBA") as rgba:
+            image.close()
+            try:
+                data = bytes(0 if rgba[3] == 0 else self.dict[rgba] for rgba in rgba.getdata())
+            except KeyError:
+                return None  # contains colors not in palette
         paletted = Image.new("P", image.size)
         paletted.putpalette(self.raw)
         paletted.putdata(data)
         paletted.info["transparency"] = 0
         return paletted
+
+
+PALETTE = Palette([bytes.fromhex(c) for c in _COLORS.split()])

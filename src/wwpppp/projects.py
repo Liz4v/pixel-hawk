@@ -1,27 +1,43 @@
 import pathlib
 import re
+import typing
 
-from PIL import Image
+from loguru import logger
 
 from .geometry import Point, Rectangle, Size
+from .palette import PALETTE
 from .settings import DIRS
 
-_RE_HAS_COORDS = re.compile(r"[^a-z0-9](\d+)[^a-z0-9](\d+)[^a-z0-9](\d+)[^a-z0-9](\d+)\.png$", flags=re.IGNORECASE)
+_RE_HAS_COORDS = re.compile(r"[- _](\d+)[- _](\d+)[- _](\d+)[- _](\d+)\.png$", flags=re.IGNORECASE)
 
 
 class Project:
-    def __init__(self, path: pathlib.Path, coords: tuple[str, str, str, str]):
+    def __init__(self, path: pathlib.Path, rect: Rectangle):
         self.path = path
-        with Image.open(path) as img:
-            size = Size(*img.size)
-        point = Point.from4(*map(int, coords))
-        self.rect = Rectangle(point, size)
+        self.rect = rect
 
-
-def get_project_paths() -> list[Project]:
-    results = []
-    for path in DIRS.user_pictures_path.iterdir():
+    @classmethod
+    def try_open(cls, path: pathlib.Path) -> typing.Self | None:
         match = _RE_HAS_COORDS.search(path.name)
-        if match:
-            results.append(Project(path, match.groups()))
-    return results
+        if not match:
+            return None  # no coords or already excluded
+        tx, ty, px, py = map(int, match.groups())
+        point = Point.from4(tx, ty, px, py)
+
+        image = PALETTE.open_image(path)
+        if image is None:
+            logger.warning("%s: Colors not in palette", path.name)
+            path.rename(path.with_suffix(".invalid.png"))
+            return None
+        size = Size(*image.size)
+        image.close()  # we'll reopen later if needed
+
+        rect = Rectangle(point, size)
+        return cls(path, rect)
+
+
+def get_project_paths() -> typing.Generator[Project]:
+    dirpath = DIRS.user_pictures_path / "wplace"
+    dirpath.mkdir(parents=True, exist_ok=True)
+    logger.info("Searching for projects in %s", dirpath)
+    return filter(None, map(Project.try_open, dirpath.iterdir()))
