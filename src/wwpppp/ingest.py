@@ -26,6 +26,10 @@ class LazyImage:
             self._image = Image.open(self.path)
         return self._image
 
+    def __del__(self) -> None:
+        if self._image is not None:
+            self._image.close()
+
 
 class FoundTile(typing.NamedTuple):
     tile: tuple[int, int]

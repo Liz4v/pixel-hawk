@@ -58,6 +58,15 @@ class Project:
             self._image = PALETTE.open_image(self.path)
         return self._image
 
+    @image.deleter
+    def image(self) -> None:
+        if self._image is not None:
+            self._image.close()
+            self._image = None
+
+    def __del__(self):
+        del self.image
+
     def compare_with_current(self, current: Image.Image) -> None:
         """Compare each pixel between both images. It will generate a new image only with the differences."""
         newdata = map(pixel_compare, current.getdata(), self.image.getdata())
