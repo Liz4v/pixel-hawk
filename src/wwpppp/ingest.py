@@ -1,4 +1,5 @@
 import itertools
+import os
 import pathlib
 import re
 import typing
@@ -21,7 +22,7 @@ class LazyImage:
     @property
     def image(self) -> Image.Image:
         if self._image is None:
-            logger.debug("%s: Loading image...", self.path.name)
+            logger.debug(f"{self.path.name}: Loading image...")
             self._image = Image.open(self.path)
         return self._image
 
@@ -41,11 +42,10 @@ class FoundTile(typing.NamedTuple):
             if maximum == 0:
                 return False  # fully transparent
             cache_path = DIRS.user_cache_path / f"tile-{self.tile[0]}_{self.tile[1]}.png"
-            logger.info("Storing tile %s to cache %s", self.tile, cache_path.name)
+            logger.info(f"{cache_path.name}: Storing tile {self.tile}")
             image.save(cache_path)
-        # set mtime to match source file
         mtime = self.source.path.stat().st_mtime
-        cache_path.touch(times=(mtime, mtime))
+        os.utime(cache_path, (mtime, mtime))
         return True
 
 
@@ -80,12 +80,9 @@ def stitch_tiles(rect: Rectangle) -> Image.Image:
     for tile in rect.tiles:
         cache_path = DIRS.user_cache_path / f"tile-{tile[0]}_{tile[1]}.png"
         if not cache_path.exists():
-            logger.warning("Tile %s missing from cache, leaving transparent", tile)
+            logger.warning(f"{tile}: Tile missing from cache, leaving transparent")
             continue
         with Image.open(cache_path) as tile_image:
-            offset = Point(
-                (tile[0] * 1000) - rect.point.x,
-                (tile[1] * 1000) - rect.point.y,
-            )
-            image.paste(tile_image, offset.pilbox())
+            offset = Point(*tile) * 1000 - rect.point
+            image.paste(tile_image, Rectangle(offset, Size(1000, 1000)).pilbox)
     return image

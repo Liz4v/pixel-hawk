@@ -27,7 +27,7 @@ class Palette:
         paletted = self.ensure(image)
         if image is paletted or image is None:
             return image
-        logger.info("Overwriting %s with paletted version...", path.name)
+        logger.info(f"{path.name}: Overwriting with paletted version...")
         image.close()
         paletted.save(path)
         return paletted

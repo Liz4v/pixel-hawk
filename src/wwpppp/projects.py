@@ -19,7 +19,7 @@ class Project:
     @classmethod
     def iter(cls) -> typing.Iterable["Project"]:
         PROJ_PATH.mkdir(parents=True, exist_ok=True)
-        logger.info("Searching for projects in %s", PROJ_PATH)
+        logger.info(f"Searching for projects in {PROJ_PATH}")
         return filter(None, map(Project.try_open, PROJ_PATH.iterdir()))
 
     @classmethod
@@ -29,7 +29,7 @@ class Project:
             try:
                 return cls(path, *cached)
             except TypeError:
-                logger.warning("%s: Cache data invalid, reprocessing", path.name)
+                logger.warning(f"{path.name}: Cache data invalid, reprocessing")
 
         match = _RE_HAS_COORDS.search(path.name)
         if not match:
@@ -38,7 +38,7 @@ class Project:
 
         image = PALETTE.open_image(path)
         if image is None:
-            logger.warning("%s: Colors not in palette", path.name)
+            logger.warning(f"{path.name}: Colors not in palette")
             path.rename(path.with_suffix(".invalid.png"))
             return None
         size = Size(*image.size)
