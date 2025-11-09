@@ -115,6 +115,10 @@ class Project:
         when = (datetime.now() + time_to_go).strftime("%b %d %H:%M")
         logger.info(f"{path.name}: Saved diff ({opaque}px, {percentage:.2f}%, {days}d{hours}h to {when}).")
 
+    def forget(self) -> None:
+        cache = CachedProjectMetadata(self.path)
+        cache.forget()
+
 
 def pixel_compare(current: int, desired: int) -> tuple[int, int]:
     """Returns a tuple of (remaining, fix) pixel values."""
@@ -142,14 +146,19 @@ class CachedProjectMetadata(list):
 
     def __init__(self, path: Path):
         self.key = path.name
-        self.check = int(path.stat().st_mtime)
+        try:
+            self.check = int(path.stat().st_mtime)
+        except FileNotFoundError:
+            self.check = 0  # signal missing file
+        super().__init__(self._load())
+
+    def _load(self) -> list:
         cursor = self._cursor()
-        cursor.execute(
-            "SELECT contents FROM cache WHERE filename = ? AND mtime = ?",
-            (self.key, self.check),
-        )
-        row = cursor.fetchone()
-        super().__init__(pickle.loads(row[0]) if row else ())
+        cursor.execute("SELECT mtime, contents FROM cache WHERE filename = ? ", (self.key,))
+        check, blob = cursor.fetchone() or (None,None)
+        if check != self.check:
+            return []
+        return pickle.loads(blob)
 
     def __call__(self, *args) -> tuple:
         cursor = self._cursor()
@@ -159,3 +168,8 @@ class CachedProjectMetadata(list):
         )
         self._db.commit()
         return args
+
+    def forget(self) -> None:
+        cursor = self._cursor()
+        cursor.execute("DELETE FROM cache WHERE filename = ?", (self.key,))
+        self._db.commit()

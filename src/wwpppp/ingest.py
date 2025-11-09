@@ -29,6 +29,7 @@ class LazyImage:
     def __del__(self) -> None:
         if self._image is not None:
             self._image.close()
+        self.path.unlink(missing_ok=True)  # delete after use
 
 
 class FoundTile(NamedTuple):
@@ -69,12 +70,7 @@ def search_tiles(path: Path | None = None) -> Iterable[FoundTile]:
         w, h, x1, y1 = map(int, numbers)
         for x2, y2 in itertools.product(range(w), range(h)):
             tile = (x1 + x2, y1 + y2)
-            yield FoundTile(
-                tile=tile,
-                source=source,
-                offset=Point(x2, y2),
-            )
-        path.unlink()  # delete after processing
+            yield FoundTile(tile=tile, source=source, offset=Point(x2, y2))
 
 
 def stitch_tiles(rect: Rectangle) -> Image.Image:

@@ -30,9 +30,9 @@ class Main:
                 continue  # no projects need this tile
             if found.obtain():
                 seen_tiles.add(found.tile)
-        logger.info(f"Obtained {len(seen_tiles)} new tiles.")
         if not seen_tiles:
             return
+        logger.info(f"Matched {len(seen_tiles)} new tiles.")
 
         # Rebuild partials as needed
         targets = {proj for tile in seen_tiles for proj in self.tiles[tile]}
@@ -41,19 +41,26 @@ class Main:
             proj.compare_with_current()
 
     def watch_for_updates(self) -> None:
-        inbox_path = DIRS.user_downloads_path
         logger.info("Watching for new tiles and projects...")
-        for changes in watch(inbox_path, DIRS.user_pictures_path / "wplace"):
-            for change, pstr in changes:
-                path = Path(pstr)
-                if path.parent == inbox_path:
-                    if change == Change.added:
-                        self.consume_new_tiles(path)
-                else:
-                    if change != Change.added:
-                        self.forget_project(path)
-                    if change != Change.deleted:
-                        self.load_project(path)
+        for change, path in self.watch_loop():
+            if path.parent == DIRS.user_downloads_path:
+                if change == Change.added:
+                    self.consume_new_tiles(path)
+            else:
+                if change != Change.added:
+                    self.forget_project(path)
+                if change != Change.deleted:
+                    self.load_project(path)
+
+    def watch_loop(self):
+        inbox_path = DIRS.user_downloads_path
+        wplace_path = DIRS.user_pictures_path / "wplace"
+        try:
+            for batch in watch(inbox_path, wplace_path):
+                for change, path_str in batch:
+                    yield change, Path(path_str)
+        except KeyboardInterrupt:
+            pass
 
     def forget_project(self, path: Path) -> None:
         proj = self.projects.pop(path, None)
@@ -65,6 +72,7 @@ class Main:
                 projs.discard(proj)
                 if not projs:
                     del self.tiles[tile]
+        proj.forget()
         logger.info(f"{path.name}: Forgot project")
 
     def load_project(self, path: Path) -> None:
@@ -82,6 +90,7 @@ def main():
     worker = Main()
     worker.consume_new_tiles()
     worker.watch_for_updates()
+    logger.info("Exiting.")
 
 
 if __name__ == "__main__":
