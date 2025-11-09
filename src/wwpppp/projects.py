@@ -1,3 +1,4 @@
+import datetime
 import pathlib
 import pickle
 import re
@@ -8,19 +9,20 @@ from loguru import logger
 from PIL import Image
 
 from .geometry import Point, Rectangle, Size
+from .ingest import stitch_tiles
 from .palette import PALETTE
 from .settings import DIRS
 
-PROJ_PATH = DIRS.user_pictures_path / "wplace"
 _RE_HAS_COORDS = re.compile(r"[- _](\d+)[- _](\d+)[- _](\d+)[- _](\d+)\.png$", flags=re.IGNORECASE)
 
 
 class Project:
     @classmethod
-    def iter(cls) -> typing.Iterable["Project"]:
-        PROJ_PATH.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Searching for projects in {PROJ_PATH}")
-        return filter(None, map(Project.try_open, PROJ_PATH.iterdir()))
+    def list(cls) -> list["Project"]:
+        path = DIRS.user_pictures_path / "wplace"
+        path.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Searching for projects in {path}")
+        return list(filter(None, map(Project.try_open, list(path.iterdir()))))
 
     @classmethod
     def try_open(cls, path: pathlib.Path) -> typing.Self | None:
@@ -41,16 +43,25 @@ class Project:
             logger.warning(f"{path.name}: Colors not in palette")
             path.rename(path.with_suffix(".invalid.png"))
             return None
-        size = Size(*image.size)
+        rect = Rectangle(point, Size(*image.size))
         image.close()  # we'll reopen later if needed
 
-        rect = Rectangle(point, size)
-        return cls(path, *cached(rect))
+        logger.info(f"{path.name}: Detected project at {point} size {rect.size}")
+
+        new = cls(path, *cached(rect))
+        new.compare_with_current()
+        return new
 
     def __init__(self, path: pathlib.Path, rect: Rectangle):
         self.path = path
         self.rect = rect
         self._image = None
+
+    def __eq__(self, other) -> bool:
+        return self.path == getattr(other, "path", ...)
+
+    def __hash__(self):
+        return hash(self.path)
 
     @property
     def image(self) -> Image.Image:
@@ -67,38 +78,47 @@ class Project:
     def __del__(self):
         del self.image
 
-    def compare_with_current(self, current: Image.Image) -> None:
+    def compare_with_current(self) -> None:
         """Compare each pixel between both images. It will generate a new image only with the differences."""
-        newdata = map(pixel_compare, current.getdata(), self.image.getdata())
-        remaining_data, fix_data = map(bytes, zip(*newdata))
+        target_data = self.image.getdata()
+        with stitch_tiles(self.rect) as current:
+            newdata = map(pixel_compare, current.getdata(), target_data)
+            remaining_data, fix_data = map(bytes, zip(*newdata))
 
         fix_path = self.path.with_suffix(".fix.png")
         remaining_path = self.path.with_suffix(".remaining.png")
+
+        if remaining_data == target_data:
+            return  # project is not started, no need for diffs
 
         if max(remaining_data) == 0:
             logger.info(f"{self.path.name}: No remaining pixels, project is complete and ungriefed.")
             remaining_path.unlink(missing_ok=True)
             fix_path.unlink(missing_ok=True)
             return
-
-        with PALETTE.new(self.rect.size) as remaining:
-            remaining.putdata(remaining_data)
-            remaining.save(remaining_path)
-        logger.info(f"{remaining_path.name}: Saved image with all remaining pixels.")
+        self._save_diff(remaining_path, remaining_data)
 
         fix_path = self.path.with_suffix(".fix.png")
         if fix_data == remaining_data or max(fix_data) == 0:
             fix_path.unlink(missing_ok=True)
             return
-        with PALETTE.new(self.rect.size) as fix:
-            fix.putdata(fix_data)
-            fix.save(fix_path)
-        logger.info(f"{fix_path.name}: Saved image with mismatched pixels only.")
+        self._save_diff(fix_path, fix_data)
+
+    def _save_diff(self, path: pathlib.Path, data: bytes) -> None:
+        with PALETTE.new(self.rect.size) as diff_image:
+            diff_image.putdata(data)
+            diff_image.save(path)
+        opaque = sum(1 for v in data if v)
+        percentage = opaque * 100 / len(data)
+        time_to_go = datetime.timedelta(seconds=27) * opaque
+        days, hours = divmod(round(time_to_go.total_seconds() / 3600), 24)
+        when = (datetime.datetime.now() + time_to_go).strftime("%b %d %H:%M")
+        logger.info(f"{path.name}: Saved diff ({opaque}px, {percentage:.2f}%, {days}d{hours}h to {when}).")
 
 
 def pixel_compare(current: int, desired: int) -> tuple[int, int]:
     """Returns a tuple of (remaining, fix) pixel values."""
-    return (0, 0) if desired == current else (desired, desired if current else 0)
+    return (0, 0) if desired == current else (desired, current and desired)
 
 
 class CachedProjectMetadata(list):
@@ -107,7 +127,7 @@ class CachedProjectMetadata(list):
     @classmethod
     def _cursor(cls):
         if cls._db is None:
-            cls._db = sqlite3.connect(PROJ_PATH / "projects.db")
+            cls._db = sqlite3.connect(DIRS.user_cache_path / "projects.db")
             cursor = cls._db.cursor()
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS cache (
