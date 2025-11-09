@@ -22,10 +22,14 @@ class Project:
         path = DIRS.user_pictures_path / "wplace"
         path.mkdir(parents=True, exist_ok=True)
         logger.info(f"Searching for projects in {path}")
-        return list(filter(None, map(Project.try_open, list(path.iterdir()))))
+        return list(filter(None, map(Project.try_open, sorted(path.iterdir()))))
 
     @classmethod
     def try_open(cls, path: pathlib.Path) -> typing.Self | None:
+        match = _RE_HAS_COORDS.search(path.name)
+        if not match or not path.is_file():
+            return None  # no coords or otherwise invalid/irrelevant
+
         cached = CachedProjectMetadata(path)
         if cached:
             try:
@@ -33,20 +37,15 @@ class Project:
             except TypeError:
                 logger.warning(f"{path.name}: Cache data invalid, reprocessing")
 
-        match = _RE_HAS_COORDS.search(path.name)
-        if not match:
-            return None  # no coords or already excluded
-        point = Point.from4(*map(int, match.groups()))
-
         image = PALETTE.open_image(path)
         if image is None:
             logger.warning(f"{path.name}: Colors not in palette")
             path.rename(path.with_suffix(".invalid.png"))
             return None
-        rect = Rectangle(point, Size(*image.size))
+        rect = Rectangle(Point.from4(*map(int, match.groups())), Size(*image.size))
         image.close()  # we'll reopen later if needed
 
-        logger.info(f"{path.name}: Detected project at {point} size {rect.size}")
+        logger.info(f"{path.name}: Detected project at {rect}")
 
         new = cls(path, *cached(rect))
         new.compare_with_current()

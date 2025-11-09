@@ -41,7 +41,7 @@ class Rectangle(typing.NamedTuple):
     size: Size = Size()
 
     def __str__(self):
-        return f"{self.point}-{self.size}"
+        return f"{self.size}-{self.point}"
 
     def __bool__(self) -> bool:
         """Non-empty rectangle"""
