@@ -41,14 +41,13 @@ class Main:
             proj.compare_with_current()
 
     def watch_for_updates(self) -> None:
-        inbox_path = str(DIRS.user_downloads_path)
+        inbox_path = DIRS.user_downloads_path
+        logger.info("Watching for new tiles and projects...")
         for changes in watch(inbox_path, DIRS.user_pictures_path / "wplace"):
-            tiles_consumed = False
             for change, pstr in changes:
                 path = Path(pstr)
                 if path.parent == inbox_path:
-                    if change == Change.added and not tiles_consumed:
-                        tiles_consumed = True
+                    if change == Change.added:
                         self.consume_new_tiles(path)
                 else:
                     if change != Change.added:
