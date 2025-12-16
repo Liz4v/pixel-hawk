@@ -3,7 +3,7 @@ import re
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional, Self
 
 from loguru import logger
 from PIL import Image
@@ -18,7 +18,7 @@ _RE_HAS_COORDS = re.compile(r"[- _](\d+)[- _](\d+)[- _](\d+)[- _](\d+)\.png$", f
 
 class Project:
     @classmethod
-    def iter(cls) -> set["Project"]:
+    def iter(cls) -> Iterable[Self]:
         path = DIRS.user_pictures_path / "wplace"
         path.mkdir(parents=True, exist_ok=True)
         logger.info(f"Searching for projects in {path}")
@@ -26,7 +26,7 @@ class Project:
         return filter(None, maybe_projects)
 
     @classmethod
-    def try_open(cls, path: Path) -> Optional["Project"]:
+    def try_open(cls, path: Path) -> Optional[Self]:
         match = _RE_HAS_COORDS.search(path.name)
         if not match or not path.is_file():
             return None  # no coords or otherwise invalid/irrelevant
@@ -84,7 +84,7 @@ class Project:
         """Compare each pixel between both images. It will generate a new image only with the differences."""
         target_data = self.image.getdata()
         with stitch_tiles(self.rect) as current:
-            newdata = map(pixel_compare, current.getdata(), target_data)
+            newdata = map(pixel_compare, current.getdata(), target_data)  # type: ignore[misc]
             remaining_data, fix_data = map(bytes, zip(*newdata))
 
         fix_path = self.path.with_suffix(".fix.png")
@@ -128,12 +128,12 @@ def pixel_compare(current: int, desired: int) -> tuple[int, int]:
 
 
 class CachedProjectMetadata(list):
-    _db = None
+    _db: sqlite3.Connection = None  # type: ignore[class-var]
 
     @classmethod
     def _cursor(cls):
         if cls._db is None:
-            cls._db = sqlite3.connect(DIRS.user_cache_path / "projects.db")
+            cls._db = sqlite3.connect(DIRS.user_cache_path / "projects.db", autocommit=True)
             cursor = cls._db.cursor()
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS cache (
@@ -143,7 +143,6 @@ class CachedProjectMetadata(list):
                     PRIMARY KEY (filename)
                 )
             """)
-            cls._db.commit()
         return cls._db.cursor()
 
     def __init__(self, path: Path):
@@ -157,7 +156,7 @@ class CachedProjectMetadata(list):
     def _load(self) -> list:
         cursor = self._cursor()
         cursor.execute("SELECT mtime, contents FROM cache WHERE filename = ? ", (self.key,))
-        check, blob = cursor.fetchone() or (None, None)
+        check, blob = cursor.fetchone() or (0, b"")
         if check != self.check:
             return []
         return pickle.loads(blob)
@@ -168,10 +167,8 @@ class CachedProjectMetadata(list):
             "REPLACE INTO cache (filename, mtime, contents) VALUES (?, ?, ?)",
             (self.key, self.check, pickle.dumps(args)),
         )
-        self._db.commit()
         return args
 
     def forget(self) -> None:
         cursor = self._cursor()
         cursor.execute("DELETE FROM cache WHERE filename = ?", (self.key,))
-        self._db.commit()

@@ -26,16 +26,16 @@ class Palette:
         paletted = self.ensure(image)
         if image is paletted:
             return image
-        logger.info(f"{path.name}: Overwriting with paletted version...")
+        logger.info(f"{Path(path).name}: Overwriting with paletted version...")
         paletted.save(path)
         return paletted
 
     def ensure(self, image: Image.Image) -> Image.Image:
-        if image.mode == "P" and bytes(image.getpalette()) == self._raw:
+        if image.mode == "P" and bytes(image.getpalette()) == self._raw:  # type: ignore[attr-defined]
             return image  # no need to convert
         size = image.size
         with _ensure_rgba(image) as rgba:
-            data = bytes(map(self.lookup, rgba.getdata()))
+            data = bytes(map(self.lookup, rgba.getdata()))  # type: ignore[misc]
         image = self.new(size)
         image.putdata(data)
         return image

@@ -60,7 +60,7 @@ class FoundTile(NamedTuple):
 
 def search_tiles(path: Path | None = None) -> Iterable[FoundTile]:
     inbox_path = DIRS.user_downloads_path
-    found_paths = []
+    found_paths: list[tuple[str, Path, list[str]]] = []
     for path in (path,) if path else inbox_path.iterdir():
         match = _RE_FILENAME.fullmatch(path.name)
         if not match:
