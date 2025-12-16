@@ -15,30 +15,37 @@ _RE_FILENAME = re.compile(r"^wplace-cached-(\d+)000x(\d+)000-(\d+)_(\d+)_0_0-([-
 
 
 class LazyImage:
+    """Represents a temporary image that is loaded lazily from disk."""
+
     def __init__(self, path: Path):
+        """Initializes a LazyImage with the given file path."""
         self.path = path
         self._image = None
 
     @property
     def image(self) -> Image.Image:
+        """The image resource, loaded lazily from disk."""
         if self._image is None:
             logger.debug(f"{self.path.name}: Loading image...")
             self._image = Image.open(self.path)
         return self._image
 
     def __del__(self) -> None:
+        """Ensures the image is closed and deleted."""
         if self._image is not None:
             self._image.close()
         self.path.unlink(missing_ok=True)  # delete after use
 
 
 class FoundTile(NamedTuple):
+    """Represents a tile found in the downloads inbox."""
+
     tile: tuple[int, int]
     source: LazyImage
     offset: Point
 
     def obtain(self) -> bool:
-        """Extract the tile image from the source image, storing in cache if not fully transparent"""
+        """Extracts the tile image from the source image, storing in cache if not fully transparent"""
         rect = Rectangle(self.offset * 1000, Size(1000, 1000))
         with self.source.image.crop(rect.pilbox) as cropped:
             try:
@@ -59,6 +66,7 @@ class FoundTile(NamedTuple):
 
 
 def search_tiles(path: Path | None = None) -> Iterable[FoundTile]:
+    """Searches the inbox directory (or given path) for tile images, yielding FoundTile instances."""
     inbox_path = DIRS.user_downloads_path
     found_paths: list[tuple[str, Path, list[str]]] = []
     for path in (path,) if path else inbox_path.iterdir():
@@ -78,7 +86,7 @@ def search_tiles(path: Path | None = None) -> Iterable[FoundTile]:
 
 
 def stitch_tiles(rect: Rectangle) -> Image.Image:
-    """Stitch together tiles covering the given rectangle from cache"""
+    """Stitches tiles from cache together, exactly covering the given rectangle."""
     image = PALETTE.new(rect.size)
     for tile in rect.tiles:
         cache_path = DIRS.user_cache_path / f"tile-{tile[0]}_{tile[1]}.png"

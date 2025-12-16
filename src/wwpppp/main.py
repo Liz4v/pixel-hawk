@@ -10,11 +10,13 @@ from .projects import Project
 
 class Main:
     def __init__(self):
+        """Initialize the main application, loading existing projects and indexing tiles."""
         self.projects = {p.path: p for p in Project.iter()}
         logger.info(f"Loaded {len(self.projects)} projects.")
         self.tiles = self._load_tiles()
 
     def _load_tiles(self) -> dict[tuple[int, int], set[Project]]:
+        """Index tiles to projects for quick lookup."""
         tile_to_project = {}
         for proj in self.projects.values():
             for tile in proj.rect.tiles:
@@ -23,6 +25,7 @@ class Main:
         return tile_to_project
 
     def consume_new_tiles(self, path: Path | None = None) -> None:
+        """Consume new tiles from the inbox directory (or given path), updating projects as needed."""
         # Find and save relevant updates from inbox directory
         seen_tiles = set()
         for found in search_tiles(path):
@@ -40,6 +43,7 @@ class Main:
             proj.run_diff()
 
     def watch_for_updates(self) -> None:
+        """Watch inbox and projects directories for changes, processing as needed."""
         logger.info("Watching for new tiles and projects...")
         for change, path in self.watch_loop():
             if path.parent == DIRS.user_downloads_path:
@@ -52,6 +56,7 @@ class Main:
                     self.load_project(path)
 
     def watch_loop(self):
+        """Yields file changes from watching the inbox and projects directories."""
         inbox_path = DIRS.user_downloads_path
         wplace_path = DIRS.user_pictures_path / "wplace"
         try:
@@ -62,6 +67,7 @@ class Main:
             pass
 
     def forget_project(self, path: Path) -> None:
+        """Clears cached data about the project at the given path."""
         proj = self.projects.pop(path, None)
         if not proj:
             return
@@ -75,6 +81,7 @@ class Main:
         logger.info(f"{path.name}: Forgot project")
 
     def load_project(self, path: Path) -> None:
+        """Loads or reloads a project at the given path."""
         self.forget_project(path)
         proj = Project.try_open(path)
         if not proj:
@@ -86,6 +93,7 @@ class Main:
 
 
 def main():
+    """Main entry point for wwpppp."""
     worker = Main()
     worker.consume_new_tiles()
     worker.watch_for_updates()

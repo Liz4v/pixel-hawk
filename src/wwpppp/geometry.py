@@ -3,14 +3,20 @@ from typing import NamedTuple
 
 
 class Point(NamedTuple):
+    """Represents a point in 2D lattice space."""
+
     x: int = 0
     y: int = 0
 
     @classmethod
     def from4(cls, tx: int, ty: int, px: int, py: int) -> "Point":
+        """Create a Point from (tx, ty, px, py) tuple as represented in project file names."""
+        assert min(tx, ty, px, py) >= 0, "Tile and pixel coordinates must be non-negative"
+        assert max(px, py) < 1000, "Pixel coordinates must be less than 1000"
         return cls(tx * 1000 + px, ty * 1000 + py)
 
     def to4(self) -> tuple[int, int, int, int]:
+        """Convert to (tx, ty, px, py) tuple, as represented in project file names."""
         tx, px = divmod(self.x, 1000)
         ty, py = divmod(self.y, 1000)
         return tx, ty, px, py
@@ -26,6 +32,8 @@ class Point(NamedTuple):
 
 
 class Size(NamedTuple):
+    """Represents a size in 2D lattice space."""
+
     w: int = 0
     h: int = 0
 
@@ -33,10 +41,13 @@ class Size(NamedTuple):
         return f"{self.w}x{self.h}"
 
     def __bool__(self) -> bool:
+        """Non-empty size."""
         return self.w > 0 and self.h > 0
 
 
 class Rectangle(NamedTuple):
+    """Represents a rectangle in 2D lattice space."""
+
     point: Point = Point()
     size: Size = Size()
 
@@ -44,11 +55,11 @@ class Rectangle(NamedTuple):
         return f"{self.size}-{self.point}"
 
     def __bool__(self) -> bool:
-        """Non-empty rectangle"""
+        """Non-empty rectangle."""
         return bool(self.size)
 
     def __contains__(self, other: "Rectangle") -> bool:
-        """Check if this rectangle fully contains another rectangle"""
+        """Check if this rectangle fully contains another rectangle."""
         return (
             self.point.x <= other.point.x
             and other.point.x + other.size.w <= self.point.x + self.size.w
@@ -57,29 +68,19 @@ class Rectangle(NamedTuple):
         )
 
     def __sub__(self, other: Point) -> "Rectangle":
-        """Offset rectangle by a point"""
+        """Offset rectangle by a point."""
         return Rectangle(self.point - other, self.size)
-
-    def __mul__(self, other: "Rectangle") -> "Rectangle":
-        """Intersection of two rectangles"""
-        x1 = max(self.point.x, other.point.x)
-        y1 = max(self.point.y, other.point.y)
-        x2 = min(self.point.x + self.size.w, other.point.x + other.size.w)
-        y2 = min(self.point.y + self.size.h, other.point.y + other.size.h)
-        if x2 <= x1 or y2 <= y1:
-            return Rectangle(Point(0, 0), Size(0, 0))
-        return Rectangle(Point(x1, y1), Size(x2 - x1, y2 - y1))
 
     @property
     @cache
     def pilbox(self) -> tuple[int, int, int, int]:
-        """PIL box tuple for cropping: (left, upper, right, lower)"""
+        """PIL box tuple for cropping: (left, upper, right, lower)."""
         return (self.point.x, self.point.y, self.point.x + self.size.w, self.point.y + self.size.h)
 
     @property
     @cache
     def tiles(self) -> frozenset[tuple[int, int]]:
-        """Set of tile coordinates (tx, ty) covered by this rectangle"""
+        """Set of tile coordinates (tx, ty) covered by this rectangle."""
         x_start = self.point.x // 1000
         x_end = (self.point.x + self.size.w - 1) // 1000
         y_start = self.point.y // 1000

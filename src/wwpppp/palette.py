@@ -15,6 +15,7 @@ _COLORS = """
 
 class Palette:
     def __init__(self, colors: list[bytes]):
+        """Initialize the palette with the given list of RGB colors (as bytes). The first color is treated as transparent."""
         self._raw = bytes(chain.from_iterable(colors))
         rgb2pal = {int.from_bytes(c, "big"): i for i, c in enumerate(colors) if i}
         rgb2pal[0x10AE82] = rgb2pal[0x10AEA6]  # wrong teal reported in wplacepaint.com
@@ -22,8 +23,9 @@ class Palette:
         self._values = bytes(rgb2pal[c] for c in self._idx)
 
     def open_image(self, path: str | Path) -> Image.Image:
+        """Open an image from `path`, convert to this palette if needed, and overwrite the file if converted."""
         image = Image.open(path)
-        paletted = self.ensure(image)
+        paletted = self.ensure(image)  # this close `image`
         if image is paletted:
             return image
         logger.info(f"{Path(path).name}: Overwriting with paletted version...")
@@ -31,16 +33,18 @@ class Palette:
         return paletted
 
     def ensure(self, image: Image.Image) -> Image.Image:
+        """Convert `image` to this palette if needed, returning the converted image."""
         if image.mode == "P" and bytes(image.getpalette()) == self._raw:  # type: ignore[attr-defined]
             return image  # no need to convert
         size = image.size
-        with _ensure_rgba(image) as rgba:
+        with _ensure_rgba(image) as rgba:  # `image` will be closed by the end of this block
             data = bytes(map(self.lookup, rgba.getdata()))  # type: ignore[misc]
         image = self.new(size)
         image.putdata(data)
         return image
 
     def lookup(self, rgba: tuple) -> int:
+        """Look up the palette index for the given RGBA color."""
         if rgba[3] == 0:
             return 0
         rgb = (rgba[0] << 16) | (rgba[1] << 8) | rgba[2]
@@ -50,6 +54,7 @@ class Palette:
         return self._values[position]
 
     def new(self, size: tuple[int, int]) -> Image.Image:
+        """Create a new image with this palette and given size."""
         image = Image.new("P", size)
         image.putpalette(self._raw)
         image.info["transparency"] = 0
@@ -57,6 +62,7 @@ class Palette:
 
 
 def _ensure_rgba(image: Image.Image) -> Image.Image:
+    """Ensure the given image is in RGBA mode, converting if needed."""
     if image.mode == "RGBA":
         return image
     with image:
@@ -64,7 +70,7 @@ def _ensure_rgba(image: Image.Image) -> Image.Image:
 
 
 class ColorNotInPalette(KeyError):
-    pass
+    """Raised when a color is not found in the palette."""
 
 
 PALETTE = Palette([bytes.fromhex(c) for c in _COLORS.split()])

@@ -17,8 +17,11 @@ _RE_HAS_COORDS = re.compile(r"[- _](\d+)[- _](\d+)[- _](\d+)[- _](\d+)\.png$", f
 
 
 class Project:
+    """Represents a wplace project stored on disk."""
+
     @classmethod
     def iter(cls) -> Iterable[Self]:
+        """Yields all valid projects found in the user pictures directory."""
         path = DIRS.user_pictures_path / "wplace"
         path.mkdir(parents=True, exist_ok=True)
         logger.info(f"Searching for projects in {path}")
@@ -27,6 +30,8 @@ class Project:
 
     @classmethod
     def try_open(cls, path: Path) -> Optional[Self]:
+        """Attempts to open a project from the given path. Returns None if invalid."""
+
         match = _RE_HAS_COORDS.search(path.name)
         if not match or not path.is_file():
             return None  # no coords or otherwise invalid/irrelevant
@@ -55,6 +60,7 @@ class Project:
         return new
 
     def __init__(self, path: Path, rect: Rectangle):
+        """Represents a wplace project stored at `path`, covering the area defined by `rect`."""
         self.path = path
         self.rect = rect
         self._image = None
@@ -67,12 +73,14 @@ class Project:
 
     @property
     def image(self) -> Image.Image:
+        """The target image for this project, lazy-opened as a PIL Image."""
         if self._image is None:
             self._image = PALETTE.open_image(self.path)
         return self._image
 
     @image.deleter
     def image(self) -> None:
+        """Closes the cached image."""
         if self._image is not None:
             self._image.close()
             self._image = None
@@ -81,7 +89,8 @@ class Project:
         del self.image
 
     def run_diff(self) -> None:
-        """Compare each pixel between both images. It will generate a new image only with the differences."""
+        """Compares each pixel between both images. Generates a new image only with the differences."""
+
         target_data = self.image.getdata()
         with stitch_tiles(self.rect) as current:
             newdata = map(pixel_compare, current.getdata(), target_data)  # type: ignore[misc]
@@ -107,6 +116,7 @@ class Project:
         self._save_diff(fix_path, fix_data)
 
     def _save_diff(self, path: Path, data: bytes) -> None:
+        """Saves a diff image to the given path, and estimates completion time."""
         with PALETTE.new(self.rect.size) as diff_image:
             diff_image.putdata(data)
             diff_image.save(path)
@@ -118,6 +128,7 @@ class Project:
         logger.info(f"{path.name}: Saved diff ({opaque}px, {percentage:.2f}%, {days}d{hours}h to {when}).")
 
     def forget(self) -> None:
+        """Deletes cached metadata about this project."""
         cache = CachedProjectMetadata(self.path)
         cache.forget()
 
@@ -128,10 +139,13 @@ def pixel_compare(current: int, desired: int) -> tuple[int, int]:
 
 
 class CachedProjectMetadata(list):
+    """Caches metadata about a project in a local SQLite database."""
+
     _db: sqlite3.Connection = None  # type: ignore[class-var]
 
     @classmethod
     def _cursor(cls):
+        """Returns a cursor to the projects cache database, initializing if needed."""
         if cls._db is None:
             cls._db = sqlite3.connect(DIRS.user_cache_path / "projects.db", autocommit=True)
             cursor = cls._db.cursor()
@@ -146,6 +160,7 @@ class CachedProjectMetadata(list):
         return cls._db.cursor()
 
     def __init__(self, path: Path):
+        """Loads cached metadata for the project at `path`."""
         self.key = path.name
         try:
             self.check = int(path.stat().st_mtime)
@@ -154,6 +169,7 @@ class CachedProjectMetadata(list):
         super().__init__(self._load())
 
     def _load(self) -> list:
+        """Loads cached metadata from the database, if valid."""
         cursor = self._cursor()
         cursor.execute("SELECT mtime, contents FROM cache WHERE filename = ? ", (self.key,))
         check, blob = cursor.fetchone() or (0, b"")
@@ -162,6 +178,7 @@ class CachedProjectMetadata(list):
         return pickle.loads(blob)
 
     def __call__(self, *args) -> tuple:
+        """Caches the given metadata for this project."""
         cursor = self._cursor()
         cursor.execute(
             "REPLACE INTO cache (filename, mtime, contents) VALUES (?, ?, ?)",
@@ -170,5 +187,6 @@ class CachedProjectMetadata(list):
         return args
 
     def forget(self) -> None:
+        """Deletes cached metadata for this project."""
         cursor = self._cursor()
         cursor.execute("DELETE FROM cache WHERE filename = ?", (self.key,))
