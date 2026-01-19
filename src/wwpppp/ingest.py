@@ -1,99 +1,73 @@
-import itertools
-import os
-import re
-from pathlib import Path
-from typing import Iterable, NamedTuple
+import io
+from threading import Event, Thread
+from typing import Callable
 
+import requests
 from loguru import logger
 from PIL import Image
 
 from . import DIRS
-from .geometry import Point, Rectangle, Size
-from .palette import PALETTE, ColorNotInPalette
-
-_RE_FILENAME = re.compile(r"^wplace-cached-(\d+)000x(\d+)000-(\d+)_(\d+)_0_0-([-\d]+T[-\d]+Z)\.png$")
+from .geometry import Rectangle, Size, Tile
+from .palette import PALETTE
 
 
-class LazyImage:
-    """Represents a temporary image that is loaded lazily from disk."""
+class TilePoller:
+    def __init__(self, callback: Callable[[Tile], None], tiles: list[Tile]) -> None:
+        self.callback = callback
+        self.tiles = tiles
+        self._thread = Thread(target=self._run, daemon=True, name="TilePoller")
+        self._stop = Event()
 
-    def __init__(self, path: Path):
-        """Initializes a LazyImage with the given file path."""
-        self.path = path
-        self._image = None
+    def __enter__(self):
+        self._thread.start()
+        return self
 
-    @property
-    def image(self) -> Image.Image:
-        """The image resource, loaded lazily from disk."""
-        if self._image is None:
-            logger.debug(f"{self.path.name}: Loading image...")
-            self._image = Image.open(self.path)
-        return self._image
+    def __exit__(self, *_):
+        self._stop.set()
+        self._thread.join(timeout=10)
 
-    def __del__(self) -> None:
-        """Ensures the image is closed and deleted."""
-        if self._image is not None:
-            self._image.close()
-        self.path.unlink(missing_ok=True)  # delete after use
-
-
-class FoundTile(NamedTuple):
-    """Represents a tile found in the downloads inbox."""
-
-    tile: tuple[int, int]
-    source: LazyImage
-    offset: Point
-
-    def obtain(self) -> bool:
-        """Extracts the tile image from the source image, storing in cache if not fully transparent"""
-        rect = Rectangle.from_point_size(self.offset * 1000, Size(1000, 1000))
-        with self.source.image.crop(rect) as cropped:
-            try:
-                image = PALETTE.ensure(cropped)
-            except ColorNotInPalette as e:
-                logger.error(f"Tile {self.tile} contains color not in palette: {e}")
-                return False
-        with image:
-            _, maximum = image.getextrema()
-            if maximum == 0:
-                return False  # fully transparent
-            cache_path = DIRS.user_cache_path / f"tile-{self.tile[0]}_{self.tile[1]}.png"
-            logger.info(f"{cache_path.name}: Storing tile {self.tile}")
-            image.save(cache_path)
-        mtime = self.source.path.stat().st_mtime
-        os.utime(cache_path, (mtime, mtime))
-        return True
+    def _run(self):
+        while not self._stop.is_set():
+            for tile in self.tiles:
+                if self._stop.wait(30):  # doesn't make sense to check too fast
+                    return
+                if has_tile_changed(tile):
+                    self.callback(tile)
 
 
-def search_tiles(path: Path | None = None) -> Iterable[FoundTile]:
-    """Searches the inbox directory (or given path) for tile images, yielding FoundTile instances."""
-    inbox_path = DIRS.user_downloads_path
-    found_paths: list[tuple[str, Path, list[str]]] = []
-    for path in (path,) if path else inbox_path.iterdir():
-        match = _RE_FILENAME.fullmatch(path.name)
-        if not match:
-            continue
-        *numbers, timestamp = match.groups()
-        found_paths.append((timestamp, path, numbers))
-    # sort by timestamp descending
-    found_paths.sort(reverse=True)
-    for _, path, numbers in found_paths:
-        source = LazyImage(path)
-        w, h, x1, y1 = map(int, numbers)
-        for x2, y2 in itertools.product(range(w), range(h)):
-            tile = (x1 + x2, y1 + y2)
-            yield FoundTile(tile=tile, source=source, offset=Point(x2, y2))
+def has_tile_changed(tile: Tile) -> bool:
+    """Downloads the indicated tile from the server and updates the cache. Returns whether it changed."""
+    url = f"https://backend.wplace.live/files/s0/tiles/{tile.x}/{tile.y}.png"
+    response = requests.get(url, timeout=5)
+    if response.status_code != 200:
+        logger.debug(f"Tile {tile}: HTTP {response.status_code}")
+        return False
+    data = response.content
+    try:
+        img = Image.open(io.BytesIO(data))
+    except Exception as e:
+        logger.debug(f"Tile {tile}: image decode failed: {e}")
+        return False
+    with PALETTE.ensure(img) as paletted:
+        cache_path = DIRS.user_cache_path / f"tile-{tile}.png"
+        if cache_path.exists():
+            with Image.open(cache_path) as cached:
+                if bytes(cached.tobytes()) == bytes(paletted.tobytes()):
+                    return False  # no change
+        logger.info(f"Tile {tile}: Change detected, updating cache...")
+        paletted.save(cache_path)
+    return True
 
 
 def stitch_tiles(rect: Rectangle) -> Image.Image:
     """Stitches tiles from cache together, exactly covering the given rectangle."""
     image = PALETTE.new(rect.size)
     for tile in rect.tiles:
-        cache_path = DIRS.user_cache_path / f"tile-{tile[0]}_{tile[1]}.png"
+        cache_path = DIRS.user_cache_path / f"tile-{tile}.png"
         if not cache_path.exists():
             logger.warning(f"{tile}: Tile missing from cache, leaving transparent")
             continue
         with Image.open(cache_path) as tile_image:
-            offset = Point(*tile) * 1000 - rect.point
+            offset = tile.to_point() - rect.point
             image.paste(tile_image, Rectangle.from_point_size(offset, Size(1000, 1000)))
     return image

@@ -4,7 +4,8 @@ from loguru import logger
 from watchfiles import Change, watch
 
 from . import DIRS
-from .ingest import search_tiles
+from .geometry import Tile
+from .ingest import TilePoller
 from .projects import Project
 
 
@@ -15,7 +16,7 @@ class Main:
         logger.info(f"Loaded {len(self.projects)} projects.")
         self.tiles = self._load_tiles()
 
-    def _load_tiles(self) -> dict[tuple[int, int], set[Project]]:
+    def _load_tiles(self) -> dict[Tile, set[Project]]:
         """Index tiles to projects for quick lookup."""
         tile_to_project = {}
         for proj in self.projects.values():
@@ -24,43 +25,28 @@ class Main:
         logger.info(f"Indexed {len(tile_to_project)} tiles.")
         return tile_to_project
 
-    def consume_new_tiles(self, path: Path | None = None) -> None:
-        """Consume new tiles from the inbox directory (or given path), updating projects as needed."""
-        # Find and save relevant updates from inbox directory
-        seen_tiles = set()
-        for found in search_tiles(path):
-            if found.tile not in self.tiles or found.tile in seen_tiles:
-                continue  # no projects need this tile
-            if found.obtain():
-                seen_tiles.add(found.tile)
-        if not seen_tiles:
-            return
-        logger.info(f"Matched {len(seen_tiles)} new tiles.")
-
-        # Rebuild partials as needed
-        targets = {proj for tile in seen_tiles for proj in self.tiles[tile]}
+    def consume_new_tile(self, found: Tile) -> None:
+        """Consume new tile provided by a downloader, updating projects as needed."""
+        targets = self.tiles[found]
         for proj in targets:
             proj.run_diff()
 
     def watch_for_updates(self) -> None:
-        """Watch inbox and projects directories for changes, processing as needed."""
+        """Watch projects directory for changes, processing as needed."""
         logger.info("Watching for new tiles and projects...")
-        for change, path in self.watch_loop():
-            if path.parent == DIRS.user_downloads_path:
-                if change == Change.added:
-                    self.consume_new_tiles(path)
-            else:
+        with TilePoller(self.consume_new_tile, list(self.tiles.keys())) as poller:
+            for change, path in self.watch_loop():
                 if change != Change.added:
                     self.forget_project(path)
                 if change != Change.deleted:
                     self.load_project(path)
+                poller.tiles = list(self.tiles.keys())
 
     def watch_loop(self):
-        """Yields file changes from watching the inbox and projects directories."""
-        inbox_path = DIRS.user_downloads_path
+        """Yields file changes from watching the projects directory."""
         wplace_path = DIRS.user_pictures_path / "wplace"
         try:
-            for batch in watch(inbox_path, wplace_path):
+            for batch in watch(wplace_path):
                 for change, path_str in batch:
                     yield change, Path(path_str)
         except KeyboardInterrupt:
@@ -95,7 +81,6 @@ class Main:
 def main():
     """Main entry point for wwpppp."""
     worker = Main()
-    worker.consume_new_tiles()
     worker.watch_for_updates()
     logger.info("Exiting.")
 

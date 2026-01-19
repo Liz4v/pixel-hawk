@@ -2,6 +2,20 @@ from functools import cache
 from typing import NamedTuple
 
 
+class Tile(NamedTuple):
+    """Represents a tile in 2D lattice space."""
+
+    x: int = 0
+    y: int = 0
+
+    def __str__(self) -> str:
+        return f"{self.x}_{self.y}"
+
+    def to_point(self, px: int = 0, py: int = 0) -> "Point":
+        """Convert to a Point given pixel coordinates within the tile."""
+        return Point(self.x * 1000 + px, self.y * 1000 + py)
+
+
 class Point(NamedTuple):
     """Represents a point in 2D lattice space."""
 
@@ -26,9 +40,6 @@ class Point(NamedTuple):
 
     def __sub__(self, other: "Point") -> "Point":
         return Point(self.x - other.x, self.y - other.y)
-
-    def __mul__(self, scalar: int) -> "Point":
-        return Point(self.x * scalar, self.y * scalar)
 
 
 class Size(NamedTuple):
@@ -77,25 +88,16 @@ class Rectangle(NamedTuple):
         """Non-empty rectangle."""
         return self.left != self.right and self.top != self.bottom
 
-    def __contains__(self, other: "Rectangle") -> bool:
-        """Check if this rectangle fully contains another rectangle."""
-        return (
-            self.left <= other.left
-            and self.top <= other.top
-            and other.right <= self.right
-            and other.bottom <= self.bottom
-        )
-
     def __sub__(self, other: Point) -> "Rectangle":
         """Offset rectangle by a point."""
         return Rectangle(self.left - other.x, self.top - other.y, self.right - other.x, self.bottom - other.y)
 
     @property
     @cache
-    def tiles(self) -> frozenset[tuple[int, int]]:
+    def tiles(self) -> frozenset[Tile]:
         """Set of tile coordinates (tx, ty) covered by this rectangle."""
         left = self.left // 1000
         top = self.top // 1000
         right = (self.right + 999) // 1000
         bottom = (self.bottom + 999) // 1000
-        return frozenset((tx, ty) for tx in range(left, right) for ty in range(top, bottom))
+        return frozenset(Tile(tx, ty) for tx in range(left, right) for ty in range(top, bottom))
