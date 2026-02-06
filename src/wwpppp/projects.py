@@ -93,30 +93,22 @@ class Project:
         target_data = self.image.getdata()
         with stitch_tiles(self.rect) as current:
             newdata = map(pixel_compare, current.getdata(), target_data)  # type: ignore[misc]
-            remaining_data = bytes(newdata)
+            remaining = bytes(newdata)
 
-        remaining_path = self.path.with_suffix(".remaining.png")
-
-        if remaining_data == target_data:
+        if remaining == target_data:
             return  # project is not started, no need for diffs
 
-        if max(remaining_data) == 0:
+        if max(remaining) == 0:
             logger.info(f"{self.path.name}: Complete.")
-            remaining_path.unlink(missing_ok=True)
             return
-        self._save_diff(remaining_path, remaining_data)
 
-    def _save_diff(self, path: Path, data: bytes) -> None:
-        """Saves a diff image to the given path, and estimates completion time."""
-        with PALETTE.new(self.rect.size) as diff_image:
-            diff_image.putdata(data)
-            diff_image.save(path)
-        opaque = sum(1 for v in data if v)
-        percentage = opaque * 100 / len(data)
-        time_to_go = timedelta(seconds=27) * opaque
+        num_remaining = sum(1 for v in remaining if v)
+        num_target = sum(1 for v in target_data if v) or 1  # avoid div by 0
+        percentage = num_remaining * 100 / num_target
+        time_to_go = timedelta(seconds=27) * num_remaining
         days, hours = divmod(round(time_to_go.total_seconds() / 3600), 24)
         when = (datetime.now() + time_to_go).strftime("%b %d %H:%M")
-        logger.info(f"{path.name}: Saved diff ({opaque}px, {percentage:.2f}%, {days}d{hours}h to {when}).")
+        logger.info(f"{self.path.name} remaining: {num_remaining}px, {percentage:.2f}%, {days}d{hours}h to {when}.")
 
     def forget(self) -> None:
         """Deletes cached metadata about this project."""

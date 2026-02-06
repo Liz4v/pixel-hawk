@@ -27,8 +27,7 @@ class Main:
 
     def consume_new_tile(self, found: Tile) -> None:
         """Consume new tile provided by a downloader, updating projects as needed."""
-        targets = self.tiles[found]
-        for proj in targets:
+        for proj in self.tiles.get(found) or ():
             proj.run_diff()
 
     def watch_for_updates(self) -> None:
