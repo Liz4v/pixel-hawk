@@ -86,5 +86,3 @@ uv run wwpppp
 If you want, I can also:
 - add a minimal `tests/` scaffold and a couple of unit tests,
 - add a `CONTRIBUTING.md` with commit/message conventions.
-
-Note: GitHub Actions will not be added by default. I will only scaffold CI workflows if you explicitly request them.
