@@ -38,8 +38,8 @@ def test_main_load_and_check_tiles(monkeypatch):
     monkeypatch.setattr("wwpppp.main.Project.try_open", classmethod(lambda cls, p: proj))
 
     m = main_mod.Main()
-    # Mock has_tile_changed to return True
-    monkeypatch.setattr("wwpppp.ingest.has_tile_changed", lambda tile: True)
+    # Mock has_tile_changed to return tuple (True, 0)
+    monkeypatch.setattr("wwpppp.ingest.has_tile_changed", lambda tile: (True, 0))
     # check_next_tile should call project's run_diff for tile (0,0)
     m.tile_checker.check_next_tile()
     assert proj._called["run_diff"] >= 1
@@ -81,7 +81,7 @@ def test_main_indexing_and_check_tiles_and_load_forget(tmp_path, monkeypatch):
     assert Tile(0, 0) in m.tile_checker.tiles
 
     # check_next_tile with has_tile_changed returning True should call run_diff
-    monkeypatch.setattr("wwpppp.ingest.has_tile_changed", lambda tile: True)
+    monkeypatch.setattr("wwpppp.ingest.has_tile_changed", lambda tile: (True, 0))
     m.tile_checker.check_next_tile()
     assert called.get("run") is True
 
@@ -550,36 +550,32 @@ def test_main_check_tiles_round_robin(monkeypatch):
 
     m = main_mod.Main()
     assert len(m.tile_checker.tiles) == 3  # Three tiles tracked
-    assert m.tile_checker.current_tile_index == 0  # Starts at 0
+    assert len(m.tile_checker.queue_system.tile_metadata) == 3  # Queue system has all tiles
 
     # Track which tiles have been checked
     checked_tiles = []
 
     def mock_has_tile_changed(tile):
         checked_tiles.append(tile)
-        return True  # Always return True to trigger run_diff
+        return (True, 0)  # Return tuple: (changed, last_modified)
 
     monkeypatch.setattr("wwpppp.ingest.has_tile_changed", mock_has_tile_changed)
 
     # First cycle: should check only one tile
     m.tile_checker.check_next_tile()
     assert len(checked_tiles) == 1, "Should only check one tile per cycle"
-    assert m.tile_checker.current_tile_index == 1  # Should advance to next tile
 
     # Second cycle: should check the next tile
     m.tile_checker.check_next_tile()
     assert len(checked_tiles) == 2, "Should have checked two tiles total after two cycles"
-    assert m.tile_checker.current_tile_index == 2
 
     # Third cycle: should check the last tile
     m.tile_checker.check_next_tile()
     assert len(checked_tiles) == 3, "Should have checked three tiles total after three cycles"
-    assert m.tile_checker.current_tile_index == 0  # Should wrap around to 0
 
-    # Fourth cycle: should wrap around and start again
+    # Fourth cycle: should wrap around and check another tile
     m.tile_checker.check_next_tile()
     assert len(checked_tiles) == 4, "Should have checked four tiles total (wrapping around)"
-    assert m.tile_checker.current_tile_index == 1  # Should be at index 1 again
 
 
 def test_main_check_tiles_empty_tiles(monkeypatch):
@@ -588,8 +584,8 @@ def test_main_check_tiles_empty_tiles(monkeypatch):
 
     m = main_mod.Main()
     assert len(m.tile_checker.tiles) == 0
-    assert m.tile_checker.current_tile_index == 0
+    assert len(m.tile_checker.queue_system.tile_metadata) == 0
 
     # Should not crash when no tiles exist
     m.tile_checker.check_next_tile()
-    assert m.tile_checker.current_tile_index == 0  # Should remain at 0
+    assert len(m.tile_checker.queue_system.tile_metadata) == 0  # Should remain empty

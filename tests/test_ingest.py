@@ -23,7 +23,9 @@ def test_has_tile_changed_http_error(monkeypatch, tmp_path):
         headers = {}
 
     monkeypatch.setattr("wwpppp.ingest.requests.get", lambda *a, **k: Resp())
-    assert not has_tile_changed(Tile(0, 0))
+    changed, last_modified = has_tile_changed(Tile(0, 0))
+    assert not changed
+    assert last_modified == 0
 
 
 def test_has_tile_changed_bad_image(monkeypatch, tmp_path):
@@ -35,7 +37,9 @@ def test_has_tile_changed_bad_image(monkeypatch, tmp_path):
         headers = {}
 
     monkeypatch.setattr("wwpppp.ingest.requests.get", lambda *a, **k: Resp())
-    assert not has_tile_changed(Tile(0, 0))
+    changed, last_modified = has_tile_changed(Tile(0, 0))
+    assert not changed
+    assert last_modified == 0
 
 
 def test_has_tile_changed_no_change_and_change(monkeypatch, tmp_path):
@@ -52,11 +56,14 @@ def test_has_tile_changed_no_change_and_change(monkeypatch, tmp_path):
     # create existing identical cache -> no change
     cache_path = tmp_path / "tile-0_0.png"
     cache_path.write_bytes(png)
-    assert not has_tile_changed(Tile(0, 0))
+    changed, last_modified = has_tile_changed(Tile(0, 0))
+    assert not changed
+    assert last_modified > 0  # Should return existing cache mtime
 
     # remove cache -> change detected and file created
     cache_path.unlink()
-    assert has_tile_changed(Tile(0, 0))
+    changed, last_modified = has_tile_changed(Tile(0, 0))
+    assert changed
     assert cache_path.exists()
 
 
@@ -72,8 +79,10 @@ def test_has_tile_changed_sets_mtime_from_last_modified(monkeypatch, tmp_path):
     monkeypatch.setattr("wwpppp.ingest.requests.get", lambda *a, **k: Resp())
 
     cache_path = tmp_path / "tile-0_0.png"
-    assert has_tile_changed(Tile(0, 0))
+    changed, last_modified = has_tile_changed(Tile(0, 0))
+    assert changed
     assert cache_path.exists()
+    assert last_modified == 1700052326
 
     # Verify mtime was set to the Last-Modified timestamp (1700052326)
     import os
@@ -94,8 +103,10 @@ def test_has_tile_changed_handles_missing_last_modified(monkeypatch, tmp_path):
     monkeypatch.setattr("wwpppp.ingest.requests.get", lambda *a, **k: Resp())
 
     cache_path = tmp_path / "tile-0_0.png"
-    assert has_tile_changed(Tile(0, 0))
+    changed, last_modified = has_tile_changed(Tile(0, 0))
+    assert changed
     assert cache_path.exists()
+    assert last_modified == 0  # No Last-Modified header
     # Should still create file successfully even without Last-Modified
 
 
@@ -111,7 +122,8 @@ def test_has_tile_changed_handles_invalid_last_modified(monkeypatch, tmp_path):
     monkeypatch.setattr("wwpppp.ingest.requests.get", lambda *a, **k: Resp())
 
     cache_path = tmp_path / "tile-0_0.png"
-    assert has_tile_changed(Tile(0, 0))
+    changed, last_modified = has_tile_changed(Tile(0, 0))
+    assert changed
     assert cache_path.exists()
     # Should still create file successfully even with invalid Last-Modified
 
@@ -138,7 +150,9 @@ def test_has_tile_changed_304_not_modified(monkeypatch, tmp_path):
     cache_path.write_bytes(png)
 
     # Should return False (no change) on 304
-    assert not has_tile_changed(Tile(0, 0))
+    changed, last_modified = has_tile_changed(Tile(0, 0))
+    assert not changed
+    assert last_modified > 0  # Should return cache file mtime
 
     # Verify If-Modified-Since header was sent
     assert len(call_args) == 1

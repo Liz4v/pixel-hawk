@@ -1,12 +1,14 @@
-"""Tile fetching, caching, and round-robin checking.
+"""Tile fetching, caching, and temperature-based queue checking.
 
 Manages communication with the WPlace tile backend. Tiles are downloaded from
 https://backend.wplace.live/files/s0/tiles/{x}/{y}.png and cached locally as
 paletted PNG files. HTTP conditional requests minimize bandwidth usage.
 
-The TileChecker class implements round-robin tile monitoring: it tracks which
-tiles are associated with which projects and checks exactly one tile per polling
-cycle, rotating through all indexed tiles to avoid hammering the backend.
+The TileChecker class implements intelligent tile monitoring using temperature-
+based queues with Zipf distribution: burning queue for never-checked tiles,
+and multiple hot-to-cold queues based on modification time. Checks exactly one
+tile per polling cycle, selecting round-robin between queues and choosing the
+least-recently-checked tile within each queue.
 """
 
 import io
@@ -21,13 +23,20 @@ from PIL import Image
 from . import DIRS
 from .geometry import Rectangle, Size, Tile
 from .palette import PALETTE
+from .queues import QueueSystem
 
 if TYPE_CHECKING:
     from .projects import ProjectShim
 
 
-def has_tile_changed(tile: Tile) -> bool:
-    """Downloads the indicated tile from the server and updates the cache. Returns whether it changed."""
+def has_tile_changed(tile: Tile) -> tuple[bool, int]:
+    """Downloads the indicated tile from the server and updates the cache.
+
+    Returns:
+        Tuple of (changed, last_modified_time):
+        - changed: True if tile content changed
+        - last_modified_time: Integer timestamp from server's Last-Modified header (0 if not available)
+    """
     url = f"https://backend.wplace.live/files/s0/tiles/{tile.x}/{tile.y}.png"
 
     # Check for cached tile and prepare If-Modified-Since header
@@ -39,21 +48,23 @@ def has_tile_changed(tile: Tile) -> bool:
 
     response = requests.get(url, headers=headers, timeout=5)
 
-    # Handle 304 Not Modified
+    # Handle 304 Not Modified - extract Last-Modified from cache file
     if response.status_code == 304:
         logger.info(f"Tile {tile}: Not modified (304).")
-        return False
+        last_modified = round(cache_path.stat().st_mtime) if cache_path.exists() else 0
+        return False, last_modified
 
     if response.status_code != 200:
         logger.debug(f"Tile {tile}: HTTP {response.status_code}")
-        return False
+        return False, 0
     data = response.content
 
     # Extract Last-Modified header if present
     last_modified = response.headers.get("Last-Modified")
+    last_modified_timestamp = 0
     if last_modified:
         try:
-            last_modified = int(parsedate_to_datetime(last_modified).timestamp())
+            last_modified_timestamp = int(parsedate_to_datetime(last_modified).timestamp())
         except Exception as e:
             logger.warning(f"Tile {tile}: Failed to parse Last-Modified header: {e}")
 
@@ -61,23 +72,25 @@ def has_tile_changed(tile: Tile) -> bool:
         img = Image.open(io.BytesIO(data))
     except Exception as e:
         logger.debug(f"Tile {tile}: image decode failed: {e}")
-        return False
+        return False, 0
     with PALETTE.ensure(img) as paletted:
         if cache_path.exists():
             with Image.open(cache_path) as cached:
                 if bytes(cached.tobytes()) == bytes(paletted.tobytes()):
                     logger.info(f"Tile {tile}: No change detected.")
-                    return False  # no change
+                    # Return the existing file's mtime since content didn't change
+                    existing_mtime = round(cache_path.stat().st_mtime)
+                    return False, existing_mtime
         logger.info(f"Tile {tile}: Change detected, updating cache...")
         paletted.save(cache_path)
 
         # Set file mtime to match server's Last-Modified timestamp
-        if isinstance(last_modified, int):
+        if isinstance(last_modified_timestamp, int):
             try:
-                os.utime(cache_path, (last_modified, last_modified))
+                os.utime(cache_path, (last_modified_timestamp, last_modified_timestamp))
             except Exception as e:
                 logger.debug(f"Tile {tile}: Failed to set mtime: {e}")
-    return True
+    return True, last_modified_timestamp
 
 
 def stitch_tiles(rect: Rectangle) -> Image.Image:
@@ -95,13 +108,21 @@ def stitch_tiles(rect: Rectangle) -> Image.Image:
 
 
 class TileChecker:
-    """Manages round-robin tile checking and tile-to-project indexing."""
+    """Manages temperature-based tile checking with Zipf-distributed queues.
+
+    Uses QueueSystem to implement intelligent tile checking that prioritizes
+    recently-modified tiles while still monitoring quieter areas. Tiles are
+    organized into a burning queue (never checked) and multiple temperature
+    queues (hot to cold) based on last modification time.
+    """
 
     def __init__(self, projects: Iterable[ProjectShim]):
         """Initialize with a mapping of project paths to projects."""
         self.tiles: dict[Tile, set[ProjectShim]] = {}
-        self.current_tile_index = 0
         self._build_index(projects)
+
+        # Initialize queue system with all indexed tiles
+        self.queue_system = QueueSystem(set(self.tiles.keys()))
 
     def _build_index(self, projects: Iterable[ProjectShim]) -> None:
         """Index tiles to projects for quick lookup."""
@@ -112,32 +133,45 @@ class TileChecker:
 
     def add_project(self, proj: ProjectShim) -> None:
         """Add a project and index its tiles."""
+        new_tiles = set()
         for tile in proj.rect.tiles:
+            if tile not in self.tiles:
+                new_tiles.add(tile)
             self.tiles.setdefault(tile, set()).add(proj)
+
+        if new_tiles:
+            self.queue_system.add_tiles(new_tiles)
 
     def remove_project(self, proj: ProjectShim) -> None:
         """Remove a project and clean up its tiles from the index."""
+        removed_tiles = set()
         for tile in proj.rect.tiles:
             projs = self.tiles.get(tile)
             if projs:
                 projs.discard(proj)
                 if not projs:
                     del self.tiles[tile]
+                    removed_tiles.add(tile)
+
+        if removed_tiles:
+            self.queue_system.remove_tiles(removed_tiles)
 
     def check_next_tile(self) -> None:
-        """Check one tile for changes (round-robin) and update affected projects."""
+        """Check one tile for changes using queue-based selection and update affected projects."""
         if not self.tiles:
             return  # No tiles to check
 
-        tiles_list = list(self.tiles.keys())
-        # Handle case where tiles were removed and index is now out of bounds
-        if self.current_tile_index >= len(tiles_list):
-            self.current_tile_index = 0
+        tile_meta = self.queue_system.select_next_tile()
+        if not tile_meta:
+            logger.warning("No tile selected from queue system")
+            return
 
-        tile = tiles_list[self.current_tile_index]
-        if has_tile_changed(tile):
+        tile = tile_meta.tile
+        changed, last_modified = has_tile_changed(tile)
+
+        # Update queue system with check results
+        self.queue_system.update_tile_after_check(tile, last_modified)
+
+        if changed:
             for proj in self.tiles.get(tile) or ():
                 proj.run_diff()
-
-        # Advance to next tile for next cycle, wrapping around when we reach the end
-        self.current_tile_index = (self.current_tile_index + 1) % len(tiles_list)
