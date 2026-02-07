@@ -16,10 +16,6 @@ wwpppp is a small watcher for WPlace paint projects. It polls WPlace tile images
 - `README.md` for user-facing documentation and external resources/links
 - `tests/` for unit tests and test patterns
 
-## Addressing the User
-
-When you finish working on your current prompt, purr or mew to wake me up. You can also hiss, I do take criticism.
-
 ## Development Environment
 
 **PowerShell Version:** On Windows, the default shell is PowerShell 5.1 (Desktop Edition). This version has some syntax and feature limitations compared to modern PowerShell 7+ (Core), so be mindful of these when running commands or scripts.
