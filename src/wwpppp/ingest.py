@@ -73,6 +73,8 @@ def has_tile_changed(tile: Tile) -> tuple[bool, int]:
     except Exception as e:
         logger.debug(f"Tile {tile}: image decode failed: {e}")
         return False, 0
+    # ensure() may close img and return new image, or return img unchanged.
+    # Either way, the with statement ensures the result gets closed at block end.
     with PALETTE.ensure(img) as paletted:
         if cache_path.exists():
             with Image.open(cache_path) as cached:

@@ -1,7 +1,6 @@
 """Tests for temperature-based queue system."""
 
 import time
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -381,7 +380,6 @@ def test_reposition_tile_to_hotter_queue(tmp_path, monkeypatch):
     assert len(coldest_queue.tiles) > 0
 
     tile_meta = coldest_queue.tiles[0]
-    old_queue_idx = len(qs.temperature_queues) - 1
 
     # Record initial queue sizes
     initial_queue_sizes = [len(q.tiles) for q in qs.temperature_queues]

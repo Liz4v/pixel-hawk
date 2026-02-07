@@ -35,25 +35,35 @@ class Palette:
         self._values = bytes(rgb2pal[c] for c in self._idx)
 
     def open_image(self, path: str | Path) -> Image.Image:
-        """Open an image from `path`, convert to this palette if needed, and overwrite the file if converted."""
+        """Open an image from `path`, convert to this palette if needed, and overwrite the file if converted.
+
+        Returns an open Image that the caller must close (use with statement or explicit close).
+        """
         image = Image.open(path)
-        paletted = self.ensure(image)  # this close `image`
-        if image is paletted:
-            return image
+        paletted = self.ensure(image)  # Closes `image` and returns new image if conversion needed
+        if image is paletted:  # Identity check: if same object, no conversion happened
+            return image  # Original image still open, caller must close
+        # Conversion happened: original `image` was closed, `paletted` is new image
         logger.info(f"{Path(path).name}: Overwriting with paletted version...")
         paletted.save(path)
-        return paletted
+        return paletted  # New image still open, caller must close
 
     def ensure(self, image: Image.Image) -> Image.Image:
-        """Convert `image` to this palette if needed, returning the converted image."""
+        """Convert `image` to this palette if needed, returning the converted image.
+
+        Ownership semantics:
+        - If no conversion needed: returns `image` unchanged (caller still owns it)
+        - If conversion needed: closes `image` and returns a new Image (caller owns new image)
+        """
         if image.mode == "P" and bytes(image.getpalette()) == self._raw:  # type: ignore[attr-defined]
-            return image  # no need to convert
+            return image  # Already correct palette, return as-is (still caller's responsibility to close)
         size = image.size
-        with _ensure_rgba(image) as rgba:  # `image` will be closed by the end of this block
+        with _ensure_rgba(image) as rgba:  # Closes input `image` at end of this block
             data = bytes(map(self.lookup, rgba.get_flattened_data()))  # type: ignore[misc]
+        # Input image now closed, create new paletted image
         image = self.new(size)
         image.putdata(data)
-        return image
+        return image  # Return new image (caller must close)
 
     def lookup(self, rgba: tuple) -> int:
         """Look up the palette index for the given RGBA color."""

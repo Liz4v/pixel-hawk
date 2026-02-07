@@ -42,8 +42,6 @@ def test_ensure_converts_rgba_and_lookup_valid_color():
 
 
 def test_open_image_with_existing_paletted_file(tmp_path):
-    from PIL import Image
-
     path = tmp_path / "pal.png"
     im = PALETTE.new((2, 2))
     im.putdata([0, 1, 2, 3])
