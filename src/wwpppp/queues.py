@@ -245,6 +245,78 @@ class QueueSystem:
         # Reset queue index to start from burning
         self.current_queue_index = 0
 
+    def _reposition_tile(self, tile_meta: TileMetadata) -> None:
+        """Surgically move a tile to the correct queue based on its modification time.
+
+        When a tile moves to a hotter queue, cascade tiles down through intervening
+        queues to maintain Zipf distribution sizes.
+        """
+        if not self.temperature_queues:
+            # No temperature queues exist yet (shouldn't happen but handle gracefully)
+            return
+
+        # Find which queue currently contains this tile
+        old_queue_idx = None
+        for idx, queue in enumerate(self.temperature_queues):
+            if tile_meta in queue.tiles:
+                old_queue_idx = idx
+                break
+
+        if old_queue_idx is None:
+            # Tile not in any queue, shouldn't happen but handle gracefully
+            logger.warning(f"Tile {tile_meta.tile} not found in any temperature queue during reposition")
+            return
+
+        # Get all temperature tiles and sort by last_modified (most recent first)
+        temp_tiles = [m for m in self.tile_metadata.values() if not m.is_burning]
+        temp_tiles.sort(key=lambda t: t.last_modified, reverse=True)
+
+        # Find where this tile falls in the sorted order
+        position = temp_tiles.index(tile_meta)
+
+        # Calculate which queue this position belongs to based on target queue sizes
+        queue_sizes = [len(q.tiles) for q in self.temperature_queues]
+        cumulative = 0
+        target_queue_idx = 0
+        for idx, size in enumerate(queue_sizes):
+            if position < cumulative + size:
+                target_queue_idx = idx
+                break
+            cumulative += size
+        else:
+            # Tile belongs in last queue
+            target_queue_idx = len(self.temperature_queues) - 1
+
+        if target_queue_idx == old_queue_idx:
+            # Tile stays in same queue, no repositioning needed
+            return
+
+        # Tile modification times can only increase, so tile can only move to hotter queue
+        assert target_queue_idx < old_queue_idx, f"Tile {tile_meta.tile} moving to colder queue (impossible)"
+
+        # Tile moving to hotter queue - cascade tiles down
+        # Remove tile from old queue
+        self.temperature_queues[old_queue_idx].remove_tile(tile_meta)
+
+        # Cascade: push tile into target queue, bump coldest tile to next queue
+        tile_to_insert = tile_meta
+        for queue_idx in range(target_queue_idx, old_queue_idx):
+            queue = self.temperature_queues[queue_idx]
+
+            # Find coldest tile in this queue (lowest last_modified value = oldest modification)
+            if queue.tiles:
+                coldest = min(queue.tiles, key=lambda t: t.last_modified)
+                queue.remove_tile(coldest)
+                queue.add_tile(tile_to_insert)
+                tile_to_insert = coldest
+            else:
+                # Queue is empty, just add the tile
+                queue.add_tile(tile_to_insert)
+                break
+        else:
+            # Cascade complete, add final carried tile back to old queue
+            self.temperature_queues[old_queue_idx].add_tile(tile_to_insert)
+
     def add_tiles(self, tiles: set[Tile]) -> None:
         """Add new tiles to the system (typically from new projects)."""
         changed = False
@@ -279,9 +351,6 @@ class QueueSystem:
 
         # Build list of all queues (burning + temperature)
         all_queues = [self.burning_queue] + self.temperature_queues
-
-        if not all_queues:
-            return None
 
         # Try each queue starting from current index, skipping empty ones
         attempts = 0
@@ -324,14 +393,9 @@ class QueueSystem:
             meta.last_modified = modified_time
 
         # Check if tile needs to move between queues
-        needs_rebalance = False
-
         if was_burning:
-            # Graduated from burning queue
-            needs_rebalance = True
-        elif modified_time > 0 and modified_time != old_last_modified:
-            # Modification time changed, may need to move to hotter queue
-            needs_rebalance = True
-
-        if needs_rebalance:
+            # Graduated from burning queue - need full rebuild since temperature tile count changed
             self._rebuild_queues()
+        elif modified_time > 0 and modified_time != old_last_modified:
+            # Modification time changed - surgically move to appropriate queue
+            self._reposition_tile(meta)

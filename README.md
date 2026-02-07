@@ -6,11 +6,22 @@ A small watcher for WPlace paint projects that monitors tile changes and tracks 
 
 wwpppp polls WPlace tile images, stitches cached tiles, and diffs them against project image files you place in your platform pictures folder. It runs a unified ~97 second polling loop (60φ = 30(1+√5), chosen to avoid resonance with WPlace's internal timers) that:
 
-- Checks one tile per cycle in round-robin fashion (to avoid hammering the backend)
+- Uses intelligent temperature-based queue system with Zipf distribution to prioritize hot tiles
+- Checks one tile per cycle in round-robin fashion across burning and temperature queues
 - Downloads and caches WPlace tiles when they change
 - Discovers project PNGs in your `wplace` pictures folder
 - Diffs updated tiles against your project images
 - Logs pixel placement progress
+
+### Queue system
+
+The watcher maintains multiple temperature-based queues:
+- **Burning queue:** Tiles that have never been checked (highest priority)
+- **Temperature queues:** Organized by tile modification time (hot to cold)
+  - Queue sizes follow Zipf distribution (harmonic series)
+  - Recently modified tiles get checked more frequently
+  - Tiles graduate from burning → temperature queues after first check
+  - Modified tiles surgically reposition to hotter queues with cascade preservation
 
 ## Requirements
 

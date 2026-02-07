@@ -318,3 +318,229 @@ def test_queue_system_update_after_check_modification_time(tmp_path, monkeypatch
     updated_meta = qs.tile_metadata[meta.tile]
     assert updated_meta.last_modified == new_mod_time
     assert updated_meta.last_modified != old_last_modified
+
+
+def test_reposition_tile_stays_in_queue(tmp_path, monkeypatch):
+    """Test that a tile stays in the same queue if its position doesn't change."""
+    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+
+    # Create tiles with graduated modification times
+    tiles = {Tile(i, 0) for i in range(15)}
+    now = round(time.time())
+
+    for i, tile in enumerate(sorted(tiles)):
+        cache_path = tmp_path / f"tile-{tile}.png"
+        cache_path.write_bytes(b"data")
+        import os
+
+        mtime = now - (i * 1000)  # Spread out modification times
+        os.utime(cache_path, (mtime, mtime))
+
+    qs = QueueSystem(tiles)
+
+    # Get a tile from the middle temperature queue
+    mid_queue_idx = len(qs.temperature_queues) // 2
+    mid_queue = qs.temperature_queues[mid_queue_idx]
+    assert len(mid_queue.tiles) > 0
+
+    tile_meta = mid_queue.tiles[0]
+    initial_queue_sizes = [len(q.tiles) for q in qs.temperature_queues]
+
+    # Reposition without changing modification time (should stay in place)
+    qs._reposition_tile(tile_meta)
+
+    # Queue sizes should be unchanged
+    final_queue_sizes = [len(q.tiles) for q in qs.temperature_queues]
+    assert initial_queue_sizes == final_queue_sizes
+
+    # Tile should still be in same queue
+    assert tile_meta in qs.temperature_queues[mid_queue_idx].tiles
+
+
+def test_reposition_tile_to_hotter_queue(tmp_path, monkeypatch):
+    """Test that a tile moves to a hotter queue when its modification time increases."""
+    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+
+    # Create tiles with graduated modification times
+    tiles = {Tile(i, 0) for i in range(20)}
+    now = round(time.time())
+
+    for i, tile in enumerate(sorted(tiles)):
+        cache_path = tmp_path / f"tile-{tile}.png"
+        cache_path.write_bytes(b"data")
+        import os
+
+        mtime = now - (i * 1000)  # Spread out modification times
+        os.utime(cache_path, (mtime, mtime))
+
+    qs = QueueSystem(tiles)
+
+    # Find a tile in a colder queue
+    coldest_queue = qs.temperature_queues[-1]
+    assert len(coldest_queue.tiles) > 0
+
+    tile_meta = coldest_queue.tiles[0]
+    old_queue_idx = len(qs.temperature_queues) - 1
+
+    # Record initial queue sizes
+    initial_queue_sizes = [len(q.tiles) for q in qs.temperature_queues]
+
+    # Update tile's modification time to make it hottest
+    tile_meta.last_modified = now + 1000
+
+    # Reposition the tile
+    qs._reposition_tile(tile_meta)
+
+    # Queue sizes should be maintained
+    final_queue_sizes = [len(q.tiles) for q in qs.temperature_queues]
+    assert initial_queue_sizes == final_queue_sizes
+
+    # Tile should have moved to hottest queue
+    assert tile_meta in qs.temperature_queues[0].tiles
+    assert tile_meta not in coldest_queue.tiles
+
+
+def test_reposition_tile_cascade_mechanics(tmp_path, monkeypatch):
+    """Test that cascade pushes coldest tiles down through queues."""
+    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+
+    # Create more tiles to ensure we get at least 3 queues
+    tiles = {Tile(i, 0) for i in range(50)}
+    now = round(time.time())
+
+    for i, tile in enumerate(sorted(tiles)):
+        cache_path = tmp_path / f"tile-{tile}.png"
+        cache_path.write_bytes(b"data")
+        import os
+
+        mtime = now - (i * 1000)  # Spread out modification times
+        os.utime(cache_path, (mtime, mtime))
+
+    qs = QueueSystem(tiles)
+
+    # Get tile from queue 2
+    assert len(qs.temperature_queues) >= 3, "Need at least 3 queues for this test"
+    target_tile = qs.temperature_queues[2].tiles[0]
+
+    # Record coldest tiles from queues 0 and 1
+    coldest_q0 = min(qs.temperature_queues[0].tiles, key=lambda t: t.last_modified)
+    coldest_q1 = min(qs.temperature_queues[1].tiles, key=lambda t: t.last_modified)
+
+    # Make target tile hottest
+    target_tile.last_modified = now + 1000
+
+    # Reposition tile from queue 2 to queue 0
+    qs._reposition_tile(target_tile)
+
+    # Target tile should now be in queue 0
+    assert target_tile in qs.temperature_queues[0].tiles
+
+    # Coldest from queue 0 should have moved to queue 1
+    assert coldest_q0 in qs.temperature_queues[1].tiles
+
+    # Coldest from queue 1 should have moved to queue 2
+    assert coldest_q1 in qs.temperature_queues[2].tiles
+
+
+def test_reposition_tile_maintains_all_tiles(tmp_path, monkeypatch):
+    """Test that reposition doesn't lose or duplicate tiles."""
+    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+
+    # Create tiles with graduated modification times
+    tiles = {Tile(i, 0) for i in range(20)}
+    now = round(time.time())
+
+    for i, tile in enumerate(sorted(tiles)):
+        cache_path = tmp_path / f"tile-{tile}.png"
+        cache_path.write_bytes(b"data")
+        import os
+
+        mtime = now - (i * 1000)
+        os.utime(cache_path, (mtime, mtime))
+
+    qs = QueueSystem(tiles)
+
+    # Collect all tiles before reposition
+    all_tiles_before = set()
+    for queue in qs.temperature_queues:
+        all_tiles_before.update(t.tile for t in queue.tiles)
+
+    # Get a tile from a cold queue and make it hot
+    cold_tile = qs.temperature_queues[-1].tiles[0]
+    cold_tile.last_modified = now + 1000
+
+    qs._reposition_tile(cold_tile)
+
+    # Collect all tiles after reposition
+    all_tiles_after = set()
+    for queue in qs.temperature_queues:
+        all_tiles_after.update(t.tile for t in queue.tiles)
+
+    # Should have same tiles (no loss, no duplication)
+    assert all_tiles_before == all_tiles_after
+
+
+def test_reposition_tile_preserves_queue_sizes(tmp_path, monkeypatch):
+    """Test that queue sizes are exactly preserved after reposition."""
+    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+
+    # Create enough tiles for multiple queues
+    tiles = {Tile(i, 0) for i in range(30)}
+    now = round(time.time())
+
+    for i, tile in enumerate(sorted(tiles)):
+        cache_path = tmp_path / f"tile-{tile}.png"
+        cache_path.write_bytes(b"data")
+        import os
+
+        mtime = now - (i * 1000)
+        os.utime(cache_path, (mtime, mtime))
+
+    qs = QueueSystem(tiles)
+
+    initial_sizes = [len(q.tiles) for q in qs.temperature_queues]
+
+    # Reposition multiple tiles
+    for _ in range(5):
+        # Find a tile in a cold queue
+        for queue_idx in range(len(qs.temperature_queues) - 1, 0, -1):
+            if qs.temperature_queues[queue_idx].tiles:
+                tile_meta = qs.temperature_queues[queue_idx].tiles[0]
+                # Make it hotter
+                tile_meta.last_modified = now + (queue_idx * 1000)
+                qs._reposition_tile(tile_meta)
+                break
+
+    final_sizes = [len(q.tiles) for q in qs.temperature_queues]
+
+    # Sizes should be exactly preserved
+    assert initial_sizes == final_sizes
+
+
+def test_reposition_tile_assertion_on_colder_move(tmp_path, monkeypatch):
+    """Test that assertion fails if tile tries to move to colder queue."""
+    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+
+    # Create tiles with graduated modification times
+    tiles = {Tile(i, 0) for i in range(20)}
+    now = round(time.time())
+
+    for i, tile in enumerate(sorted(tiles)):
+        cache_path = tmp_path / f"tile-{tile}.png"
+        cache_path.write_bytes(b"data")
+        import os
+
+        mtime = now - (i * 1000)
+        os.utime(cache_path, (mtime, mtime))
+
+    qs = QueueSystem(tiles)
+
+    # Get a tile from hottest queue
+    hot_tile = qs.temperature_queues[0].tiles[0]
+
+    # Try to make it colder (this should trigger assertion)
+    hot_tile.last_modified = now - 100000  # Very old time
+
+    # Should raise AssertionError
+    with pytest.raises(AssertionError, match="moving to colder queue"):
+        qs._reposition_tile(hot_tile)

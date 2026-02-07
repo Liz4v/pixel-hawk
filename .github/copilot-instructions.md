@@ -54,13 +54,13 @@ uv run wwpppp
 ## How it works (high level)
 
 - The application runs in a unified ~97 second polling loop (60φ = 30(1+√5), chosen to avoid resonance with WPlace's internal timers) that checks both tiles and project files.
-- Tile polling uses round-robin strategy: `check_tiles()` checks exactly one tile per cycle, rotating through all indexed tiles. This prevents hammering the WPlace backend and respects rate limits.
+- Tile polling uses intelligent temperature-based queue system: `QueueSystem` (in `queues.py`) maintains burning and temperature queues with Zipf distribution sizing. Tiles are selected round-robin across queues, with least-recently-checked tile selected from each queue.
 - `has_tile_changed()` (in `ingest.py`) requests tiles from the WPlace tile backend and updates a cached paletted PNG if there are changes.
 - `Project` (in `projects.py`) discovers project PNGs placed under the `wplace` pictures folder. Filenames must include coordinates (regex used in code) and must use the project's palette.
 - Invalid files (missing coordinates, bad palette) are tracked as `ProjectShim` instances to avoid repeated load attempts.
 - `PALETTE` (in `palette.py`) enforces and converts images to the project palette (first color treated as transparent).
-- `Main` (in `main.py`) runs the polling loop: `check_tiles()` checks one tile per cycle in round-robin rotation, `check_projects()` scans for new/modified/deleted project files. On tile changes it diffs updated tiles with project images and logs progress.
-- Tile rotation state (`current_tile_index`) is ephemeral and resets on application restart.
+- `Main` (in `main.py`) runs the polling loop: `check_tiles()` selects next tile from queue system, `check_projects()` scans for new/modified/deleted project files. On tile changes it diffs updated tiles with project images and logs progress.
+- Queue system tracks tile metadata (last checked, last modified) and repositions tiles surgically when modification times change. When a tile moves to a hotter queue, coldest tiles cascade down through intervening queues to maintain Zipf distribution sizes.
 
 ## File/Module map (where to look)
 
@@ -70,6 +70,7 @@ uv run wwpppp
 - `src/wwpppp/ingest.py` — `has_tile_changed()`, tile download and stitching helper
 - `src/wwpppp/palette.py` — palette enforcement + helper `PALETTE`
 - `src/wwpppp/projects.py` — `Project` model, `ProjectShim` shim, caching, diffs
+- `src/wwpppp/queues.py` — `QueueSystem`, temperature-based tile queues with Zipf distribution, tile metadata tracking
 
 ## Architecture conventions
 
@@ -82,6 +83,7 @@ uv run wwpppp
   - Always close PIL `Image` objects; prefer `with Image.open(...) as im:` or the helper patterns already present.
 - Project state: Projects are discovered from the filesystem on each polling cycle and kept in memory during runtime (metadata only).
 - Error handling: prefer non-fatal logging (warnings/debug) and avoid raising unexpected exceptions in the polling loop.
+- Defensive programming: Use assertions for "shouldn't happen" cases that indicate logic errors. These should be tested to ensure they catch bugs during development. Example: `assert condition, "clear error message"` for invariants that must hold.
 
 ## Developer workflow & checks
 
@@ -90,7 +92,8 @@ uv run wwpppp
 - Tests: unit tests live under `tests/`. We use `pytest` with `pytest-cov` for coverage.
   - Coverage is configured in `pyproject.toml` under `[tool.pytest.ini_options]`.
   - The project enforces a coverage threshold for all modules.
-  - Focus tests on `geometry`, `palette.lookup`, and `projects` diff logic.
+  - Focus tests on `geometry`, `palette.lookup`, `projects` diff logic, and `queues` repositioning.
+  - Test assertions: Write tests that verify assertions fire for "shouldn't happen" cases (use `pytest.raises(AssertionError)`).
   - Run tests: `uv run pytest`
 
 ## Running and debugging
