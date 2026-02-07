@@ -75,6 +75,7 @@ uv run wwpppp
 
 - The project is in early stages: public APIs and internals may change. Prefer simplicity, clarity, and small, focused edits.
 - Follow existing idioms: use `NamedTuple`/`dataclass`-like shapes, type hints, and explicit resource management (`with` for PIL Images).
+- Type annotations: Python 3.14 provides deferred evaluation of annotations by default. Use unquoted type annotations (e.g., `def foo() -> Rectangle:` not `def foo() -> 'Rectangle':`). Forward references and self-references work without quotes.
 - Preserve logging via `loguru` rather than replacing with ad-hoc prints.
 - Image handling:
   - Use `PALETTE.ensure(image)` for conversion; avoid manually mutating palettes.

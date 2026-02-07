@@ -1,9 +1,20 @@
+"""Geometric primitives for tile math and coordinate conversion.
+
+Provides immutable types for working with WPlace's coordinate system:
+- Tile: 1000x1000 grid cells in the tile lattice
+- Point: individual pixel coordinates in the canvas
+- Size: width and height dimensions
+- Rectangle: axis-aligned rectangular regions with tile enumeration
+
+All types support conversion between tile space and pixel space.
+"""
+
 from functools import cache
 from typing import NamedTuple
 
 
 class Tile(NamedTuple):
-    """Represents a 1000x1000 tile in 2D lattice space."""
+    """Represents a tile in 2D lattice space, each containing 1000x1000 pixels."""
 
     x: int = 0
     y: int = 0
@@ -11,19 +22,20 @@ class Tile(NamedTuple):
     def __str__(self) -> str:
         return f"{self.x}_{self.y}"
 
-    def to_point(self, px: int = 0, py: int = 0) -> "Point":
+    def to_point(self, px: int = 0, py: int = 0) -> Point:
         """Convert to a Point given pixel coordinates within the tile."""
         return Point(self.x * 1000 + px, self.y * 1000 + py)
 
 
 class Point(NamedTuple):
-    """Represents a point in 2D lattice space."""
+    """Represents a pixel point in 2D lattice space.
+    Tile information is implicit in the coordinates (every 1000 pixels corresponds to a tile)."""
 
     x: int = 0
     y: int = 0
 
     @classmethod
-    def from4(cls, tx: int, ty: int, px: int, py: int) -> "Point":
+    def from4(cls, tx: int, ty: int, px: int, py: int) -> Point:
         """Create a Point from (tx, ty, px, py) tuple as represented in project file names."""
         assert min(tx, ty, px, py) >= 0, "Tile and pixel coordinates must be non-negative"
         assert max(px, py) < 1000, "Pixel coordinates must be less than 1000"
@@ -38,12 +50,12 @@ class Point(NamedTuple):
     def __str__(self) -> str:
         return "_".join(map(str, self.to4()))
 
-    def __sub__(self, other: "Point") -> "Point":
+    def __sub__(self, other: Point) -> Point:
         return Point(self.x - other.x, self.y - other.y)
 
 
 class Size(NamedTuple):
-    """Represents a size in 2D lattice space."""
+    """Represents a pixel size in 2D lattice space."""
 
     w: int = 0
     h: int = 0
@@ -57,7 +69,7 @@ class Size(NamedTuple):
 
 
 class Rectangle(NamedTuple):
-    """Represents a rectangle in 2D lattice space. Uses PIL-style coordinates."""
+    """Represents a pixel rectangle in 2D lattice space. Uses PIL-style coordinates."""
 
     left: int
     top: int
@@ -77,7 +89,7 @@ class Rectangle(NamedTuple):
         return Size(abs(self.right - self.left), abs(self.bottom - self.top))
 
     @classmethod
-    def from_point_size(cls, point: Point, size: Size) -> "Rectangle":
+    def from_point_size(cls, point: Point, size: Size) -> Rectangle:
         """Create a Rectangle from a top-left point and size."""
         return cls(point.x, point.y, point.x + size.w, point.y + size.h)
 
@@ -88,7 +100,7 @@ class Rectangle(NamedTuple):
         """Non-empty rectangle."""
         return self.left != self.right and self.top != self.bottom
 
-    def __sub__(self, other: Point) -> "Rectangle":
+    def __sub__(self, other: Point) -> Rectangle:
         """Offset rectangle by a point."""
         return Rectangle(self.left - other.x, self.top - other.y, self.right - other.x, self.bottom - other.y)
 

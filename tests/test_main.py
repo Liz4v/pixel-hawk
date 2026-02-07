@@ -39,9 +39,9 @@ def test_main_load_and_check_tiles(monkeypatch):
 
     m = main_mod.Main()
     # Mock has_tile_changed to return True
-    monkeypatch.setattr("wwpppp.main.has_tile_changed", lambda tile: True)
-    # check_tiles should call project's run_diff for tile (0,0)
-    m.check_tiles()
+    monkeypatch.setattr("wwpppp.ingest.has_tile_changed", lambda tile: True)
+    # check_next_tile should call project's run_diff for tile (0,0)
+    m.tile_checker.check_next_tile()
     assert proj._called["run_diff"] >= 1
 
     # forget_project removes tiles and project from tracking
@@ -58,7 +58,7 @@ def test_main_indexing_and_check_tiles_and_load_forget(tmp_path, monkeypatch):
     # start with no projects
     monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: []))
     m = main_mod.Main()
-    assert m.tiles == {}
+    assert m.tile_checker.tiles == {}
 
     # create dummy project returned by try_open
     path = tmp_path / "proj_0_0_1_1.png"
@@ -78,11 +78,11 @@ def test_main_indexing_and_check_tiles_and_load_forget(tmp_path, monkeypatch):
 
     m.maybe_load_project(path)
     assert path in m.projects
-    assert Tile(0, 0) in m.tiles
+    assert Tile(0, 0) in m.tile_checker.tiles
 
-    # check_tiles with has_tile_changed returning True should call run_diff
-    monkeypatch.setattr(main_mod, "has_tile_changed", lambda tile: True)
-    m.check_tiles()
+    # check_next_tile with has_tile_changed returning True should call run_diff
+    monkeypatch.setattr("wwpppp.ingest.has_tile_changed", lambda tile: True)
+    m.tile_checker.check_next_tile()
     assert called.get("run") is True
 
     # forget_project should remove project from tracking
@@ -123,10 +123,10 @@ def test_main_forget_removes_tile_key(monkeypatch):
     proj = FakeProj(path, Rectangle.from_point_size(Point(0, 0), Size(1000, 1000)))
     tile = Tile(0, 0)
     m.projects[path] = proj
-    m.tiles[tile] = {proj}
+    m.tile_checker.tiles[tile] = {proj}
 
     m.forget_project(path)
-    assert tile not in m.tiles
+    assert tile not in m.tile_checker.tiles
 
 
 def test_maybe_load_project_invalid(monkeypatch):
@@ -149,7 +149,7 @@ def test_maybe_load_project_invalid(monkeypatch):
     m.maybe_load_project(path)
     assert path in m.projects
     assert isinstance(m.projects[path], projects.ProjectShim)
-    assert len(m.tiles) == 0  # No tiles indexed for invalid projects
+    assert len(m.tile_checker.tiles) == 0  # No tiles indexed for invalid projects
 
 
 # check_projects tests (file watching)
@@ -439,19 +439,19 @@ def test_run_forever_sleeps_and_loops(monkeypatch):
 
     monkeypatch.setattr(time, "sleep", mock_sleep)
 
-    def mock_check_tiles():
+    def mock_check_next_tile():
         cycle_count["count"] += 1
 
     def mock_check_projects():
         pass
 
-    m.check_tiles = mock_check_tiles
+    m.tile_checker.check_next_tile = mock_check_next_tile
     m.check_projects = mock_check_projects
 
     # run_forever should loop, call check methods, sleep, then be interrupted
     m.run_forever()
 
-    # Should have called check_tiles once and tried to sleep
+    # Should have called check_next_tile once and tried to sleep
     assert cycle_count["count"] >= 1
     assert len(sleep_calls) == 1
     # 60φ = 30(1 + √5) ≈ 97.08 seconds
@@ -549,8 +549,8 @@ def test_main_check_tiles_round_robin(monkeypatch):
     monkeypatch.setattr("wwpppp.main.Project.iter", classmethod(lambda cls: [proj1, proj2, proj3]))
 
     m = main_mod.Main()
-    assert len(m.tiles) == 3  # Three tiles tracked
-    assert m.current_tile_index == 0  # Starts at 0
+    assert len(m.tile_checker.tiles) == 3  # Three tiles tracked
+    assert m.tile_checker.current_tile_index == 0  # Starts at 0
 
     # Track which tiles have been checked
     checked_tiles = []
@@ -559,27 +559,27 @@ def test_main_check_tiles_round_robin(monkeypatch):
         checked_tiles.append(tile)
         return True  # Always return True to trigger run_diff
 
-    monkeypatch.setattr("wwpppp.main.has_tile_changed", mock_has_tile_changed)
+    monkeypatch.setattr("wwpppp.ingest.has_tile_changed", mock_has_tile_changed)
 
     # First cycle: should check only one tile
-    m.check_tiles()
+    m.tile_checker.check_next_tile()
     assert len(checked_tiles) == 1, "Should only check one tile per cycle"
-    assert m.current_tile_index == 1  # Should advance to next tile
+    assert m.tile_checker.current_tile_index == 1  # Should advance to next tile
 
     # Second cycle: should check the next tile
-    m.check_tiles()
+    m.tile_checker.check_next_tile()
     assert len(checked_tiles) == 2, "Should have checked two tiles total after two cycles"
-    assert m.current_tile_index == 2
+    assert m.tile_checker.current_tile_index == 2
 
     # Third cycle: should check the last tile
-    m.check_tiles()
+    m.tile_checker.check_next_tile()
     assert len(checked_tiles) == 3, "Should have checked three tiles total after three cycles"
-    assert m.current_tile_index == 0  # Should wrap around to 0
+    assert m.tile_checker.current_tile_index == 0  # Should wrap around to 0
 
     # Fourth cycle: should wrap around and start again
-    m.check_tiles()
+    m.tile_checker.check_next_tile()
     assert len(checked_tiles) == 4, "Should have checked four tiles total (wrapping around)"
-    assert m.current_tile_index == 1  # Should be at index 1 again
+    assert m.tile_checker.current_tile_index == 1  # Should be at index 1 again
 
 
 def test_main_check_tiles_empty_tiles(monkeypatch):
@@ -587,9 +587,9 @@ def test_main_check_tiles_empty_tiles(monkeypatch):
     monkeypatch.setattr("wwpppp.main.Project.iter", classmethod(lambda cls: []))
 
     m = main_mod.Main()
-    assert len(m.tiles) == 0
-    assert m.current_tile_index == 0
+    assert len(m.tile_checker.tiles) == 0
+    assert m.tile_checker.current_tile_index == 0
 
     # Should not crash when no tiles exist
-    m.check_tiles()
-    assert m.current_tile_index == 0  # Should remain at 0
+    m.tile_checker.check_next_tile()
+    assert m.tile_checker.current_tile_index == 0  # Should remain at 0

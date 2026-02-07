@@ -1,7 +1,19 @@
+"""Project discovery, parsing, validation, and diff computation.
+
+Scans DIRS.user_pictures_path / 'wplace' for PNG files with coordinate information
+encoded in the filename (format: *_x_y_w_h.png). Valid project images must use
+the WPlace palette and are cached in memory with their metadata.
+
+The Project class provides run_diff() to compare the current canvas state (from
+stitched cached tiles) against the project image, logging progress and identifying
+mismatched pixels. Invalid files are represented as ProjectShim instances to avoid
+repeated parsing attempts.
+"""
+
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Iterable, Self
+from typing import Iterable
 
 from loguru import logger
 from PIL import Image
