@@ -45,7 +45,7 @@ uv run wwpppp
 ### Setting up projects
 
 1. Create a project image using the WPlace palette (first color is treated as transparent)
-2. Name your file with coordinates in the format: `project_<x>_<y>.png` or similar (coordinates must be in filename)
+2. Name your file with coordinates in the format: `project_<tx>_<ty>_<px>_<py>.png` or similar (4 numbers separated by underscores or hyphens: tile x, tile y, pixel x within tile, pixel y within tile)
 3. Place it in your platform pictures folder under `wplace/` subdirectory
 4. The watcher will automatically discover and track it
 
