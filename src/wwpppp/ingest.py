@@ -19,12 +19,8 @@ def has_tile_changed(tile: Tile) -> bool:
     cache_path = DIRS.user_cache_path / f"tile-{tile}.png"
     headers = {}
     if cache_path.exists():
-        try:
-            mtime = cache_path.stat().st_mtime
-            headers["If-Modified-Since"] = formatdate(mtime, usegmt=True)
-            logger.debug(f"Tile {tile}: Sending If-Modified-Since: {headers['If-Modified-Since']}")
-        except Exception as e:
-            logger.debug(f"Tile {tile}: Failed to read cache mtime: {e}")
+        mtime = cache_path.stat().st_mtime
+        headers["If-Modified-Since"] = formatdate(mtime, usegmt=True)
 
     response = requests.get(url, headers=headers, timeout=5)
 
@@ -40,12 +36,11 @@ def has_tile_changed(tile: Tile) -> bool:
 
     # Extract Last-Modified header if present
     last_modified = response.headers.get("Last-Modified")
-    logger.debug(f"Tile {tile}: {last_modified=!r}")
     if last_modified:
         try:
             last_modified = int(parsedate_to_datetime(last_modified).timestamp())
         except Exception as e:
-            logger.debug(f"Tile {tile}: Failed to parse Last-Modified header: {e}")
+            logger.warning(f"Tile {tile}: Failed to parse Last-Modified header: {e}")
 
     try:
         img = Image.open(io.BytesIO(data))

@@ -53,12 +53,14 @@ uv run wwpppp
 
 ## How it works (high level)
 
-- The application runs in a unified 2-minute polling loop that checks both tiles and project files.
+- The application runs in a unified ~97 second polling loop (60φ = 30(1+√5), chosen to avoid resonance with WPlace's internal timers) that checks both tiles and project files.
+- Tile polling uses round-robin strategy: `check_tiles()` checks exactly one tile per cycle, rotating through all indexed tiles. This prevents hammering the WPlace backend and respects rate limits.
 - `has_tile_changed()` (in `ingest.py`) requests tiles from the WPlace tile backend and updates a cached paletted PNG if there are changes.
 - `Project` (in `projects.py`) discovers project PNGs placed under the `wplace` pictures folder. Filenames must include coordinates (regex used in code) and must use the project's palette.
 - Invalid files (missing coordinates, bad palette) are tracked as `ProjectShim` instances to avoid repeated load attempts.
 - `PALETTE` (in `palette.py`) enforces and converts images to the project palette (first color treated as transparent).
-- `Main` (in `main.py`) runs the polling loop: `check_tiles()` polls all tiles for changes, `check_projects()` scans for new/modified/deleted project files. On tile changes it diffs updated tiles with project images and logs progress.
+- `Main` (in `main.py`) runs the polling loop: `check_tiles()` checks one tile per cycle in round-robin rotation, `check_projects()` scans for new/modified/deleted project files. On tile changes it diffs updated tiles with project images and logs progress.
+- Tile rotation state (`current_tile_index`) is ephemeral and resets on application restart.
 
 ## File/Module map (where to look)
 

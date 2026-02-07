@@ -4,8 +4,9 @@ A small watcher for WPlace paint projects that monitors tile changes and tracks 
 
 ## What it does
 
-wwpppp polls WPlace tile images, stitches cached tiles, and diffs them against project image files you place in your platform pictures folder. It runs a unified 2-minute polling loop that:
+wwpppp polls WPlace tile images, stitches cached tiles, and diffs them against project image files you place in your platform pictures folder. It runs a unified ~97 second polling loop (60φ = 30(1+√5), chosen to avoid resonance with WPlace's internal timers) that:
 
+- Checks one tile per cycle in round-robin fashion (to avoid hammering the backend)
 - Downloads and caches WPlace tiles when they change
 - Discovers project PNGs in your `wplace` pictures folder
 - Diffs updated tiles against your project images

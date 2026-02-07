@@ -454,7 +454,8 @@ def test_run_forever_sleeps_and_loops(monkeypatch):
     # Should have called check_tiles once and tried to sleep
     assert cycle_count["count"] >= 1
     assert len(sleep_calls) == 1
-    assert sleep_calls[0] == 127  # ~2 minutes with drift
+    # 60φ = 30(1 + √5) ≈ 97.08 seconds
+    assert sleep_calls[0] == 30 * (1 + 5**0.5)
 
 
 def test_main_function_calls_run_forever(monkeypatch):
@@ -517,3 +518,78 @@ def test_palette_lookup_transparent_and_ensure():
     # transparent pixel should map to 0
     idx = projects.PALETTE.lookup((0, 0, 0, 0))
     assert idx == 0
+
+
+def test_main_check_tiles_round_robin(monkeypatch):
+    """Test that check_tiles only checks one tile per cycle in round-robin fashion."""
+
+    # Create fake projects covering three different tiles
+    class FakeProj:
+        def __init__(self, path, tile):
+            self.path = path
+            self.rect = SimpleNamespace(tiles=frozenset({tile}))
+            self.diff_count = 0
+
+        def run_diff(self):
+            self.diff_count += 1
+
+        def has_been_modified(self):
+            return False
+
+        def __hash__(self):
+            return hash(self.path)
+
+        def __eq__(self, other):
+            return getattr(other, "path", None) == self.path
+
+    proj1 = FakeProj(Path("/tmp/proj1.png"), Tile(0, 0))
+    proj2 = FakeProj(Path("/tmp/proj2.png"), Tile(1, 0))
+    proj3 = FakeProj(Path("/tmp/proj3.png"), Tile(0, 1))
+
+    monkeypatch.setattr("wwpppp.main.Project.iter", classmethod(lambda cls: [proj1, proj2, proj3]))
+
+    m = main_mod.Main()
+    assert len(m.tiles) == 3  # Three tiles tracked
+    assert m.current_tile_index == 0  # Starts at 0
+
+    # Track which tiles have been checked
+    checked_tiles = []
+
+    def mock_has_tile_changed(tile):
+        checked_tiles.append(tile)
+        return True  # Always return True to trigger run_diff
+
+    monkeypatch.setattr("wwpppp.main.has_tile_changed", mock_has_tile_changed)
+
+    # First cycle: should check only one tile
+    m.check_tiles()
+    assert len(checked_tiles) == 1, "Should only check one tile per cycle"
+    assert m.current_tile_index == 1  # Should advance to next tile
+
+    # Second cycle: should check the next tile
+    m.check_tiles()
+    assert len(checked_tiles) == 2, "Should have checked two tiles total after two cycles"
+    assert m.current_tile_index == 2
+
+    # Third cycle: should check the last tile
+    m.check_tiles()
+    assert len(checked_tiles) == 3, "Should have checked three tiles total after three cycles"
+    assert m.current_tile_index == 0  # Should wrap around to 0
+
+    # Fourth cycle: should wrap around and start again
+    m.check_tiles()
+    assert len(checked_tiles) == 4, "Should have checked four tiles total (wrapping around)"
+    assert m.current_tile_index == 1  # Should be at index 1 again
+
+
+def test_main_check_tiles_empty_tiles(monkeypatch):
+    """Test that check_tiles handles empty tiles gracefully."""
+    monkeypatch.setattr("wwpppp.main.Project.iter", classmethod(lambda cls: []))
+
+    m = main_mod.Main()
+    assert len(m.tiles) == 0
+    assert m.current_tile_index == 0
+
+    # Should not crash when no tiles exist
+    m.check_tiles()
+    assert m.current_tile_index == 0  # Should remain at 0

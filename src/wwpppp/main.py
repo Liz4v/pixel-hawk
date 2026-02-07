@@ -7,6 +7,10 @@ from .geometry import Tile
 from .ingest import has_tile_changed
 from .projects import Project, ProjectShim
 
+# Polling cycle period: 60φ = 30(1 + √5) ≈ 97.08 seconds
+# Chosen to be maximally dissonant with 27s and 30s periods
+POLLING_CYCLE_SECONDS = 30 * (1 + 5**0.5)
+
 
 class Main:
     def __init__(self):
@@ -14,6 +18,7 @@ class Main:
         self.projects = {p.path: p for p in Project.iter()}
         logger.info(f"Loaded {len(self.projects)} projects.")
         self.tiles = self._load_tiles()
+        self.current_tile_index = 0  # Track which tile to check next in round-robin
 
     def _load_tiles(self) -> dict[Tile, set[ProjectShim]]:
         """Index tiles to projects for quick lookup."""
@@ -25,11 +30,21 @@ class Main:
         return tile_to_project
 
     def check_tiles(self) -> None:
-        """Check all tiles for changes and update affected projects."""
-        for tile in list(self.tiles.keys()):
-            if has_tile_changed(tile):
-                for proj in self.tiles.get(tile) or ():
-                    proj.run_diff()
+        """Check one tile for changes (round-robin) and update affected projects."""
+        if not self.tiles:
+            return  # No tiles to check
+
+        tiles_list = list(self.tiles.keys())
+        # Handle case where tiles were removed and index is now out of bounds
+        if self.current_tile_index >= len(tiles_list):
+            self.current_tile_index = 0
+
+        tile = tiles_list[self.current_tile_index]
+        if has_tile_changed(tile):
+            for proj in self.tiles.get(tile) or ():
+                proj.run_diff()
+        # Advance to next tile for next cycle
+        self.current_tile_index = (self.current_tile_index + 1) % len(tiles_list)
 
     def check_projects(self) -> None:
         """Check projects directory for added, modified, or deleted files."""
@@ -41,16 +56,16 @@ class Main:
             self.maybe_load_project(path)
 
     def run_forever(self) -> None:
-        """Run the main polling loop, checking tiles and projects every two minutes."""
-        logger.info("Starting polling loop (~2-minute cycle)...")
+        """Run the main polling loop, checking tiles and projects every ~97 seconds (60φ)."""
+        logger.info(f"Starting polling loop ({POLLING_CYCLE_SECONDS:.1f}s cycle, 60φ = 30(1+√5))...")
         try:
             while True:
                 logger.debug("Checking for tile updates...")
                 self.check_tiles()
                 logger.debug("Checking for project file changes...")
                 self.check_projects()
-                logger.debug("Cycle complete, sleeping for 120 seconds...")
-                time.sleep(127)  # we want a little bit of drift to avoid resonance
+                logger.debug(f"Cycle complete, sleeping for {POLLING_CYCLE_SECONDS:.1f} seconds...")
+                time.sleep(POLLING_CYCLE_SECONDS)
         except KeyboardInterrupt:
             logger.info("Interrupted by user.")
 
