@@ -1,7 +1,7 @@
 [project]
-name = "wwpppp"
+name = "cam"
 version = "0.1.0"
-description = "Watcher for WPlace Paint Project Progress"
+description = "Canvas Activity Monitor"
 authors = [
     { name = "Liz Balbuena" }
 ]
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-wwpppp = "wwpppp.main:main"
+cam = "cam.main:main"
 
 [tool.ruff]
 line-length = 120
@@ -31,7 +31,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "--cov=wwpppp --cov-report=term-missing --cov-fail-under=95 -q"
+addopts = "--cov=cam --cov-report=term-missing --cov-fail-under=95 -q"
 python_files = ["tests/*.py"]
 
 [tool.coverage.run]

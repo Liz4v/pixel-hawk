@@ -73,7 +73,7 @@ class Main:
 
 
 def main():
-    """Main entry point for wwpppp."""
+    """Main entry point for cam (Canvas Activity Monitor)."""
     worker = Main()
     worker.run_forever()
     logger.info("Exiting.")

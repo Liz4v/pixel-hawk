@@ -1,9 +1,9 @@
 import io
 from types import SimpleNamespace
 
-from wwpppp.geometry import Point, Rectangle, Size, Tile
-from wwpppp.ingest import has_tile_changed, stitch_tiles
-from wwpppp.palette import PALETTE
+from cam.geometry import Point, Rectangle, Size, Tile
+from cam.ingest import has_tile_changed, stitch_tiles
+from cam.palette import PALETTE
 
 
 def _paletted_png_bytes(size=(1, 1), data=(0,)):
@@ -15,35 +15,35 @@ def _paletted_png_bytes(size=(1, 1), data=(0,)):
 
 
 def test_has_tile_changed_http_error(monkeypatch, tmp_path):
-    monkeypatch.setattr("wwpppp.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
+    monkeypatch.setattr("cam.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
 
     class Resp:
         status_code = 404
         content = b""
         headers = {}
 
-    monkeypatch.setattr("wwpppp.ingest.requests.get", lambda *a, **k: Resp())
+    monkeypatch.setattr("cam.ingest.requests.get", lambda *a, **k: Resp())
     changed, last_modified = has_tile_changed(Tile(0, 0))
     assert not changed
     assert last_modified == 0
 
 
 def test_has_tile_changed_bad_image(monkeypatch, tmp_path):
-    monkeypatch.setattr("wwpppp.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
+    monkeypatch.setattr("cam.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
 
     class Resp:
         status_code = 200
         content = b"not an image"
         headers = {}
 
-    monkeypatch.setattr("wwpppp.ingest.requests.get", lambda *a, **k: Resp())
+    monkeypatch.setattr("cam.ingest.requests.get", lambda *a, **k: Resp())
     changed, last_modified = has_tile_changed(Tile(0, 0))
     assert not changed
     assert last_modified == 0
 
 
 def test_has_tile_changed_no_change_and_change(monkeypatch, tmp_path):
-    monkeypatch.setattr("wwpppp.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
+    monkeypatch.setattr("cam.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
     png = _paletted_png_bytes()
 
     class Resp:
@@ -51,7 +51,7 @@ def test_has_tile_changed_no_change_and_change(monkeypatch, tmp_path):
         content = png
         headers = {}
 
-    monkeypatch.setattr("wwpppp.ingest.requests.get", lambda *a, **k: Resp())
+    monkeypatch.setattr("cam.ingest.requests.get", lambda *a, **k: Resp())
 
     # create existing identical cache -> no change
     cache_path = tmp_path / "tile-0_0.png"
@@ -68,7 +68,7 @@ def test_has_tile_changed_no_change_and_change(monkeypatch, tmp_path):
 
 
 def test_has_tile_changed_sets_mtime_from_last_modified(monkeypatch, tmp_path):
-    monkeypatch.setattr("wwpppp.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
+    monkeypatch.setattr("cam.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
     png = _paletted_png_bytes()
 
     class Resp:
@@ -76,7 +76,7 @@ def test_has_tile_changed_sets_mtime_from_last_modified(monkeypatch, tmp_path):
         content = png
         headers = {"Last-Modified": "Wed, 15 Nov 2023 12:45:26 GMT"}
 
-    monkeypatch.setattr("wwpppp.ingest.requests.get", lambda *a, **k: Resp())
+    monkeypatch.setattr("cam.ingest.requests.get", lambda *a, **k: Resp())
 
     cache_path = tmp_path / "tile-0_0.png"
     changed, last_modified = has_tile_changed(Tile(0, 0))
@@ -92,7 +92,7 @@ def test_has_tile_changed_sets_mtime_from_last_modified(monkeypatch, tmp_path):
 
 
 def test_has_tile_changed_handles_missing_last_modified(monkeypatch, tmp_path):
-    monkeypatch.setattr("wwpppp.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
+    monkeypatch.setattr("cam.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
     png = _paletted_png_bytes()
 
     class Resp:
@@ -100,7 +100,7 @@ def test_has_tile_changed_handles_missing_last_modified(monkeypatch, tmp_path):
         content = png
         headers = {}  # No Last-Modified header
 
-    monkeypatch.setattr("wwpppp.ingest.requests.get", lambda *a, **k: Resp())
+    monkeypatch.setattr("cam.ingest.requests.get", lambda *a, **k: Resp())
 
     cache_path = tmp_path / "tile-0_0.png"
     changed, last_modified = has_tile_changed(Tile(0, 0))
@@ -111,7 +111,7 @@ def test_has_tile_changed_handles_missing_last_modified(monkeypatch, tmp_path):
 
 
 def test_has_tile_changed_handles_invalid_last_modified(monkeypatch, tmp_path):
-    monkeypatch.setattr("wwpppp.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
+    monkeypatch.setattr("cam.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
     png = _paletted_png_bytes()
 
     class Resp:
@@ -119,7 +119,7 @@ def test_has_tile_changed_handles_invalid_last_modified(monkeypatch, tmp_path):
         content = png
         headers = {"Last-Modified": "invalid-date-format"}
 
-    monkeypatch.setattr("wwpppp.ingest.requests.get", lambda *a, **k: Resp())
+    monkeypatch.setattr("cam.ingest.requests.get", lambda *a, **k: Resp())
 
     cache_path = tmp_path / "tile-0_0.png"
     changed, last_modified = has_tile_changed(Tile(0, 0))
@@ -129,7 +129,7 @@ def test_has_tile_changed_handles_invalid_last_modified(monkeypatch, tmp_path):
 
 
 def test_has_tile_changed_304_not_modified(monkeypatch, tmp_path):
-    monkeypatch.setattr("wwpppp.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
+    monkeypatch.setattr("cam.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
     png = _paletted_png_bytes()
 
     class Resp:
@@ -143,7 +143,7 @@ def test_has_tile_changed_304_not_modified(monkeypatch, tmp_path):
         call_args.append((a, k))
         return Resp()
 
-    monkeypatch.setattr("wwpppp.ingest.requests.get", mock_get)
+    monkeypatch.setattr("cam.ingest.requests.get", mock_get)
 
     # Create existing cache file
     cache_path = tmp_path / "tile-0_0.png"
@@ -161,7 +161,7 @@ def test_has_tile_changed_304_not_modified(monkeypatch, tmp_path):
 
 
 def test_has_tile_changed_sends_if_modified_since_when_cache_exists(monkeypatch, tmp_path):
-    monkeypatch.setattr("wwpppp.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
+    monkeypatch.setattr("cam.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
     png = _paletted_png_bytes()
 
     class Resp:
@@ -175,7 +175,7 @@ def test_has_tile_changed_sends_if_modified_since_when_cache_exists(monkeypatch,
         call_args.append((a, k))
         return Resp()
 
-    monkeypatch.setattr("wwpppp.ingest.requests.get", mock_get)
+    monkeypatch.setattr("cam.ingest.requests.get", mock_get)
 
     # Create existing cache file
     cache_path = tmp_path / "tile-0_0.png"
@@ -190,7 +190,7 @@ def test_has_tile_changed_sends_if_modified_since_when_cache_exists(monkeypatch,
 
 
 def test_has_tile_changed_no_if_modified_since_when_no_cache(monkeypatch, tmp_path):
-    monkeypatch.setattr("wwpppp.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
+    monkeypatch.setattr("cam.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
     png = _paletted_png_bytes()
 
     class Resp:
@@ -204,7 +204,7 @@ def test_has_tile_changed_no_if_modified_since_when_no_cache(monkeypatch, tmp_pa
         call_args.append((a, k))
         return Resp()
 
-    monkeypatch.setattr("wwpppp.ingest.requests.get", mock_get)
+    monkeypatch.setattr("cam.ingest.requests.get", mock_get)
 
     # No cache file exists
     has_tile_changed(Tile(0, 0))
@@ -216,7 +216,7 @@ def test_has_tile_changed_no_if_modified_since_when_no_cache(monkeypatch, tmp_pa
 
 
 def test_stitch_tiles_pastes_cached_tiles(monkeypatch, tmp_path):
-    monkeypatch.setattr("wwpppp.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
+    monkeypatch.setattr("cam.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
     # create two tile cache files at (0,0) and (1,0)
     png_a = _paletted_png_bytes((1000, 1000), [1] * (1000 * 1000))
     png_b = _paletted_png_bytes((1000, 1000), [2] * (1000 * 1000))

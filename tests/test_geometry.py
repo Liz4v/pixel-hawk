@@ -1,4 +1,4 @@
-from wwpppp.geometry import Point, Rectangle, Size, Tile
+from cam.geometry import Point, Rectangle, Size, Tile
 
 
 def test_point_from4_and_to4():

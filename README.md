@@ -1,10 +1,10 @@
-# wwpppp
+# CAM (Canvas Activity Monitor)
 
 A small watcher for WPlace paint projects that monitors tile changes and tracks progress on your artwork.
 
 ## What it does
 
-wwpppp polls WPlace tile images, stitches cached tiles, and diffs them against project image files you place in your platform pictures folder. It runs a unified ~97 second polling loop (60φ = 30(1+√5), chosen to avoid resonance with WPlace's internal timers) that:
+cam polls WPlace tile images, stitches cached tiles, and diffs them against project image files you place in your platform pictures folder. It runs a unified ~97 second polling loop (60φ = 30(1+√5), chosen to avoid resonance with WPlace's internal timers) that:
 
 - Uses intelligent temperature-based queue system with Zipf distribution to prioritize hot tiles
 - Checks one tile per cycle in round-robin fashion across burning and temperature queues
@@ -39,7 +39,7 @@ uv sync
 Run the watcher:
 
 ```powershell
-uv run wwpppp
+uv run cam
 ```
 
 ### Setting up projects
@@ -52,9 +52,9 @@ uv run wwpppp
 ### Where data lives
 
 - **Project images:** `<user_pictures_path>/wplace/` — place your project PNGs here
-- **Tile cache:** `<user_cache_path>/wwpppp/` — cached tiles from WPlace
+- **Tile cache:** `<user_cache_path>/cam/` — cached tiles from WPlace
 
-Platform paths are managed via `platformdirs.PlatformDirs("wwpppp")`.
+Platform paths are managed via `platformdirs.PlatformDirs("cam")`.
 
 ## Development
 

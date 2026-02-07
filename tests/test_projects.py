@@ -3,9 +3,9 @@ from types import SimpleNamespace
 
 from PIL import Image
 
-from wwpppp import projects
-from wwpppp.geometry import Point, Rectangle, Size
-from wwpppp.palette import PALETTE
+from cam import projects
+from cam.geometry import Point, Rectangle, Size
+from cam.palette import PALETTE
 
 
 def _paletted_image(size=(4, 4), value=1):
@@ -19,7 +19,7 @@ def _paletted_image(size=(4, 4), value=1):
 
 
 def test_pixel_compare():
-    from wwpppp.projects import pixel_compare
+    from cam.projects import pixel_compare
 
     assert pixel_compare(1, 1) == 0
     assert pixel_compare(1, 2) == 2
@@ -259,7 +259,7 @@ def test_scan_directory(tmp_path, monkeypatch):
     wplace_dir = tmp_path / "wplace"
     wplace_dir.mkdir()
 
-    monkeypatch.setattr("wwpppp.projects.DIRS", SimpleNamespace(user_pictures_path=tmp_path))
+    monkeypatch.setattr("cam.projects.DIRS", SimpleNamespace(user_pictures_path=tmp_path))
 
     # Create some files
     png1 = wplace_dir / "file1.png"
@@ -369,3 +369,5 @@ def test_project_deletion(tmp_path):
 
     # Delete the project - should not raise
     del proj
+
+

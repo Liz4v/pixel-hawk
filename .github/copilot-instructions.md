@@ -1,12 +1,12 @@
 ## Project Overview
 
-wwpppp is a small watcher for WPlace paint projects. It polls WPlace tile images, stitches cached tiles, and diffs them against project image files a user places in their platform pictures folder. The package entry point is exposed as the console script `wwpppp` (see `pyproject.toml`).
+cam (Canvas Activity Monitor) is a small watcher for WPlace paint projects. It polls WPlace tile images, stitches cached tiles, and diffs them against project image files a user places in their platform pictures folder. The package entry point is exposed as the console script `cam` (see `pyproject.toml`).
 
 ## Quick facts
 
 - **Requires:** Python >= 3.14 (see `pyproject.toml`)
-- **Console script:** `wwpppp = "wwpppp.main:main"`
-- **Main package:** `src/wwpppp`
+- **Console script:** `cam = "cam.main:main"`
+- **Main package:** `src/cam`
 - **Key dependencies:** `loguru`, `pillow`, `platformdirs`, `requests`
 - **Linting:** `ruff` configured with `line-length = 120`
 
@@ -43,12 +43,12 @@ uv sync
 - Run the watcher locally with the console script or module (via your `uv` environment):
 
 ```bash
-uv run wwpppp
+uv run cam
 ```
 
 ## Where data lives
 
-- The package uses `platformdirs.PlatformDirs("wwpppp")` and exposes `DIRS` from `src/wwpppp/__init__.py`.
+- The package uses `platformdirs.PlatformDirs("cam")` and exposes `DIRS` from `src/cam/__init__.py`.
 - User pictures path: `DIRS.user_pictures_path / "wplace"` — drop project PNGs here.
 
 ## How it works (high level)
@@ -64,13 +64,13 @@ uv run wwpppp
 
 ## File/Module map (where to look)
 
-- `src/wwpppp/__init__.py` — `DIRS` (platform dirs)
-- `src/wwpppp/main.py` — application entry, unified polling loop, project load/forget logic
-- `src/wwpppp/geometry.py` — `Tile`, `Point`, `Size`, `Rectangle` helpers (tile math)
-- `src/wwpppp/ingest.py` — `has_tile_changed()`, tile download and stitching helper
-- `src/wwpppp/palette.py` — palette enforcement + helper `PALETTE`
-- `src/wwpppp/projects.py` — `Project` model, `ProjectShim` shim, caching, diffs
-- `src/wwpppp/queues.py` — `QueueSystem`, temperature-based tile queues with Zipf distribution, tile metadata tracking
+- `src/cam/__init__.py` — `DIRS` (platform dirs)
+- `src/cam/main.py` — application entry, unified polling loop, project load/forget logic
+- `src/cam/geometry.py` — `Tile`, `Point`, `Size`, `Rectangle` helpers (tile math)
+- `src/cam/ingest.py` — `has_tile_changed()`, tile download and stitching helper
+- `src/cam/palette.py` — palette enforcement + helper `PALETTE`
+- `src/cam/projects.py` — `Project` model, `ProjectShim` shim, caching, diffs
+- `src/cam/queues.py` — `QueueSystem`, temperature-based tile queues with Zipf distribution, tile metadata tracking
 
 ## Architecture conventions
 

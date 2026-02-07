@@ -1,4 +1,4 @@
-# wwpppp Tasks
+# CAM Tasks
 
 ## High Priority
 
@@ -76,7 +76,7 @@ When project progress changes are detected, analyze whether the change represent
 - May want to distinguish between minor griefing and coordinated attacks based on regression magnitude
 
 **Related Code:**
-- `Project.run_diff()` in `src/wwpppp/projects.py` (where diffs are computed)
+- `Project.run_diff()` in `src/cam/projects.py` (where diffs are computed)
 - Progress tracking would need to be added to the `Project` class
 
 ---

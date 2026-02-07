@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import pytest
 from loguru import logger
 
-from wwpppp.geometry import Tile
-from wwpppp.queues import (
+from cam.geometry import Tile
+from cam.queues import (
     QueueSystem,
     TileMetadata,
     TileQueue,
@@ -73,7 +73,7 @@ def test_calculate_zipf_queue_sizes_large():
 
 def test_tile_metadata_from_cache_nonexistent(tmp_path, monkeypatch):
     """Test TileMetadata.from_cache with non-existent cache file."""
-    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+    monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
 
     tile = Tile(0, 0)
     meta = TileMetadata.from_cache(tile)
@@ -135,7 +135,7 @@ def test_tile_queue_select_next_oldest():
 
 def test_queue_system_initialization(tmp_path, monkeypatch):
     """Test QueueSystem initialization with cache files."""
-    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+    monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
 
     # Create some cache files
     tiles = {Tile(0, 0), Tile(1, 0), Tile(2, 0)}
@@ -155,7 +155,7 @@ def test_queue_system_initialization(tmp_path, monkeypatch):
 
 def test_queue_system_initialization_no_cache(tmp_path, monkeypatch):
     """Test QueueSystem initialization with no cache files."""
-    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+    monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
 
     tiles = {Tile(0, 0), Tile(1, 0), Tile(2, 0)}
     qs = QueueSystem(tiles)
@@ -170,7 +170,7 @@ def test_queue_system_initialization_no_cache(tmp_path, monkeypatch):
 
 def test_queue_system_select_next_tile(tmp_path, monkeypatch):
     """Test selecting next tile from queue system."""
-    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+    monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
 
     tiles = {Tile(i, 0) for i in range(10)}
 
@@ -190,7 +190,7 @@ def test_queue_system_select_next_tile(tmp_path, monkeypatch):
 
 def test_queue_system_round_robin(tmp_path, monkeypatch):
     """Test that queue system rotates through queues."""
-    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+    monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
 
     # Create enough tiles for multiple temperature queues
     tiles = {Tile(i, 0) for i in range(20)}
@@ -221,7 +221,7 @@ def test_queue_system_round_robin(tmp_path, monkeypatch):
 
 def test_queue_system_add_tiles(tmp_path, monkeypatch):
     """Test adding new tiles to queue system."""
-    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+    monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
 
     initial_tiles = {Tile(0, 0)}
     qs = QueueSystem(initial_tiles)
@@ -240,7 +240,7 @@ def test_queue_system_add_tiles(tmp_path, monkeypatch):
 
 def test_queue_system_remove_tiles(tmp_path, monkeypatch):
     """Test removing tiles from queue system."""
-    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+    monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
 
     tiles = {Tile(i, 0) for i in range(5)}
     qs = QueueSystem(tiles)
@@ -262,7 +262,7 @@ def test_queue_system_remove_tiles(tmp_path, monkeypatch):
 
 def test_queue_system_update_after_check_burning_to_temp(tmp_path, monkeypatch):
     """Test that checking a burning tile moves it to temperature queues."""
-    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+    monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
 
     # Start with enough tiles for temperature queues
     tiles = {Tile(i, 0) for i in range(10)}
@@ -291,7 +291,7 @@ def test_queue_system_update_after_check_burning_to_temp(tmp_path, monkeypatch):
 
 def test_queue_system_update_after_check_modification_time(tmp_path, monkeypatch):
     """Test that modification time updates trigger rebalancing."""
-    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+    monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
 
     # Create tiles with cache
     tiles = {Tile(i, 0) for i in range(10)}
@@ -322,7 +322,7 @@ def test_queue_system_update_after_check_modification_time(tmp_path, monkeypatch
 
 def test_reposition_tile_stays_in_queue(tmp_path, monkeypatch):
     """Test that a tile stays in the same queue if its position doesn't change."""
-    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+    monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
 
     # Create tiles with graduated modification times
     tiles = {Tile(i, 0) for i in range(15)}
@@ -359,7 +359,7 @@ def test_reposition_tile_stays_in_queue(tmp_path, monkeypatch):
 
 def test_reposition_tile_to_hotter_queue(tmp_path, monkeypatch):
     """Test that a tile moves to a hotter queue when its modification time increases."""
-    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+    monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
 
     # Create tiles with graduated modification times
     tiles = {Tile(i, 0) for i in range(20)}
@@ -401,7 +401,7 @@ def test_reposition_tile_to_hotter_queue(tmp_path, monkeypatch):
 
 def test_reposition_tile_cascade_mechanics(tmp_path, monkeypatch):
     """Test that cascade pushes coldest tiles down through queues."""
-    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+    monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
 
     # Create more tiles to ensure we get at least 3 queues
     tiles = {Tile(i, 0) for i in range(50)}
@@ -443,7 +443,7 @@ def test_reposition_tile_cascade_mechanics(tmp_path, monkeypatch):
 
 def test_reposition_tile_maintains_all_tiles(tmp_path, monkeypatch):
     """Test that reposition doesn't lose or duplicate tiles."""
-    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+    monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
 
     # Create tiles with graduated modification times
     tiles = {Tile(i, 0) for i in range(20)}
@@ -481,7 +481,7 @@ def test_reposition_tile_maintains_all_tiles(tmp_path, monkeypatch):
 
 def test_reposition_tile_preserves_queue_sizes(tmp_path, monkeypatch):
     """Test that queue sizes are exactly preserved after reposition."""
-    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+    monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
 
     # Create enough tiles for multiple queues
     tiles = {Tile(i, 0) for i in range(30)}
@@ -518,7 +518,7 @@ def test_reposition_tile_preserves_queue_sizes(tmp_path, monkeypatch):
 
 def test_reposition_tile_assertion_on_colder_move(tmp_path, monkeypatch):
     """Test that assertion fails if tile tries to move to colder queue."""
-    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+    monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
 
     # Create tiles with graduated modification times
     tiles = {Tile(i, 0) for i in range(20)}
@@ -557,7 +557,7 @@ def test_queue_system_no_starvation_with_large_burning_queue(tmp_path, monkeypat
     This tests the round-robin behavior to ensure it doesn't reset to always
     selecting from burning queue first after each rebuild.
     """
-    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+    monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
 
     # Create initial tiles with cache (temperature tiles)
     initial_tiles = {Tile(i, 0) for i in range(10)}
@@ -624,3 +624,4 @@ def test_queue_system_no_starvation_with_large_burning_queue(tmp_path, monkeypat
             f"Selections: {selections_from_burning} burning, {selections_from_temperature} temperature. "
             f"All {burning_tiles_checked} burning tiles were checked before any temperature tiles."
         )
+

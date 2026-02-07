@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 from PIL import Image
 
-from wwpppp import main as main_mod
-from wwpppp import projects
-from wwpppp.geometry import Point, Rectangle, Size, Tile
+from cam import main as main_mod
+from cam import projects
+from cam.geometry import Point, Rectangle, Size, Tile
 
 # Basic Main initialization and tile tracking
 
@@ -34,12 +34,12 @@ def test_main_load_and_check_tiles(monkeypatch):
     proj = FakeProj(proj_path, Rectangle.from_point_size(Point(0, 0), Size(1000, 1000)))
 
     # monkeypatch Project.iter and Project.try_open
-    monkeypatch.setattr("wwpppp.main.Project.iter", classmethod(lambda cls: [proj]))
-    monkeypatch.setattr("wwpppp.main.Project.try_open", classmethod(lambda cls, p: proj))
+    monkeypatch.setattr("cam.main.Project.iter", classmethod(lambda cls: [proj]))
+    monkeypatch.setattr("cam.main.Project.try_open", classmethod(lambda cls, p: proj))
 
     m = main_mod.Main()
     # Mock has_tile_changed to return tuple (True, 0)
-    monkeypatch.setattr("wwpppp.ingest.has_tile_changed", lambda tile: (True, 0))
+    monkeypatch.setattr("cam.ingest.has_tile_changed", lambda tile: (True, 0))
     # check_next_tile should call project's run_diff for tile (0,0)
     m.tile_checker.check_next_tile()
     assert proj._called["run_diff"] >= 1
@@ -81,7 +81,7 @@ def test_main_indexing_and_check_tiles_and_load_forget(tmp_path, monkeypatch):
     assert Tile(0, 0) in m.tile_checker.tiles
 
     # check_next_tile with has_tile_changed returning True should call run_diff
-    monkeypatch.setattr("wwpppp.ingest.has_tile_changed", lambda tile: (True, 0))
+    monkeypatch.setattr("cam.ingest.has_tile_changed", lambda tile: (True, 0))
     m.tile_checker.check_next_tile()
     assert called.get("run") is True
 
@@ -499,7 +499,7 @@ def test_stitch_tiles_warns_on_missing_and_returns_paletted_image(tmp_path, caps
     cache_dir.mkdir()
     # replace module cache dir so stitch_tiles looks at tmp cache
     monkeypatch.setattr(projects, "DIRS", SimpleNamespace(user_cache_path=cache_dir))
-    from wwpppp import ingest
+    from cam import ingest
 
     monkeypatch.setattr(ingest, "DIRS", SimpleNamespace(user_cache_path=cache_dir))
 
@@ -546,7 +546,7 @@ def test_main_check_tiles_round_robin(monkeypatch):
     proj2 = FakeProj(Path("/tmp/proj2.png"), Tile(1, 0))
     proj3 = FakeProj(Path("/tmp/proj3.png"), Tile(0, 1))
 
-    monkeypatch.setattr("wwpppp.main.Project.iter", classmethod(lambda cls: [proj1, proj2, proj3]))
+    monkeypatch.setattr("cam.main.Project.iter", classmethod(lambda cls: [proj1, proj2, proj3]))
 
     m = main_mod.Main()
     assert len(m.tile_checker.tiles) == 3  # Three tiles tracked
@@ -559,7 +559,7 @@ def test_main_check_tiles_round_robin(monkeypatch):
         checked_tiles.append(tile)
         return (True, 0)  # Return tuple: (changed, last_modified)
 
-    monkeypatch.setattr("wwpppp.ingest.has_tile_changed", mock_has_tile_changed)
+    monkeypatch.setattr("cam.ingest.has_tile_changed", mock_has_tile_changed)
 
     # First cycle: should check only one tile
     m.tile_checker.check_next_tile()
@@ -580,7 +580,7 @@ def test_main_check_tiles_round_robin(monkeypatch):
 
 def test_main_check_tiles_empty_tiles(monkeypatch):
     """Test that check_tiles handles empty tiles gracefully."""
-    monkeypatch.setattr("wwpppp.main.Project.iter", classmethod(lambda cls: []))
+    monkeypatch.setattr("cam.main.Project.iter", classmethod(lambda cls: []))
 
     m = main_mod.Main()
     assert len(m.tile_checker.tiles) == 0
@@ -589,3 +589,5 @@ def test_main_check_tiles_empty_tiles(monkeypatch):
     # Should not crash when no tiles exist
     m.tile_checker.check_next_tile()
     assert len(m.tile_checker.queue_system.tile_metadata) == 0  # Should remain empty
+
+
