@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from loguru import logger
 
 from wwpppp.geometry import Tile
 from wwpppp.queues import (
@@ -544,3 +545,84 @@ def test_reposition_tile_assertion_on_colder_move(tmp_path, monkeypatch):
     # Should raise AssertionError
     with pytest.raises(AssertionError, match="moving to colder queue"):
         qs._reposition_tile(hot_tile)
+
+
+def test_queue_system_no_starvation_with_large_burning_queue(tmp_path, monkeypatch):
+    """Test that temperature queues are not starved when burning queue has many tiles.
+
+    Scenario:
+    1. Start with some tiles in temperature queues (from existing projects)
+    2. Add many new tiles to burning queue (from new large project)
+    3. Each burning tile promotion triggers rebuild, which resets current_queue_index
+    4. Verify that temperature tiles are selected before all burning tiles are exhausted
+
+    This tests the round-robin behavior to ensure it doesn't reset to always
+    selecting from burning queue first after each rebuild.
+    """
+    monkeypatch.setattr("wwpppp.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+
+    # Create initial tiles with cache (temperature tiles)
+    initial_tiles = {Tile(i, 0) for i in range(10)}
+    now = round(time.time())
+
+    for i, tile in enumerate(sorted(initial_tiles)):
+        cache_path = tmp_path / f"tile-{tile}.png"
+        cache_path.write_bytes(b"data")
+        import os
+
+        mtime = now - (i * 1000)
+        os.utime(cache_path, (mtime, mtime))
+
+    qs = QueueSystem(initial_tiles)
+
+    # Verify we have temperature tiles and no burning tiles initially
+    assert len(qs.burning_queue.tiles) == 0
+    assert len(qs.temperature_queues) > 0
+    initial_temp_count = sum(len(q.tiles) for q in qs.temperature_queues)
+    assert initial_temp_count == 10
+
+    # Add many new tiles (simulating large new project)
+    new_tiles = {Tile(i, 10) for i in range(50)}  # 50 new burning tiles
+    qs.add_tiles(new_tiles)
+
+    # Verify burning queue has new tiles
+    assert len(qs.burning_queue.tiles) == 50
+
+    # Track which queue types tiles come from
+    selections_from_burning = 0
+    selections_from_temperature = 0
+    burning_tiles_checked = 0
+
+    # Simulate polling loop: select and check tiles
+    for iteration in range(60):  # Check more than burning queue size
+        meta = qs.select_next_tile()
+        assert meta is not None, f"Got None at iteration {iteration}"
+
+        # Track queue type
+        if meta.is_burning:
+            selections_from_burning += 1
+            # Simulate checking the tile and promoting it
+            qs.update_tile_after_check(meta.tile, now + iteration)
+            burning_tiles_checked += 1
+        else:
+            selections_from_temperature += 1
+            # Just update last_checked without changing modification time
+            qs.update_tile_after_check(meta.tile, meta.last_modified)
+
+        # CRITICAL CHECK: Temperature queues should be selected from
+        # before all burning tiles are exhausted
+        if selections_from_temperature > 0 and burning_tiles_checked < 50:
+            # Good! We got temperature selections while burning queue still had tiles
+            logger.info(
+                f"✓ Got temperature selection at iteration {iteration} "
+                f"with {50 - burning_tiles_checked} burning tiles remaining"
+            )
+            break
+    else:
+        # Loop completed without break - we never selected from temperature
+        # while burning queue had tiles
+        pytest.fail(
+            f"Temperature queues were starved! "
+            f"Selections: {selections_from_burning} burning, {selections_from_temperature} temperature. "
+            f"All {burning_tiles_checked} burning tiles were checked before any temperature tiles."
+        )

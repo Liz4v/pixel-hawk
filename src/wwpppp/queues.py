@@ -218,6 +218,9 @@ class QueueSystem:
         if not temp_tiles:
             # No temperature tiles, no temperature queues
             logger.debug("No temperature tiles, only burning queue")
+            # Ensure current_queue_index is valid (only burning queue exists)
+            if self.current_queue_index >= 1:
+                self.current_queue_index = 0
             return
 
         # Sort temperature tiles by last_modified (most recent first)
@@ -242,8 +245,11 @@ class QueueSystem:
                     idx += 1
             self.temperature_queues.append(queue)
 
-        # Reset queue index to start from burning
-        self.current_queue_index = 0
+        # Preserve round-robin position across rebuilds to prevent queue starvation
+        # Ensure current_queue_index is within bounds for new queue count
+        all_queues_count = 1 + len(self.temperature_queues)  # burning + temperature
+        if self.current_queue_index >= all_queues_count:
+            self.current_queue_index = self.current_queue_index % all_queues_count
 
     def _reposition_tile(self, tile_meta: TileMetadata) -> None:
         """Surgically move a tile to the correct queue based on its modification time.
