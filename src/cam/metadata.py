@@ -7,6 +7,7 @@ ProjectMetadata encapsulates all project state and statistics:
 - Streak tracking: consecutive checks with same outcome (progress/regress/nochange)
 - Rate calculation: pixels per hour based on recent activity window
 - Largest regress event: records worst griefing incident
+- Missing tiles flag: indicates if any required tiles are absent from cache
 
 The process_diff() method orchestrates the complete diff workflow: counting pixels,
 comparing snapshots, updating all statistics, and building status log messages.
@@ -89,6 +90,11 @@ class ProjectMetadata:
     # List of tile updates in last 24h: [(tile_str, timestamp), ...]
     tile_updates_24h: list[tuple[str, int]] = field(default_factory=list)
 
+    # Cache state
+    # True if any tiles required by this project are missing from cache (not yet fetched)
+    # When true, counts and percentages may be inaccurate (comparing against transparent pixels)
+    has_missing_tiles: bool = True
+
     # Last log message
     last_log_message: str = ""
 
@@ -142,6 +148,9 @@ class ProjectMetadata:
                 "last_update_by_tile": self.tile_last_update,
                 "recent_24h": [{"tile": tile, "timestamp": ts} for tile, ts in self.tile_updates_24h],
             },
+            "cache_state": {
+                "has_missing_tiles": self.has_missing_tiles,
+            },
             "last_log_message": self.last_log_message,
         }
 
@@ -156,6 +165,7 @@ class ProjectMetadata:
         streak = data.get("streak", {})
         rate = data.get("recent_rate", {})
         tile_updates = data.get("tile_updates", {})
+        cache_state = data.get("cache_state", {})
 
         return cls(
             name=data.get("name", ""),
@@ -180,6 +190,7 @@ class ProjectMetadata:
             recent_rate_window_start=rate.get("window_start", 0),
             tile_last_update=tile_updates.get("last_update_by_tile", {}),
             tile_updates_24h=[(item["tile"], item["timestamp"]) for item in tile_updates.get("recent_24h", [])],
+            has_missing_tiles=cache_state.get("has_missing_tiles", True),
             last_log_message=data.get("last_log_message", ""),
         )
 

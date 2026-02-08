@@ -190,6 +190,10 @@ class Project(ProjectShim):
         Tracks progress (pixels placed toward goal) and regress (pixels removed/griefed),
         updates metadata with completion history, saves snapshot and metadata.
         """
+        # If any tiles have been missing from cache, check again.
+        if self.metadata.has_missing_tiles:
+            self.metadata.has_missing_tiles = self._has_missing_tiles()
+
         # Load target project image
         with PALETTE.open_image(self.path) as target:
             target_data = get_flattened_data(target)
@@ -251,6 +255,14 @@ class Project(ProjectShim):
                 last_update = self.metadata.tile_last_update.get(tile_str, 0)
                 if mtime > last_update:
                     self.metadata.update_tile(tile, mtime)
+
+    def _has_missing_tiles(self) -> bool:
+        """Check if any tiles required by this project are missing from cache."""
+        for tile in self.rect.tiles:
+            tile_path = DIRS.user_cache_path / f"tile-{tile}.png"
+            if not tile_path.exists():
+                return True
+        return False
 
 
 def get_flattened_data(image: Image.Image) -> bytes:

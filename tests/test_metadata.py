@@ -721,3 +721,42 @@ def test_update_rate_negative_net_change():
 
     # Net change: 2 - 10 = -8 pixels per hour
     assert meta.recent_rate_pixels_per_hour == -8.0
+
+
+def test_has_missing_tiles_default():
+    """Test has_missing_tiles defaults to True."""
+    meta = ProjectMetadata()
+    assert meta.has_missing_tiles is True
+
+
+def test_has_missing_tiles_to_dict():
+    """Test has_missing_tiles is serialized to dictionary."""
+    meta = ProjectMetadata(has_missing_tiles=True)
+    data = meta.to_dict()
+    assert data["cache_state"]["has_missing_tiles"] is True
+
+    meta2 = ProjectMetadata(has_missing_tiles=False)
+    data2 = meta2.to_dict()
+    assert data2["cache_state"]["has_missing_tiles"] is False
+
+
+def test_has_missing_tiles_from_dict():
+    """Test has_missing_tiles is deserialized from dictionary."""
+    data = {
+        "cache_state": {"has_missing_tiles": True},
+    }
+    meta = ProjectMetadata.from_dict(data)
+    assert meta.has_missing_tiles is True
+
+    data2 = {
+        "cache_state": {"has_missing_tiles": False},
+    }
+    meta2 = ProjectMetadata.from_dict(data2)
+    assert meta2.has_missing_tiles is False
+
+
+def test_has_missing_tiles_from_dict_defaults():
+    """Test has_missing_tiles defaults to False when missing from dictionary."""
+    data = {}  # No cache_state key
+    meta = ProjectMetadata.from_dict(data)
+    assert meta.has_missing_tiles is True

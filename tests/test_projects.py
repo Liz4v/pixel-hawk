@@ -803,3 +803,109 @@ def test_update_single_tile_metadata_handles_missing_file(tmp_path, monkeypatch)
     # Should not have added anything
     assert "0_0" not in proj.metadata.tile_last_update
     assert len(proj.metadata.tile_updates_24h) == 0
+
+
+def test_has_missing_tiles_all_present(tmp_path, monkeypatch):
+    """Test _has_missing_tiles returns False when all tiles exist."""
+    path = tmp_path / "proj_0_0_0_0.png"
+    path.touch()
+    rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
+    proj = projects.Project(path, rect)
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    class MockDIRS:
+        user_cache_path = cache_dir
+
+    monkeypatch.setattr(projects, "DIRS", MockDIRS())
+
+    # Create all tiles for this project (just tile 0_0 since it's 1000x1000)
+    for tile in rect.tiles:
+        tile_file = cache_dir / f"tile-{tile}.png"
+        tile_file.touch()
+
+    assert proj._has_missing_tiles() is False
+
+
+def test_has_missing_tiles_some_missing(tmp_path, monkeypatch):
+    """Test _has_missing_tiles returns True when some tiles are missing."""
+    path = tmp_path / "proj_0_0_0_0.png"
+    path.touch()
+    # Project spans 2 tiles (1000x2000)
+    rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 2000))
+    proj = projects.Project(path, rect)
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    class MockDIRS:
+        user_cache_path = cache_dir
+
+    monkeypatch.setattr(projects, "DIRS", MockDIRS())
+
+    # Create only tile 0_0, not tile 0_1
+    tile_file = cache_dir / "tile-0_0.png"
+    tile_file.touch()
+
+    assert proj._has_missing_tiles() is True
+
+
+def test_has_missing_tiles_all_missing(tmp_path, monkeypatch):
+    """Test _has_missing_tiles returns True when all tiles are missing."""
+    path = tmp_path / "proj_0_0_0_0.png"
+    path.touch()
+    rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
+    proj = projects.Project(path, rect)
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    class MockDIRS:
+        user_cache_path = cache_dir
+
+    monkeypatch.setattr(projects, "DIRS", MockDIRS())
+
+    # Don't create any tiles
+    assert proj._has_missing_tiles() is True
+
+
+def test_run_diff_sets_has_missing_tiles(tmp_path, monkeypatch):
+    """Test run_diff properly sets has_missing_tiles flag."""
+    path = tmp_path / "proj_0_0_0_0.png"
+
+    # Create a valid project image
+    im = PALETTE.new((10, 10))
+    im.putdata([1] * 100)
+    im.save(path)
+
+    rect = Rectangle.from_point_size(Point(0, 0), Size(10, 10))
+    proj = projects.Project(path, rect)
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    class MockDIRS:
+        user_cache_path = cache_dir
+        user_pictures_path = tmp_path
+
+    monkeypatch.setattr(projects, "DIRS", MockDIRS())
+
+    # Mock stitch_tiles to return a blank image
+    monkeypatch.setattr(projects, "stitch_tiles", lambda rect: _paletted_image((10, 10), 0))
+
+    # Run diff with no tiles in cache
+    proj.run_diff()
+
+    # Should have detected missing tiles
+    assert proj.metadata.has_missing_tiles is True
+
+    # Now create the tile file
+    tile_file = cache_dir / "tile-0_0.png"
+    tile_file.touch()
+
+    # Run diff again
+    proj.run_diff()
+
+    # Should now show no missing tiles
+    assert proj.metadata.has_missing_tiles is False
