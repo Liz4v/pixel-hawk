@@ -77,12 +77,26 @@ uv run cam
 
 ## Architecture conventions
 
+### Python philosophy (The Zen of Python)
+
+This project embraces core principles from PEP 20 ("The Zen of Python"):
+
+- **Explicit is better than implicit**: Use clear type annotations, named parameters, and obvious control flow. Avoid magic behavior or hidden side effects.
+- **Simple is better than complex**: Favor straightforward solutions over clever ones. If you can solve a problem with basic Python, do that before reaching for advanced features.
+- **Readability counts**: Code is read more often than written. Use descriptive short names, clear structure, and comments only where intent isn't obvious.
+- **Flat is better than nested**: Avoid deep nesting in both code structure (prefer early returns) and module organization (prefer a flatter hierarchy).
+- **Errors should never pass silently**: Let errors propagate with full stack traces rather than catching and hiding them. Use assertions for invariants—they're readable and provide clear failure points. Avoid try-catch blocks unless you have specific recovery logic.
+- **In the face of ambiguity, refuse the temptation to guess**: When requirements or intent are unclear during development, ask for clarification rather than making assumptions. Don't clutter code with speculative checks.
+- **If the implementation is hard to explain, it's a bad idea**: Strive for designs that are easy to describe. If you can't explain it simply, reconsider the approach.
+
+### General conventions
+
 - The project is in early stages: public APIs and internals may change. Prefer simplicity, clarity, and small, focused edits.
 - Follow existing idioms: use `NamedTuple`/`dataclass`-like shapes, type hints, and explicit resource management (`with` for PIL Images).
 - Type annotations: Python 3.14 provides deferred evaluation of annotations by default. Use unquoted type annotations (e.g., `def foo() -> Rectangle:` not `def foo() -> 'Rectangle':`). Forward references and self-references work without quotes.
 - Preserve logging via `loguru` rather than replacing with ad-hoc prints.
 - Image handling:
-  - Use `PALETTE.ensure(image)` for conversion; avoid manually mutating palettes.
+  - Use `PALETTE.ensure(image)` for conversion; no palette manipulation outside `palette.py`.
   - Always close PIL `Image` objects; prefer `with Image.open(...) as im:` or the helper patterns already present.
 - Time and date: prefer `round(time.time())` for timestamps to get integer seconds, which simplifies metadata and logging. Avoid using raw `time.time()` as well as `datetime` to keep things simple and consistent.
 - Project state: Projects are discovered from the filesystem on each polling cycle and kept in memory during runtime (metadata only).
