@@ -46,6 +46,9 @@ class DiffResult:
 class ProjectMetadata:
     """Persistent metadata for a project, tracking completion history and tile updates."""
 
+    # Project identity
+    name: str = ""  # Project filename
+
     # Project bounds
     x: int = 0
     y: int = 0
@@ -90,10 +93,11 @@ class ProjectMetadata:
     last_log_message: str = ""
 
     @classmethod
-    def from_rect(cls, rect: Rectangle) -> "ProjectMetadata":
+    def from_rect(cls, rect: Rectangle, name: str) -> "ProjectMetadata":
         """Create new metadata from project rectangle."""
         now = round(time.time())
         return cls(
+            name=name,
             x=rect.point.x,
             y=rect.point.y,
             width=rect.size.w,
@@ -105,6 +109,7 @@ class ProjectMetadata:
     def to_dict(self) -> dict:
         """Convert to dictionary for YAML serialization."""
         return {
+            "name": self.name,
             "bounds": {"x": self.x, "y": self.y, "width": self.width, "height": self.height},
             "timestamps": {
                 "first_seen": self.first_seen,
@@ -153,6 +158,7 @@ class ProjectMetadata:
         tile_updates = data.get("tile_updates", {})
 
         return cls(
+            name=data.get("name", ""),
             x=bounds.get("x", 0),
             y=bounds.get("y", 0),
             width=bounds.get("width", 0),
@@ -203,7 +209,7 @@ class ProjectMetadata:
         """Calculate completion percentage from remaining and target pixel counts."""
         return 100.0 - (num_remaining * 100.0 / num_target)
 
-    def compare_snapshots(self, current_data: Any, prev_data: Any, target_data: Any) -> tuple[int, int]:
+    def compare_snapshots(self, current_data: bytes, prev_data: bytes, target_data: bytes) -> tuple[int, int]:
         """Compare current and previous snapshots to detect progress and regress.
 
         Args:
@@ -282,28 +288,19 @@ class ProjectMetadata:
             self.recent_rate_window_start = timestamp
             self.recent_rate_pixels_per_hour = 0.0
 
-    def process_diff(
-        self,
-        current_data: Any,
-        target_data: Any,
-        project_name: str,
-        timestamp: int,
-        prev_data: Any = None,
-    ) -> DiffResult:
+    def process_diff(self, current_data: bytes, target_data: bytes, prev_data: bytes) -> DiffResult:
         """Process a project diff: count pixels, compare snapshots, update metadata, build log message.
 
         Args:
             current_data: Current canvas state (iterable of pixel values)
             target_data: Target project image (iterable of pixel values)
-            project_name: Name of the project file for logging
-            timestamp: Current timestamp
             prev_data: Previous canvas state (optional, for progress/regress detection)
 
         Returns:
             DiffResult with status, log message, and pixel counts
         """
         # Update last check timestamp
-        self.last_check = timestamp
+        self.last_check = timestamp = round(time.time())
 
         # Count target pixels
         num_target = self.count_target_pixels(target_data)
@@ -311,9 +308,9 @@ class ProjectMetadata:
         # Compare current vs target to find remaining pixels (pixel_compare logic inlined)
         remaining = bytes(0 if target == current else target for current, target in zip(current_data, target_data))
 
-        # Check if project not started (all target pixels remain)
-        if remaining == target_data:
-            self.last_log_message = f"{project_name}: Not started"
+        # Check if project not started (all target pixels remain, and no previous snapshot)
+        if not prev_data and remaining == target_data:
+            self.last_log_message = f"{self.name}: Not started"
             return DiffResult(status=DiffStatus.NOT_STARTED, num_target=num_target)
 
         # Count remaining pixels and calculate completion
@@ -324,7 +321,7 @@ class ProjectMetadata:
         progress_pixels = 0
         regress_pixels = 0
 
-        if prev_data is not None:
+        if prev_data:
             progress_pixels, regress_pixels = self.compare_snapshots(current_data, prev_data, target_data)
 
         # Update totals
@@ -342,7 +339,7 @@ class ProjectMetadata:
 
         # Check for completion
         if max(remaining) == 0:
-            self.last_log_message = f"{project_name}: Complete! {num_target} pixels total."
+            self.last_log_message = f"{self.name}: Complete! {num_target} pixels total."
             return DiffResult(status=DiffStatus.COMPLETE, num_remaining=0, num_target=num_target)
 
         # Calculate rate (pixels per hour)
@@ -354,7 +351,7 @@ class ProjectMetadata:
         when = (datetime.now() + time_to_go).strftime("%b %d %H:%M")
 
         status_parts = [
-            f"{project_name}:",
+            f"{self.name}:",
             f"{num_remaining}px remaining ({percent_complete:.2f}% complete)",
         ]
 

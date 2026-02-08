@@ -84,6 +84,7 @@ uv run cam
 - Image handling:
   - Use `PALETTE.ensure(image)` for conversion; avoid manually mutating palettes.
   - Always close PIL `Image` objects; prefer `with Image.open(...) as im:` or the helper patterns already present.
+- Time and date: prefer `round(time.time())` for timestamps to get integer seconds, which simplifies metadata and logging. Avoid using raw `time.time()` as well as `datetime` to keep things simple and consistent.
 - Project state: Projects are discovered from the filesystem on each polling cycle and kept in memory during runtime (metadata only).
 - Error handling: prefer non-fatal logging (warnings/debug) and avoid raising unexpected exceptions in the polling loop.
 - Defensive programming: Use assertions for "shouldn't happen" cases that indicate logic errors. These should be tested to ensure they catch bugs during development. Example: `assert condition, "clear error message"` for invariants that must hold.

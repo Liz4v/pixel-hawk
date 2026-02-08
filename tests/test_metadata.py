@@ -38,9 +38,10 @@ def test_metadata_from_rect():
     rect = Rectangle.from_point_size(Point(100, 200), Size(50, 60))
 
     before_time = round(time.time())
-    meta = ProjectMetadata.from_rect(rect)
+    meta = ProjectMetadata.from_rect(rect, "test_project.png")
     after_time = round(time.time())
 
+    assert meta.name == "test_project.png"
     assert meta.x == 100
     assert meta.y == 200
     assert meta.width == 50
@@ -56,8 +57,9 @@ def test_metadata_from_rect():
 def test_metadata_from_rect_with_offset():
     """Test ProjectMetadata.from_rect with non-zero origin."""
     rect = Rectangle.from_point_size(Point.from4(5, 7, 250, 380), Size(120, 80))
-    meta = ProjectMetadata.from_rect(rect)
+    meta = ProjectMetadata.from_rect(rect, "offset_project.png")
 
+    assert meta.name == "offset_project.png"
     assert meta.x == 5250  # 5 * 1000 + 250
     assert meta.y == 7380  # 7 * 1000 + 380
     assert meta.width == 120
@@ -200,7 +202,7 @@ def test_metadata_from_dict_with_missing_fields():
 def test_metadata_round_trip():
     """Test metadata serialization round-trip preserves all data."""
     rect = Rectangle.from_point_size(Point(10, 20), Size(30, 40))
-    meta = ProjectMetadata.from_rect(rect)
+    meta = ProjectMetadata.from_rect(rect, "roundtrip_test.png")
     meta.max_completion_pixels = 100
     meta.max_completion_percent = 75.5
     meta.total_progress = 50

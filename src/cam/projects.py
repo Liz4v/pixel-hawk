@@ -17,9 +17,9 @@ Pixel-level comparison and metadata update logic lives in metadata.py.
 
 import re
 import time
-from contextlib import ExitStack
+from contextlib import nullcontext
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING, ContextManager, Iterable
 
 from loguru import logger
 from ruamel.yaml import YAML
@@ -29,6 +29,9 @@ from .geometry import Point, Rectangle, Size, Tile
 from .ingest import stitch_tiles
 from .metadata import DiffStatus, ProjectMetadata
 from .palette import PALETTE, ColorNotInPalette
+
+if TYPE_CHECKING:
+    from PIL import Image
 
 _RE_HAS_COORDS = re.compile(r"[- _](\d+)[- _](\d+)[- _](\d+)[- _](\d+)\.png$", flags=re.IGNORECASE)
 
@@ -134,7 +137,7 @@ class Project(ProjectShim):
     def load_metadata(self) -> ProjectMetadata:
         """Load metadata from YAML file, or create new if file doesn't exist."""
         if not self.metadata_path.exists():
-            return ProjectMetadata.from_rect(self.rect)
+            return ProjectMetadata.from_rect(self.rect, self.path.with_suffix("").name)
 
         try:
             with open(self.metadata_path, "r", encoding="utf-8") as f:
@@ -142,7 +145,7 @@ class Project(ProjectShim):
             return ProjectMetadata.from_dict(data)
         except Exception as e:
             logger.warning(f"Failed to load metadata for {self.path.name}: {e}. Creating new.")
-            return ProjectMetadata.from_rect(self.rect)
+            return ProjectMetadata.from_rect(self.rect, self.path.with_suffix("").name)
 
     def save_metadata(self) -> None:
         """Save metadata to YAML file."""
@@ -160,15 +163,15 @@ class Project(ProjectShim):
         except Exception as e:
             logger.error(f"Failed to save snapshot for {self.path.name}: {e}")
 
-    def load_snapshot(self):
-        """Load previous snapshot if it exists, or None."""
+    def load_snapshot_if_exists(self) -> ContextManager[Image.Image | None]:
+        """Return previous snapshot if it exists, or nullcontext if not."""
         if not self.snapshot_path.exists():
-            return None
+            return nullcontext()  # No snapshot yet, caller should handle as needed
         try:
             return PALETTE.open_image(self.snapshot_path)
         except Exception as e:
             logger.warning(f"Failed to load snapshot for {self.path.name}: {e}")
-            return None
+            return nullcontext()
 
     def run_diff(self, changed_tile: Tile | None = None) -> None:
         """Compares current canvas against project target and previous snapshot.
@@ -179,34 +182,21 @@ class Project(ProjectShim):
         Tracks progress (pixels placed toward goal) and regress (pixels removed/griefed),
         updates metadata with completion history, saves snapshot and metadata.
         """
-        now = round(time.time())
+        # Load target project image
+        with PALETTE.open_image(self.path) as target:
+            target_data = get_flattened_data(target)
 
-        # Load and compare images, then close them immediately
-        with ExitStack() as stack:
-            # Load target project image
-            target = stack.enter_context(PALETTE.open_image(self.path))
-            target_data = target.get_flattened_data()
-            assert target_data is not None, "Target image must have data"
+        # Load previous snapshot before overwriting
+        with self.load_snapshot_if_exists() as previous_snapshot:
+            prev_data = get_flattened_data(previous_snapshot) if previous_snapshot else b""
 
-            # Load previous snapshot before overwriting (managed by ExitStack)
-            previous_snapshot = self.load_snapshot()
-            prev_data = None
-            if previous_snapshot is not None:
-                stack.enter_context(previous_snapshot)
-                prev_data = previous_snapshot.get_flattened_data()
-                assert prev_data is not None, "Previous snapshot must have data"
-
-            # Stitch current canvas state
-            current = stack.enter_context(stitch_tiles(self.rect))
-            current_data = current.get_flattened_data()
-            assert current_data is not None, "Current image must have data"
-
+        # Stitch current canvas state
+        with stitch_tiles(self.rect) as current:
+            current_data = get_flattened_data(current)
             self.save_snapshot(current)
 
-            # Process diff: count, compare, update metadata, build log message
-            result = self.metadata.process_diff(current_data, target_data, self.path.name, now, prev_data)
-
-        # All images closed - continue with post-processing
+        # Process diff: count, compare, update metadata, build log message
+        result = self.metadata.process_diff(current_data, target_data, prev_data)
 
         # Update tile metadata if a specific tile changed
         if changed_tile is not None and result.status == DiffStatus.IN_PROGRESS:
@@ -253,3 +243,9 @@ class Project(ProjectShim):
                 last_update = self.metadata.tile_last_update.get(tile_str, 0)
                 if mtime > last_update:
                     self.metadata.update_tile(tile, mtime)
+
+
+def get_flattened_data(image: Image.Image) -> bytes:
+    target_flattened = image.get_flattened_data()
+    assert target_flattened is not None, "Image must have data"
+    return bytes(target_flattened)  # type: ignore[arg-type]

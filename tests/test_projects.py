@@ -355,8 +355,9 @@ def test_project_deletion(tmp_path):
 def test_metadata_from_rect():
     """Test ProjectMetadata.from_rect creates correct initial state."""
     rect = Rectangle.from_point_size(Point(100, 200), Size(50, 60))
-    meta = ProjectMetadata.from_rect(rect)
+    meta = ProjectMetadata.from_rect(rect, "test.png")
 
+    assert meta.name == "test.png"
     assert meta.x == 100
     assert meta.y == 200
     assert meta.width == 50
@@ -371,7 +372,7 @@ def test_metadata_from_rect():
 def test_metadata_to_dict_and_from_dict():
     """Test metadata serialization round-trip."""
     rect = Rectangle.from_point_size(Point(10, 20), Size(30, 40))
-    meta = ProjectMetadata.from_rect(rect)
+    meta = ProjectMetadata.from_rect(rect, "project.png")
     meta.max_completion_pixels = 100
     meta.max_completion_percent = 75.5
     meta.total_progress = 50
@@ -495,7 +496,7 @@ def test_project_snapshot_save_and_load(tmp_path, monkeypatch):
     assert proj.metadata.last_snapshot > 0
 
     # Load snapshot and verify
-    loaded = proj.load_snapshot()
+    loaded = proj.load_snapshot_if_exists()
     assert loaded is not None
     with loaded:
         data = loaded.get_flattened_data()
@@ -510,8 +511,8 @@ def test_project_snapshot_load_nonexistent(tmp_path):
     rect = Rectangle.from_point_size(Point(0, 0), Size(2, 2))
     proj = projects.Project(path, rect)
 
-    snapshot = proj.load_snapshot()
-    assert snapshot is None
+    with proj.load_snapshot_if_exists() as snapshot:
+        assert snapshot is None
 
 
 def test_run_diff_with_metadata_tracking(tmp_path, monkeypatch):
@@ -671,6 +672,7 @@ def test_update_single_tile_metadata_updates_when_newer(tmp_path, monkeypatch):
     # Set mtime to a known value
     tile_mtime = 10000
     import os
+
     os.utime(tile_path, (tile_mtime, tile_mtime))
 
     # Set last_update to older timestamp
@@ -713,6 +715,7 @@ def test_update_single_tile_metadata_skips_when_not_newer(tmp_path, monkeypatch)
     # Set mtime to a known value
     tile_mtime = 10000
     import os
+
     os.utime(tile_path, (tile_mtime, tile_mtime))
 
     # Set last_update to SAME or NEWER timestamp
