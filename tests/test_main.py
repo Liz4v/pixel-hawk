@@ -38,8 +38,8 @@ def test_main_load_and_check_tiles(monkeypatch):
     monkeypatch.setattr("cam.main.Project.try_open", classmethod(lambda cls, p: proj))
 
     m = main_mod.Main()
-    # Mock has_tile_changed to return tuple (True, 0)
-    monkeypatch.setattr("cam.ingest.has_tile_changed", lambda tile: (True, 0))
+    # Mock has_tile_changed to return tuple (True, valid_timestamp)
+    monkeypatch.setattr("cam.ingest.has_tile_changed", lambda tile: (True, 1700000000))
     # check_next_tile should call project's run_diff for tile (0,0)
     m.tile_checker.check_next_tile()
     assert proj._called["run_diff"] >= 1
@@ -81,7 +81,7 @@ def test_main_indexing_and_check_tiles_and_load_forget(tmp_path, monkeypatch):
     assert Tile(0, 0) in m.tile_checker.tiles
 
     # check_next_tile with has_tile_changed returning True should call run_diff
-    monkeypatch.setattr("cam.ingest.has_tile_changed", lambda tile: (True, 0))
+    monkeypatch.setattr("cam.ingest.has_tile_changed", lambda tile: (True, 1700000000))
     m.tile_checker.check_next_tile()
     assert called.get("run") is True
 

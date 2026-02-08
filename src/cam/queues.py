@@ -383,6 +383,16 @@ class QueueSystem:
         self._rebuild_queues()
         return None
 
+    def retry_current_queue(self) -> None:
+        """Rewind the round-robin index to retry the current queue.
+
+        Call this when a tile check fails and should be retried from the same
+        queue on the next check cycle.
+        """
+        all_queues_count = 1 + len(self.temperature_queues)
+        if all_queues_count > 0:
+            self.current_queue_index = (self.current_queue_index - 1) % all_queues_count
+
     def update_tile_after_check(self, tile: Tile, modified_time: int) -> None:
         """Update tile metadata after checking it.
 

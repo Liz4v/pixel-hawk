@@ -34,9 +34,22 @@ def test_has_tile_changed_bad_image(monkeypatch, tmp_path):
     class Resp:
         status_code = 200
         content = b"not an image"
-        headers = {}
+        headers = {"Last-Modified": "Wed, 15 Nov 2023 12:45:26 GMT"}
 
     monkeypatch.setattr("cam.ingest.requests.get", lambda *a, **k: Resp())
+    changed, last_modified = has_tile_changed(Tile(0, 0))
+    assert not changed
+    assert last_modified == 0
+
+
+def test_has_tile_changed_network_exception(monkeypatch, tmp_path):
+    """Test that network exceptions are caught and return (False, 0)."""
+    monkeypatch.setattr("cam.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
+
+    def raise_exception(*args, **kwargs):
+        raise ConnectionError("Network unavailable")
+
+    monkeypatch.setattr("cam.ingest.requests.get", raise_exception)
     changed, last_modified = has_tile_changed(Tile(0, 0))
     assert not changed
     assert last_modified == 0
@@ -67,6 +80,7 @@ def test_has_tile_changed_sets_mtime_from_last_modified(monkeypatch, tmp_path):
 
 
 def test_has_tile_changed_handles_missing_last_modified(monkeypatch, tmp_path):
+    """Test that missing Last-Modified header falls back to current time."""
     monkeypatch.setattr("cam.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
     png = _paletted_png_bytes()
 
@@ -80,12 +94,12 @@ def test_has_tile_changed_handles_missing_last_modified(monkeypatch, tmp_path):
     cache_path = tmp_path / "tile-0_0.png"
     changed, last_modified = has_tile_changed(Tile(0, 0))
     assert changed
-    assert cache_path.exists()
-    assert last_modified == 0  # No Last-Modified header
-    # Should still create file successfully even without Last-Modified
+    assert last_modified > 0  # Fallback to current time
+    assert cache_path.exists()  # Cache file created with fallback timestamp
 
 
 def test_has_tile_changed_handles_invalid_last_modified(monkeypatch, tmp_path):
+    """Test that invalid Last-Modified header falls back to current time."""
     monkeypatch.setattr("cam.ingest.DIRS", SimpleNamespace(user_cache_path=tmp_path, user_pictures_path=tmp_path))
     png = _paletted_png_bytes()
 
@@ -99,8 +113,8 @@ def test_has_tile_changed_handles_invalid_last_modified(monkeypatch, tmp_path):
     cache_path = tmp_path / "tile-0_0.png"
     changed, last_modified = has_tile_changed(Tile(0, 0))
     assert changed
-    assert cache_path.exists()
-    # Should still create file successfully even with invalid Last-Modified
+    assert last_modified > 0  # Fallback to current time
+    assert cache_path.exists()  # Cache file created with fallback timestamp
 
 
 def test_has_tile_changed_304_not_modified(monkeypatch, tmp_path):
@@ -142,7 +156,7 @@ def test_has_tile_changed_sends_if_modified_since_when_cache_exists(monkeypatch,
     class Resp:
         status_code = 200
         content = png
-        headers = {}
+        headers = {"Last-Modified": "Wed, 15 Nov 2023 12:45:26 GMT"}
 
     call_args = []
 
@@ -171,7 +185,7 @@ def test_has_tile_changed_no_if_modified_since_when_no_cache(monkeypatch, tmp_pa
     class Resp:
         status_code = 200
         content = png
-        headers = {}
+        headers = {"Last-Modified": "Wed, 15 Nov 2023 12:45:26 GMT"}
 
     call_args = []
 

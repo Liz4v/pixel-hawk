@@ -219,6 +219,41 @@ def test_queue_system_round_robin(tmp_path, monkeypatch):
     assert len(selected_tiles) > 0
 
 
+def test_queue_system_retry_current_queue(tmp_path, monkeypatch):
+    """Test that retry_current_queue() rewinds the round-robin index."""
+    monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))
+
+    # Create enough tiles for multiple queues
+    tiles = {Tile(i, 0) for i in range(20)}
+
+    # Create cache files to have some temperature tiles
+    now = round(time.time())
+    for i, tile in enumerate(sorted(tiles)):
+        cache_path = tmp_path / f"tile-{tile}.png"
+        cache_path.write_bytes(b"data")
+        import os
+
+        mtime = now - (i * 1000)
+        os.utime(cache_path, (mtime, mtime))
+
+    qs = QueueSystem(tiles)
+
+    # Select a tile, note the queue index advancement
+    first_meta = qs.select_next_tile()
+    assert first_meta is not None
+    first_queue_index = qs.current_queue_index
+
+    # Retry - should rewind the index
+    qs.retry_current_queue()
+    assert qs.current_queue_index != first_queue_index
+
+    # Select again - should get same queue as before (though possibly different tile)
+    second_meta = qs.select_next_tile()
+    assert second_meta is not None
+    # After retry and re-select, we should be back where we were
+    assert qs.current_queue_index == first_queue_index
+
+
 def test_queue_system_add_tiles(tmp_path, monkeypatch):
     """Test adding new tiles to queue system."""
     monkeypatch.setattr("cam.queues.DIRS", SimpleNamespace(user_cache_path=tmp_path))

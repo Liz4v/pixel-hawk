@@ -13,6 +13,7 @@ least-recently-checked tile within each queue.
 
 import io
 import os
+import time
 from email.utils import formatdate, parsedate_to_datetime
 from typing import TYPE_CHECKING, Iterable
 
@@ -35,7 +36,9 @@ def has_tile_changed(tile: Tile) -> tuple[bool, int]:
     Returns:
         Tuple of (changed, last_modified_time):
         - changed: True if tile content changed
-        - last_modified_time: Integer timestamp from server's Last-Modified header (0 if not available)
+        - last_modified_time: Integer timestamp from server's Last-Modified header
+
+    last_modified_time==0 indicates a server failure (network/decode error, status not 200 or 304)
     """
     url = f"https://backend.wplace.live/files/s0/tiles/{tile.x}/{tile.y}.png"
 
@@ -47,7 +50,11 @@ def has_tile_changed(tile: Tile) -> tuple[bool, int]:
         mtime = round(cache_path.stat().st_mtime)
         headers["If-Modified-Since"] = formatdate(mtime, usegmt=True)
 
-    response = requests.get(url, headers=headers, timeout=5)
+    try:
+        response = requests.get(url, headers=headers, timeout=5)
+    except Exception as e:
+        logger.debug(f"Tile {tile}: Request failed: {e}")
+        return False, 0
 
     if response.status_code == 304:  # Not Modified
         return False, mtime
@@ -57,14 +64,16 @@ def has_tile_changed(tile: Tile) -> tuple[bool, int]:
         return False, 0
     data = response.content
 
-    # Extract Last-Modified header if present
-    last_modified = response.headers.get("Last-Modified")
-    last_modified_timestamp = 0
-    if last_modified:
-        try:
-            last_modified_timestamp = int(parsedate_to_datetime(last_modified).timestamp())
-        except Exception as e:
-            logger.warning(f"Tile {tile}: Failed to parse Last-Modified header: {e}")
+    # The server is known to always give us a Last-Modified header on 200 responses, so we rely on
+    # that. We require this information for queue management! If server behaviour changes, and we
+    # stop getting 304 responses, we may need to refactor to compare image data instead.
+    try:
+        last_modified = response.headers["Last-Modified"]
+        last_modified_timestamp = int(parsedate_to_datetime(last_modified).timestamp())
+    except Exception as e:
+        logger.warning(f"Tile {tile}: Failed to parse Last-Modified header: {e}")
+        # Fallback to current time, hoping we'll still get 304s next time if tile is unchanged
+        last_modified_timestamp = int(time.time())
 
     try:
         img = Image.open(io.BytesIO(data))
@@ -77,13 +86,7 @@ def has_tile_changed(tile: Tile) -> tuple[bool, int]:
     with PALETTE.ensure(img) as paletted:
         logger.info(f"Tile {tile}: Change detected, updating cache...")
         paletted.save(cache_path)
-
-        # Set file mtime to match server's Last-Modified timestamp
-        if isinstance(last_modified_timestamp, int):
-            try:
-                os.utime(cache_path, (last_modified_timestamp, last_modified_timestamp))
-            except Exception as e:
-                logger.debug(f"Tile {tile}: Failed to set mtime: {e}")
+        os.utime(cache_path, (last_modified_timestamp, last_modified_timestamp))
     return True, last_modified_timestamp
 
 
@@ -93,7 +96,7 @@ def stitch_tiles(rect: Rectangle) -> Image.Image:
     for tile in rect.tiles:
         cache_path = DIRS.user_cache_path / f"tile-{tile}.png"
         if not cache_path.exists():
-            logger.warning(f"{tile}: Tile missing from cache, leaving transparent")
+            logger.debug(f"{tile}: Tile missing from cache, leaving transparent")
             continue
         with Image.open(cache_path) as tile_image:
             offset = tile.to_point() - rect.point
@@ -162,6 +165,11 @@ class TileChecker:
 
         tile = tile_meta.tile
         changed, last_modified = has_tile_changed(tile)
+
+        if last_modified == 0:
+            # Server failure - don't update metadata or advance round-robin
+            self.queue_system.retry_current_queue()
+            return
 
         # Update queue system with check results
         self.queue_system.update_tile_after_check(tile, last_modified)
