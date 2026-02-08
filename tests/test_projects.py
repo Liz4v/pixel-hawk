@@ -19,13 +19,6 @@ def _paletted_image(size=(4, 4), value=1):
 # Basic utility tests
 
 
-def test_pixel_compare():
-    from cam.projects import pixel_compare
-
-    assert pixel_compare(1, 1) == 0
-    assert pixel_compare(1, 2) == 2
-
-
 # Project.try_open tests
 
 
@@ -647,3 +640,125 @@ def test_run_diff_complete_status(tmp_path, monkeypatch):
 
     # Should detect as complete - no pixels to fill
     assert proj.metadata.nochange_streak_count >= 1
+
+
+def test_update_single_tile_metadata_updates_when_newer(tmp_path, monkeypatch):
+    """Test _update_single_tile_metadata updates when tile file is newer."""
+    from cam import DIRS
+    from cam.geometry import Tile
+
+    # Create a project
+    path = tmp_path / "proj_0_0_0_0.png"
+    path.touch()
+    rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
+    proj = projects.Project(path, rect)
+
+    # Set up cache directory - monkeypatch the DIRS object in the projects module
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    # Create a mock DIRS object with the cache_dir as user_cache_path
+    class MockDIRS:
+        user_cache_path = cache_dir
+
+    monkeypatch.setattr(projects, "DIRS", MockDIRS())
+
+    # Create a tile file
+    tile = Tile(0, 0)
+    tile_path = cache_dir / f"tile-{tile}.png"
+    tile_path.write_bytes(b"dummy")
+
+    # Set mtime to a known value
+    tile_mtime = 10000
+    import os
+    os.utime(tile_path, (tile_mtime, tile_mtime))
+
+    # Set last_update to older timestamp
+    proj.metadata.tile_last_update["0_0"] = 5000
+
+    # Call the function
+    proj._update_single_tile_metadata(tile)
+
+    # Should have updated to new mtime
+    assert proj.metadata.tile_last_update["0_0"] == tile_mtime
+    assert ("0_0", tile_mtime) in proj.metadata.tile_updates_24h
+
+
+def test_update_single_tile_metadata_skips_when_not_newer(tmp_path, monkeypatch):
+    """Test _update_single_tile_metadata skips update when tile not newer."""
+    from cam import DIRS
+    from cam.geometry import Tile
+
+    # Create a project
+    path = tmp_path / "proj_0_0_0_0.png"
+    path.touch()
+    rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
+    proj = projects.Project(path, rect)
+
+    # Set up cache directory
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    # Create a mock DIRS object
+    class MockDIRS:
+        user_cache_path = cache_dir
+
+    monkeypatch.setattr(projects, "DIRS", MockDIRS())
+
+    # Create a tile file
+    tile = Tile(0, 0)
+    tile_path = cache_dir / f"tile-{tile}.png"
+    tile_path.write_bytes(b"dummy")
+
+    # Set mtime to a known value
+    tile_mtime = 10000
+    import os
+    os.utime(tile_path, (tile_mtime, tile_mtime))
+
+    # Set last_update to SAME or NEWER timestamp
+    proj.metadata.tile_last_update["0_0"] = 15000
+    proj.metadata.tile_updates_24h = [("0_0", 15000)]
+
+    # Call the function
+    proj._update_single_tile_metadata(tile)
+
+    # Should NOT have updated (still the old value)
+    assert proj.metadata.tile_last_update["0_0"] == 15000
+    # 24h list should still have old entry only
+    assert len(proj.metadata.tile_updates_24h) == 1
+    assert ("0_0", 15000) in proj.metadata.tile_updates_24h
+
+
+def test_update_single_tile_metadata_handles_missing_file(tmp_path, monkeypatch):
+    """Test _update_single_tile_metadata handles nonexistent tile file."""
+    from cam import DIRS
+    from cam.geometry import Tile
+
+    # Create a project
+    path = tmp_path / "proj_0_0_0_0.png"
+    path.touch()
+    rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
+    proj = projects.Project(path, rect)
+
+    # Set up cache directory (but don't create tile file)
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    # Create a mock DIRS object
+    class MockDIRS:
+        user_cache_path = cache_dir
+
+    monkeypatch.setattr(projects, "DIRS", MockDIRS())
+
+    tile = Tile(0, 0)
+
+    # Set initial state
+    proj.metadata.tile_last_update = {}
+    proj.metadata.tile_updates_24h = []
+
+    # Call the function with nonexistent tile
+    proj._update_single_tile_metadata(tile)
+
+    # Should not have added anything
+    assert "0_0" not in proj.metadata.tile_last_update
+    assert len(proj.metadata.tile_updates_24h) == 0

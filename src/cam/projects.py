@@ -18,7 +18,6 @@ Pixel-level comparison and metadata update logic lives in metadata.py.
 import re
 import time
 from contextlib import ExitStack
-from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable
 
@@ -26,9 +25,9 @@ from loguru import logger
 from ruamel.yaml import YAML
 
 from . import DIRS
-from .geometry import Point, Rectangle, Size
+from .geometry import Point, Rectangle, Size, Tile
 from .ingest import stitch_tiles
-from .metadata import ProjectMetadata
+from .metadata import DiffStatus, ProjectMetadata
 from .palette import PALETTE, ColorNotInPalette
 
 _RE_HAS_COORDS = re.compile(r"[- _](\d+)[- _](\d+)[- _](\d+)[- _](\d+)\.png$", flags=re.IGNORECASE)
@@ -58,7 +57,7 @@ class ProjectShim:
         except OSError:
             return self.mtime != 0
 
-    def run_diff(self) -> None:
+    def run_diff(self, changed_tile: "Tile | None" = None) -> None:
         """No-op for invalid project files."""
         pass
 
@@ -171,14 +170,16 @@ class Project(ProjectShim):
             logger.warning(f"Failed to load snapshot for {self.path.name}: {e}")
             return None
 
-    def run_diff(self) -> None:
+    def run_diff(self, changed_tile: Tile | None = None) -> None:
         """Compares current canvas against project target and previous snapshot.
 
+        Args:
+            changed_tile: The specific tile that changed (if known), for efficient metadata updates
+
         Tracks progress (pixels placed toward goal) and regress (pixels removed/griefed),
-        updates metadata with completion history and tile updates, saves snapshot and metadata.
+        updates metadata with completion history, saves snapshot and metadata.
         """
         now = round(time.time())
-        self.metadata.last_check = now
 
         # Load and compare images, then close them immediately
         with ExitStack() as stack:
@@ -189,94 +190,33 @@ class Project(ProjectShim):
 
             # Load previous snapshot before overwriting (managed by ExitStack)
             previous_snapshot = self.load_snapshot()
+            prev_data = None
             if previous_snapshot is not None:
                 stack.enter_context(previous_snapshot)
+                prev_data = previous_snapshot.get_flattened_data()
+                assert prev_data is not None, "Previous snapshot must have data"
 
-            # Stitch current canvas state and save as new snapshot
+            # Stitch current canvas state
             current = stack.enter_context(stitch_tiles(self.rect))
             current_data = current.get_flattened_data()
             assert current_data is not None, "Current image must have data"
 
-            # Compare current vs target to find remaining pixels
-            newdata = map(pixel_compare, current_data, target_data)  # type: ignore[arg-type]
-            remaining = bytes(newdata)
-
-            # Save current snapshot (overwrites previous_snapshot file)
             self.save_snapshot(current)
 
-            # Check if project not started
-            if remaining == target_data:
-                self.save_metadata()
-                return  # project is not started, no pixels placed
+            # Process diff: count, compare, update metadata, build log message
+            result = self.metadata.process_diff(current_data, target_data, self.path.name, now, prev_data)
 
-            # Calculate current completion state
-            num_remaining = self.metadata.count_remaining_pixels(remaining)
-            num_target = self.metadata.count_target_pixels(target_data)
-            percent_complete = self.metadata.calculate_completion_percent(num_remaining, num_target)
+        # All images closed - continue with post-processing
 
-            # Compare with previous snapshot to detect progress/regress
-            progress_pixels = 0
-            regress_pixels = 0
+        # Update tile metadata if a specific tile changed
+        if changed_tile is not None and result.status == DiffStatus.IN_PROGRESS:
+            self._update_single_tile_metadata(changed_tile)
+        elif result.status == DiffStatus.IN_PROGRESS:
+            # Fallback: check all tiles in project area (less efficient)
+            self._update_tile_metadata()
 
-            if previous_snapshot is not None:
-                prev_data = previous_snapshot.get_flattened_data()
-                assert prev_data is not None, "Previous snapshot must have data"
-
-                # Detect progress and regress by comparing snapshots
-                progress_pixels, regress_pixels = self.metadata.compare_snapshots(current_data, prev_data, target_data)
-        # All images closed - continue with metadata updates
-
-        # Track tile changes by comparing current state with cached tile metadata
-        self._update_tile_metadata()
-
-        # Update totals
-        self.metadata.total_progress += progress_pixels
-        self.metadata.total_regress += regress_pixels
-
-        # Update max completion if improved
-        self.metadata.update_completion(num_remaining, percent_complete, now)
-
-        # Update largest regress
-        self.metadata.update_regress(regress_pixels, now)
-
-        # Update streak (before checking completion so streak reflects final progress)
-        self.metadata.update_streak(progress_pixels, regress_pixels)
-
-        # Check for completion
-        if max(remaining) == 0:
-            self.metadata.last_log_message = (log_message := f"{self.path.name}: Complete! {num_target} pixels total.")
-            logger.info(log_message)
-            self.save_metadata()
-            return
-
-        # Calculate rate (pixels per hour)
-        self.metadata.update_rate(progress_pixels, regress_pixels, now)
-
-        # Build log message
-        time_to_go = timedelta(seconds=27) * num_remaining
-        days, hours = divmod(round(time_to_go.total_seconds() / 3600), 24)
-        when = (datetime.now() + time_to_go).strftime("%b %d %H:%M")
-
-        status_parts = [
-            f"{self.path.name}:",
-            f"{num_remaining}px remaining ({percent_complete:.2f}% complete)",
-        ]
-
-        if progress_pixels > 0 or regress_pixels > 0:
-            status_parts.append(f"[+{progress_pixels}/-{regress_pixels}]")
-
-        if self.metadata.change_streak_count > 1:
-            status_parts.append(f"({self.metadata.change_streak_type} x{self.metadata.change_streak_count})")
-
-        if self.metadata.nochange_streak_count > 0:
-            status_parts.append(f"(nochange x{self.metadata.nochange_streak_count})")
-
-        status_parts.append(f"ETA: {days}d{hours}h to {when}")
-
-        self.metadata.last_log_message = (log_message := " ".join(status_parts))
-        logger.info(log_message)
-
-        # Save updated metadata
+        # Log and save
+        logger.info(self.metadata.last_log_message)
         self.save_metadata()
 
     def run_nochange(self) -> None:
@@ -284,6 +224,18 @@ class Project(ProjectShim):
         self.metadata.prune_old_tile_updates()  # regular cleanup task
         self.metadata.update_streak(0, 0)  # This will increment nochange streak and reset change streak
         self.save_metadata()
+
+    def _update_single_tile_metadata(self, tile: Tile) -> None:
+        """Update metadata for a single tile that changed."""
+        tile_path = DIRS.user_cache_path / f"tile-{tile}.png"
+        if tile_path.exists():
+            mtime = round(tile_path.stat().st_mtime)
+            tile_str = str(tile)
+
+            # Check if this tile has been updated since last check
+            last_update = self.metadata.tile_last_update.get(tile_str, 0)
+            if mtime > last_update:
+                self.metadata.update_tile(tile, mtime)
 
     def _update_tile_metadata(self) -> None:
         """Update tile modification times from cached tile files."""
@@ -301,8 +253,3 @@ class Project(ProjectShim):
                 last_update = self.metadata.tile_last_update.get(tile_str, 0)
                 if mtime > last_update:
                     self.metadata.update_tile(tile, mtime)
-
-
-def pixel_compare(current: int, desired: int) -> int:
-    """Returns the desired pixel value if it differs from the current pixel, otherwise returns transparent."""
-    return 0 if desired == current else desired

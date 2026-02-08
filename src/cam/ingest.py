@@ -168,6 +168,6 @@ class TileChecker:
 
         for proj in self.tiles.get(tile) or ():
             if changed:
-                proj.run_diff()
+                proj.run_diff(changed_tile=tile)
             else:
                 proj.run_nochange()

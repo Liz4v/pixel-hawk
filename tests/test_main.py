@@ -22,7 +22,7 @@ def test_main_load_and_check_tiles(monkeypatch):
             self.rect = rect
             self._called = {"run_diff": 0}
 
-        def run_diff(self):
+        def run_diff(self, changed_tile=None):
             self._called["run_diff"] += 1
 
         def __hash__(self):
@@ -71,7 +71,7 @@ def test_main_indexing_and_check_tiles_and_load_forget(tmp_path, monkeypatch):
             self.path = path
             self.rect = SimpleNamespace(tiles=frozenset({Tile(0, 0)}))
 
-        def run_diff(self):
+        def run_diff(self, changed_tile=None):
             called["run"] = True
 
     monkeypatch.setattr(projects.Project, "try_open", classmethod(lambda cls, p: DummyProj(p)))
@@ -540,7 +540,7 @@ def test_main_check_tiles_round_robin(monkeypatch):
             self.rect = SimpleNamespace(tiles=frozenset({tile}))
             self.diff_count = 0
 
-        def run_diff(self):
+        def run_diff(self, changed_tile=None):
             self.diff_count += 1
 
         def has_been_modified(self):

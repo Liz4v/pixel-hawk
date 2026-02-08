@@ -101,8 +101,8 @@ uv run cam
 - Tests: unit tests live under `tests/`. We use `pytest` with `pytest-cov` for coverage.
   - Coverage is configured in `pyproject.toml` under `[tool.pytest.ini_options]`.
   - The project enforces a coverage threshold for all modules.
-  - Focus tests on `geometry`, `palette.lookup`, `projects` diff logic, `metadata` tracking/persistence, and `queues` repositioning.
   - Test assertions: Write tests that verify assertions fire for "shouldn't happen" cases (use `pytest.raises(AssertionError)`).
+  - Mocking `DIRS`: The `DIRS` object from `platformdirs` has read-only properties (`user_cache_path`, `user_pictures_path`, etc.). To mock these in tests, create a simple mock class with the needed attributes and monkeypatch the entire `DIRS` object in the module that imports it. Example: `class MockDIRS: user_cache_path = tmp_path / "cache"` then `monkeypatch.setattr(module_under_test, "DIRS", MockDIRS())`. Do NOT try to `setattr` on DIRS properties directly.
   - Run tests: `uv run pytest`
 
 ## Running and debugging

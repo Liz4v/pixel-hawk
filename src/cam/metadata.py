@@ -8,15 +8,38 @@ ProjectMetadata encapsulates all project state and statistics:
 - Rate calculation: pixels per hour based on recent activity window
 - Largest regress event: records worst griefing incident
 
+The process_diff() method orchestrates the complete diff workflow: counting pixels,
+comparing snapshots, updating all statistics, and building status log messages.
 Provides pixel counting utilities (remaining, target, completion percent) and
 snapshot comparison logic. Serializes to/from YAML for persistence.
+
+DiffStatus and DiffResult provide typed return values for diff operations.
 """
 
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from enum import StrEnum, auto
 from typing import Any
 
 from .geometry import Rectangle, Tile
+
+
+class DiffStatus(StrEnum):
+    """Status of a project diff operation."""
+
+    NOT_STARTED = auto()  # Project has no pixels placed
+    IN_PROGRESS = auto()  # Project is partially complete
+    COMPLETE = auto()  # Project is fully complete
+
+
+@dataclass
+class DiffResult:
+    """Result of processing a project diff."""
+
+    status: DiffStatus
+    num_remaining: int = 0
+    num_target: int = 0
 
 
 @dataclass
@@ -258,3 +281,93 @@ class ProjectMetadata:
         if timestamp - self.recent_rate_window_start > 86400:
             self.recent_rate_window_start = timestamp
             self.recent_rate_pixels_per_hour = 0.0
+
+    def process_diff(
+        self,
+        current_data: Any,
+        target_data: Any,
+        project_name: str,
+        timestamp: int,
+        prev_data: Any = None,
+    ) -> DiffResult:
+        """Process a project diff: count pixels, compare snapshots, update metadata, build log message.
+
+        Args:
+            current_data: Current canvas state (iterable of pixel values)
+            target_data: Target project image (iterable of pixel values)
+            project_name: Name of the project file for logging
+            timestamp: Current timestamp
+            prev_data: Previous canvas state (optional, for progress/regress detection)
+
+        Returns:
+            DiffResult with status, log message, and pixel counts
+        """
+        # Update last check timestamp
+        self.last_check = timestamp
+
+        # Count target pixels
+        num_target = self.count_target_pixels(target_data)
+
+        # Compare current vs target to find remaining pixels (pixel_compare logic inlined)
+        remaining = bytes(0 if target == current else target for current, target in zip(current_data, target_data))
+
+        # Check if project not started (all target pixels remain)
+        if remaining == target_data:
+            self.last_log_message = f"{project_name}: Not started"
+            return DiffResult(status=DiffStatus.NOT_STARTED, num_target=num_target)
+
+        # Count remaining pixels and calculate completion
+        num_remaining = self.count_remaining_pixels(remaining)
+        percent_complete = self.calculate_completion_percent(num_remaining, num_target)
+
+        # Compare with previous snapshot to detect progress/regress
+        progress_pixels = 0
+        regress_pixels = 0
+
+        if prev_data is not None:
+            progress_pixels, regress_pixels = self.compare_snapshots(current_data, prev_data, target_data)
+
+        # Update totals
+        self.total_progress += progress_pixels
+        self.total_regress += regress_pixels
+
+        # Update max completion if improved
+        self.update_completion(num_remaining, percent_complete, timestamp)
+
+        # Update largest regress
+        self.update_regress(regress_pixels, timestamp)
+
+        # Update streak (before checking completion so streak reflects final progress)
+        self.update_streak(progress_pixels, regress_pixels)
+
+        # Check for completion
+        if max(remaining) == 0:
+            self.last_log_message = f"{project_name}: Complete! {num_target} pixels total."
+            return DiffResult(status=DiffStatus.COMPLETE, num_remaining=0, num_target=num_target)
+
+        # Calculate rate (pixels per hour)
+        self.update_rate(progress_pixels, regress_pixels, timestamp)
+
+        # Build log message for in-progress project
+        time_to_go = timedelta(seconds=27) * num_remaining
+        days, hours = divmod(round(time_to_go.total_seconds() / 3600), 24)
+        when = (datetime.now() + time_to_go).strftime("%b %d %H:%M")
+
+        status_parts = [
+            f"{project_name}:",
+            f"{num_remaining}px remaining ({percent_complete:.2f}% complete)",
+        ]
+
+        if progress_pixels > 0 or regress_pixels > 0:
+            status_parts.append(f"[+{progress_pixels}/-{regress_pixels}]")
+
+        if self.change_streak_count > 1:
+            status_parts.append(f"({self.change_streak_type} x{self.change_streak_count})")
+
+        if self.nochange_streak_count > 0:
+            status_parts.append(f"(nochange x{self.nochange_streak_count})")
+
+        status_parts.append(f"ETA: {days}d{hours}h to {when}")
+
+        self.last_log_message = " ".join(status_parts)
+        return DiffResult(status=DiffStatus.IN_PROGRESS, num_remaining=num_remaining, num_target=num_target)
