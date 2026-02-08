@@ -47,9 +47,11 @@ class ProjectMetadata:
     largest_regress_pixels: int = 0
     largest_regress_time: int = 0
 
-    # Current streak (consecutive checks with same outcome)
-    streak_type: str = "none"  # "progress", "regress", "nochange", "none", "complete", "mixed"
-    streak_count: int = 0
+    # Change streak (progress or regress events; nochange events do not break this)
+    change_streak_type: str = "none"  # "progress", "regress", "mixed", "none"
+    change_streak_count: int = 0
+    # Nochange streak (consecutive nochange events; any change event breaks this)
+    nochange_streak_count: int = 0
 
     # Rate tracking (recent window)
     recent_rate_pixels_per_hour: float = 0.0
@@ -100,8 +102,9 @@ class ProjectMetadata:
                 "timestamp": self.largest_regress_time,
             },
             "streak": {
-                "type": self.streak_type,
-                "count": self.streak_count,
+                "change_type": self.change_streak_type,
+                "change_count": self.change_streak_count,
+                "nochange_count": self.nochange_streak_count,
             },
             "recent_rate": {
                 "pixels_per_hour": self.recent_rate_pixels_per_hour,
@@ -141,8 +144,9 @@ class ProjectMetadata:
             total_regress=totals.get("regress_pixels", 0),
             largest_regress_pixels=largest_reg.get("pixels", 0),
             largest_regress_time=largest_reg.get("timestamp", 0),
-            streak_type=streak.get("type", "none"),
-            streak_count=streak.get("count", 0),
+            change_streak_type=streak.get("change_type", "none"),
+            change_streak_count=streak.get("change_count", 0),
+            nochange_streak_count=streak.get("nochange_count", 0),
             recent_rate_pixels_per_hour=rate.get("pixels_per_hour", 0.0),
             recent_rate_window_start=rate.get("window_start", 0),
             tile_last_update=tile_updates.get("last_update_by_tile", {}),
@@ -150,8 +154,9 @@ class ProjectMetadata:
             last_log_message=data.get("last_log_message", ""),
         )
 
-    def prune_old_tile_updates(self, cutoff_time: int) -> None:
+    def prune_old_tile_updates(self) -> None:
         """Remove tile updates older than cutoff_time from 24h list."""
+        cutoff_time = self.last_check - 86400
         self.tile_updates_24h = [(tile, ts) for tile, ts in self.tile_updates_24h if ts >= cutoff_time]
 
     def update_tile(self, tile: Tile, timestamp: int) -> None:
@@ -215,29 +220,28 @@ class ProjectMetadata:
             self.largest_regress_time = timestamp
 
     def update_streak(self, progress_pixels: int, regress_pixels: int) -> None:
-        """Update streak based on progress and regress pixel counts."""
-        if progress_pixels > 0 and regress_pixels == 0:
-            if self.streak_type == "progress":
-                self.streak_count += 1
-            else:
-                self.streak_type = "progress"
-                self.streak_count = 1
-        elif regress_pixels > 0 and progress_pixels == 0:
-            if self.streak_type == "regress":
-                self.streak_count += 1
-            else:
-                self.streak_type = "regress"
-                self.streak_count = 1
-        elif progress_pixels == 0 and regress_pixels == 0:
-            if self.streak_type == "nochange":
-                self.streak_count += 1
-            else:
-                self.streak_type = "nochange"
-                self.streak_count = 1
+        """Update streak based on progress and regress pixel counts.
+
+        Change streaks (progress/regress/mixed) continue across nochange events.
+        Nochange streaks (no pixel changes) reset when any change occurs.
+        """
+        if progress_pixels == 0 and regress_pixels == 0:
+            # Nochange event: increment nochange streak, don't touch change streak
+            self.nochange_streak_count += 1
+            return
+        elif regress_pixels == 0:
+            event = "progress"
+        elif progress_pixels == 0:
+            event = "regress"
         else:
-            # Mixed progress and regress
-            self.streak_type = "mixed"
-            self.streak_count = 1
+            event = "mixed"
+
+        if self.change_streak_type == event:
+            self.change_streak_count += 1  # Continue existing streak
+        else:  # Mixed progress and regress: start fresh mixed streak, break nochange streak
+            self.change_streak_type = event
+            self.change_streak_count = 1
+            self.nochange_streak_count = 0
 
     def update_rate(self, progress_pixels: int, regress_pixels: int, timestamp: int) -> None:
         """Update completion rate (pixels per hour)."""

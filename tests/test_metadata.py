@@ -24,8 +24,9 @@ def test_metadata_default_initialization():
     assert meta.total_regress == 0
     assert meta.largest_regress_pixels == 0
     assert meta.largest_regress_time == 0
-    assert meta.streak_type == "none"
-    assert meta.streak_count == 0
+    assert meta.change_streak_type == "none"
+    assert meta.change_streak_count == 0
+    assert meta.nochange_streak_count == 0
     assert meta.recent_rate_pixels_per_hour == 0.0
     assert meta.recent_rate_window_start == 0
     assert meta.tile_last_update == {}
@@ -80,8 +81,9 @@ def test_metadata_to_dict():
         total_regress=5,
         largest_regress_pixels=10,
         largest_regress_time=5000,
-        streak_type="progress",
-        streak_count=3,
+        change_streak_type="progress",
+        change_streak_count=3,
+        nochange_streak_count=0,
         recent_rate_pixels_per_hour=12.5,
         recent_rate_window_start=6000,
         tile_last_update={"1_2": 7000, "3_4": 8000},
@@ -104,8 +106,9 @@ def test_metadata_to_dict():
     assert data["totals"]["regress_pixels"] == 5
     assert data["largest_regress"]["pixels"] == 10
     assert data["largest_regress"]["timestamp"] == 5000
-    assert data["streak"]["type"] == "progress"
-    assert data["streak"]["count"] == 3
+    assert data["streak"]["change_type"] == "progress"
+    assert data["streak"]["change_count"] == 3
+    assert data["streak"]["nochange_count"] == 0
     assert data["recent_rate"]["pixels_per_hour"] == 12.5
     assert data["recent_rate"]["window_start"] == 6000
     assert data["tile_updates"]["last_update_by_tile"] == {"1_2": 7000, "3_4": 8000}
@@ -137,8 +140,9 @@ def test_metadata_from_dict():
             "timestamp": 5000,
         },
         "streak": {
-            "type": "progress",
-            "count": 3,
+            "change_type": "progress",
+            "change_count": 3,
+            "nochange_count": 0,
         },
         "recent_rate": {
             "pixels_per_hour": 12.5,
@@ -169,8 +173,9 @@ def test_metadata_from_dict():
     assert meta.total_regress == 5
     assert meta.largest_regress_pixels == 10
     assert meta.largest_regress_time == 5000
-    assert meta.streak_type == "progress"
-    assert meta.streak_count == 3
+    assert meta.change_streak_type == "progress"
+    assert meta.change_streak_count == 3
+    assert meta.nochange_streak_count == 0
     assert meta.recent_rate_pixels_per_hour == 12.5
     assert meta.recent_rate_window_start == 6000
     assert meta.tile_last_update == {"1_2": 7000, "3_4": 8000}
@@ -186,7 +191,8 @@ def test_metadata_from_dict_with_missing_fields():
     assert meta.x == 100
     assert meta.y == 0  # Default value
     assert meta.width == 0
-    assert meta.streak_type == "none"
+    assert meta.change_streak_type == "none"
+    assert meta.nochange_streak_count == 0
     assert meta.tile_last_update == {}
     assert meta.tile_updates_24h == []
 
@@ -199,8 +205,8 @@ def test_metadata_round_trip():
     meta.max_completion_percent = 75.5
     meta.total_progress = 50
     meta.total_regress = 5
-    meta.streak_type = "progress"
-    meta.streak_count = 3
+    meta.change_streak_type = "progress"
+    meta.change_streak_count = 3
     meta.tile_last_update = {"1_2": 7000}
     meta.tile_updates_24h = [("1_2", 7000)]
 
@@ -216,8 +222,9 @@ def test_metadata_round_trip():
     assert meta2.max_completion_percent == meta.max_completion_percent
     assert meta2.total_progress == meta.total_progress
     assert meta2.total_regress == meta.total_regress
-    assert meta2.streak_type == meta.streak_type
-    assert meta2.streak_count == meta.streak_count
+    assert meta2.change_streak_type == meta.change_streak_type
+    assert meta2.change_streak_count == meta.change_streak_count
+    assert meta2.nochange_streak_count == meta.nochange_streak_count
     assert meta2.tile_last_update == meta.tile_last_update
     assert meta2.tile_updates_24h == meta.tile_updates_24h
 
@@ -236,8 +243,8 @@ def test_metadata_prune_old_tile_updates():
         ("recent_tile_2", now),
     ]
 
-    cutoff = now - 86400  # 24 hours ago
-    meta.prune_old_tile_updates(cutoff)
+    meta.last_check = now  # Set last_check so cutoff = now - 86400
+    meta.prune_old_tile_updates()
 
     assert len(meta.tile_updates_24h) == 2
     assert ("recent_tile", recent_time) in meta.tile_updates_24h
@@ -251,7 +258,8 @@ def test_metadata_prune_empty_list():
     meta = ProjectMetadata()
     meta.tile_updates_24h = []
 
-    meta.prune_old_tile_updates(round(time.time()))
+    meta.last_check = round(time.time())
+    meta.prune_old_tile_updates()
 
     assert meta.tile_updates_24h == []
 
@@ -265,8 +273,8 @@ def test_metadata_prune_all_old():
         ("tile_2", old_time + 1000),
     ]
 
-    cutoff = round(time.time()) - 86400
-    meta.prune_old_tile_updates(cutoff)
+    meta.last_check = round(time.time())
+    meta.prune_old_tile_updates()
 
     assert meta.tile_updates_24h == []
 
@@ -362,8 +370,8 @@ def test_metadata_tile_tracking_integrated():
     assert len(meta.tile_updates_24h) == 4
 
     # Prune old updates
-    cutoff = now - 86400
-    meta.prune_old_tile_updates(cutoff)
+    meta.last_check = now
+    meta.prune_old_tile_updates()
 
     # Only recent tiles remain in 24h list
     assert len(meta.tile_updates_24h) == 2
@@ -376,14 +384,14 @@ def test_metadata_tile_tracking_integrated():
     assert "2_2" in meta.tile_last_update
 
 
-def test_metadata_streak_types():
-    """Test all possible streak type values."""
-    valid_types = ["none", "progress", "regress", "nochange", "complete", "mixed"]
+def test_metadata_change_streak_types():
+    """Test all possible change streak type values."""
+    valid_types = ["none", "progress", "regress", "mixed"]
 
     for streak_type in valid_types:
-        meta = ProjectMetadata(streak_type=streak_type, streak_count=5)
-        assert meta.streak_type == streak_type
-        assert meta.streak_count == 5
+        meta = ProjectMetadata(change_streak_type=streak_type, change_streak_count=5)
+        assert meta.change_streak_type == streak_type
+        assert meta.change_streak_count == 5
 
 
 def test_metadata_numeric_fields_precision():
@@ -589,13 +597,15 @@ def test_update_streak_progress():
 
     # First progress
     meta.update_streak(1, 0)
-    assert meta.streak_type == "progress"
-    assert meta.streak_count == 1
+    assert meta.change_streak_type == "progress"
+    assert meta.change_streak_count == 1
+    assert meta.nochange_streak_count == 0
 
     # Continue progress streak
     meta.update_streak(2, 0)
-    assert meta.streak_type == "progress"
-    assert meta.streak_count == 2
+    assert meta.change_streak_type == "progress"
+    assert meta.change_streak_count == 2
+    assert meta.nochange_streak_count == 0
 
 
 def test_update_streak_regress():
@@ -603,25 +613,30 @@ def test_update_streak_regress():
     meta = ProjectMetadata()
 
     meta.update_streak(0, 1)
-    assert meta.streak_type == "regress"
-    assert meta.streak_count == 1
+    assert meta.change_streak_type == "regress"
+    assert meta.change_streak_count == 1
+    assert meta.nochange_streak_count == 0
 
     meta.update_streak(0, 2)
-    assert meta.streak_type == "regress"
-    assert meta.streak_count == 2
+    assert meta.change_streak_type == "regress"
+    assert meta.change_streak_count == 2
+    assert meta.nochange_streak_count == 0
 
 
 def test_update_streak_nochange():
-    """Test streak updates for no change."""
+    """Test streak updates for no change (independent of change streak)."""
     meta = ProjectMetadata()
 
+    # Nochange increments without affecting change streak
     meta.update_streak(0, 0)
-    assert meta.streak_type == "nochange"
-    assert meta.streak_count == 1
+    assert meta.change_streak_type == "none"
+    assert meta.change_streak_count == 0
+    assert meta.nochange_streak_count == 1
 
     meta.update_streak(0, 0)
-    assert meta.streak_type == "nochange"
-    assert meta.streak_count == 2
+    assert meta.change_streak_type == "none"
+    assert meta.change_streak_count == 0
+    assert meta.nochange_streak_count == 2
 
 
 def test_update_streak_mixed():
@@ -629,23 +644,32 @@ def test_update_streak_mixed():
     meta = ProjectMetadata()
 
     meta.update_streak(5, 3)
-    assert meta.streak_type == "mixed"
-    assert meta.streak_count == 1
+    assert meta.change_streak_type == "mixed"
+    assert meta.change_streak_count == 1
+    assert meta.nochange_streak_count == 0
 
 
 def test_update_streak_breaks():
-    """Test that changing type breaks the streak."""
+    """Test that nochange doesn't break change streak, but changes break nochange."""
     meta = ProjectMetadata()
 
     # Build progress streak
     meta.update_streak(1, 0)
     meta.update_streak(1, 0)
-    assert meta.streak_count == 2
+    assert meta.change_streak_count == 2
+    assert meta.nochange_streak_count == 0
 
-    # Switch to regress - should reset
+    # Nochange event doesn't break progress streak
+    meta.update_streak(0, 0)
+    assert meta.change_streak_type == "progress"
+    assert meta.change_streak_count == 2  # Still 2!
+    assert meta.nochange_streak_count == 1
+
+    # Switch to regress - continues change streak as regress, breaks nochange
     meta.update_streak(0, 1)
-    assert meta.streak_type == "regress"
-    assert meta.streak_count == 1
+    assert meta.change_streak_type == "regress"
+    assert meta.change_streak_count == 1  # New regress streak
+    assert meta.nochange_streak_count == 0  # Nochange broken
 
 
 def test_update_rate_new_window():

@@ -62,6 +62,10 @@ class ProjectShim:
         """No-op for invalid project files."""
         pass
 
+    def run_nochange(self) -> None:
+        """No-op for invalid project files."""
+        pass
+
 
 class Project(ProjectShim):
     """Represents a wplace project stored on disk that has been validated."""
@@ -223,7 +227,7 @@ class Project(ProjectShim):
         # All images closed - continue with metadata updates
 
         # Track tile changes by comparing current state with cached tile metadata
-        self._update_tile_metadata(now)
+        self._update_tile_metadata()
 
         # Update totals
         self.metadata.total_progress += progress_pixels
@@ -242,7 +246,6 @@ class Project(ProjectShim):
         if max(remaining) == 0:
             self.metadata.last_log_message = (log_message := f"{self.path.name}: Complete! {num_target} pixels total.")
             logger.info(log_message)
-            # Don't override streak - keep the progress/regress info that got us here
             self.save_metadata()
             return
 
@@ -262,8 +265,11 @@ class Project(ProjectShim):
         if progress_pixels > 0 or regress_pixels > 0:
             status_parts.append(f"[+{progress_pixels}/-{regress_pixels}]")
 
-        if self.metadata.streak_count > 1:
-            status_parts.append(f"({self.metadata.streak_type} x{self.metadata.streak_count})")
+        if self.metadata.change_streak_count > 1:
+            status_parts.append(f"({self.metadata.change_streak_type} x{self.metadata.change_streak_count})")
+
+        if self.metadata.nochange_streak_count > 0:
+            status_parts.append(f"(nochange x{self.metadata.nochange_streak_count})")
 
         status_parts.append(f"ETA: {days}d{hours}h to {when}")
 
@@ -273,11 +279,16 @@ class Project(ProjectShim):
         # Save updated metadata
         self.save_metadata()
 
-    def _update_tile_metadata(self, now: int) -> None:
+    def run_nochange(self) -> None:
+        self.metadata.last_check = round(time.time())
+        self.metadata.prune_old_tile_updates()  # regular cleanup task
+        self.metadata.update_streak(0, 0)  # This will increment nochange streak and reset change streak
+        self.save_metadata()
+
+    def _update_tile_metadata(self) -> None:
         """Update tile modification times from cached tile files."""
         # Prune old 24h entries
-        cutoff_24h = now - 86400
-        self.metadata.prune_old_tile_updates(cutoff_24h)
+        self.metadata.prune_old_tile_updates()
 
         # Check each tile in project area
         for tile in self.rect.tiles:

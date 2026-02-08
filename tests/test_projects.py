@@ -399,8 +399,9 @@ def test_metadata_to_dict_and_from_dict():
     assert meta2.max_completion_percent == meta.max_completion_percent
     assert meta2.total_progress == meta.total_progress
     assert meta2.total_regress == meta.total_regress
-    assert meta2.streak_type == meta.streak_type
-    assert meta2.streak_count == meta.streak_count
+    assert meta2.change_streak_type == meta.change_streak_type
+    assert meta2.change_streak_count == meta.change_streak_count
+    assert meta2.nochange_streak_count == meta.nochange_streak_count
     assert meta2.tile_last_update == meta.tile_last_update
     assert meta2.tile_updates_24h == meta.tile_updates_24h
 
@@ -419,8 +420,8 @@ def test_metadata_prune_old_tile_updates():
         ("7_8", recent_time),
     ]
 
-    cutoff = now - 86400  # 24h ago
-    meta.prune_old_tile_updates(cutoff)
+    meta.last_check = now
+    meta.prune_old_tile_updates()
 
     assert len(meta.tile_updates_24h) == 2
     assert ("3_4", recent_time) in meta.tile_updates_24h
@@ -471,8 +472,8 @@ def test_project_metadata_save_and_load(tmp_path):
     # Modify metadata
     proj.metadata.max_completion_pixels = 42
     proj.metadata.total_progress = 100
-    proj.metadata.streak_type = "progress"
-    proj.metadata.streak_count = 5
+    proj.metadata.change_streak_type = "progress"
+    proj.metadata.change_streak_count = 5
 
     # Save metadata
     proj.save_metadata()
@@ -482,8 +483,8 @@ def test_project_metadata_save_and_load(tmp_path):
     proj2 = projects.Project(path, rect)
     assert proj2.metadata.max_completion_pixels == 42
     assert proj2.metadata.total_progress == 100
-    assert proj2.metadata.streak_type == "progress"
-    assert proj2.metadata.streak_count == 5
+    assert proj2.metadata.change_streak_type == "progress"
+    assert proj2.metadata.change_streak_count == 5
 
 
 def test_project_snapshot_save_and_load(tmp_path, monkeypatch):
@@ -590,8 +591,8 @@ def test_run_diff_progress_and_regress_tracking(tmp_path, monkeypatch):
 
     # Should have detected 1 pixel of progress
     assert proj.metadata.total_progress == initial_progress + 1
-    assert proj.metadata.streak_type == "progress"
-    assert proj.metadata.streak_count >= 1
+    assert proj.metadata.change_streak_type == "progress"
+    assert proj.metadata.change_streak_count >= 1
 
 
 def test_run_diff_regress_detection(tmp_path, monkeypatch):
@@ -624,7 +625,7 @@ def test_run_diff_regress_detection(tmp_path, monkeypatch):
 
     # Should have detected regress
     assert proj.metadata.total_regress == 1
-    assert proj.metadata.streak_type == "regress"
+    assert proj.metadata.change_streak_type == "regress"
     assert proj.metadata.largest_regress_pixels == 1
 
 
@@ -644,5 +645,5 @@ def test_run_diff_complete_status(tmp_path, monkeypatch):
 
     proj.run_diff()
 
-    # Should detect as complete - streak shows no change since it was already complete
-    assert proj.metadata.streak_type == "nochange"
+    # Should detect as complete - no pixels to fill
+    assert proj.metadata.nochange_streak_count >= 1

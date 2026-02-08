@@ -166,6 +166,8 @@ class TileChecker:
         # Update queue system with check results
         self.queue_system.update_tile_after_check(tile, last_modified)
 
-        if changed:
-            for proj in self.tiles.get(tile) or ():
+        for proj in self.tiles.get(tile) or ():
+            if changed:
                 proj.run_diff()
+            else:
+                proj.run_nochange()
