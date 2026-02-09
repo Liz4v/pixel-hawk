@@ -21,7 +21,7 @@ import requests
 from loguru import logger
 from PIL import Image
 
-from . import DIRS
+from .config import get_config
 from .geometry import Rectangle, Size, Tile
 from .palette import PALETTE
 from .queues import QueueSystem
@@ -43,7 +43,7 @@ def has_tile_changed(tile: Tile) -> tuple[bool, int]:
     url = f"https://backend.wplace.live/files/s0/tiles/{tile.x}/{tile.y}.png"
 
     # Check for cached tile and prepare If-Modified-Since header
-    cache_path = DIRS.user_cache_path / f"tile-{tile}.png"
+    cache_path = get_config().tiles_dir / f"tile-{tile}.png"
     headers = {}
     mtime = 0
     if cache_path.exists():
@@ -94,7 +94,7 @@ def stitch_tiles(rect: Rectangle) -> Image.Image:
     """Stitches tiles from cache together, exactly covering the given rectangle."""
     image = PALETTE.new(rect.size)
     for tile in rect.tiles:
-        cache_path = DIRS.user_cache_path / f"tile-{tile}.png"
+        cache_path = get_config().tiles_dir / f"tile-{tile}.png"
         if not cache_path.exists():
             logger.debug(f"{tile}: Tile missing from cache, leaving transparent")
             continue

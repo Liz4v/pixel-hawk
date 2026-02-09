@@ -241,20 +241,12 @@ def test_projectshim_get_first_seen():
     assert shim.get_first_seen() == (1 << 58)
 
 
-def test_project_get_first_seen(tmp_path, monkeypatch):
+def test_project_get_first_seen(tmp_path, setup_config):
     """Test that Project.get_first_seen returns metadata first_seen."""
     from cam.palette import PALETTE
 
-    # Setup mocks
-    monkeypatch.setattr(
-        "cam.projects.DIRS", SimpleNamespace(user_pictures_path=tmp_path, user_cache_path=tmp_path / "cache")
-    )
-    (tmp_path / "cache").mkdir()
-
-    # Create a valid project file
-    wplace_dir = tmp_path / "wplace"
-    wplace_dir.mkdir()
-    path = wplace_dir / "proj_0_0_0_0.png"
+    # Create a valid project file in projects_dir
+    path = setup_config.projects_dir / "proj_0_0_0_0.png"
 
     # Create a paletted image
     img = PALETTE.new((4, 4))
@@ -275,17 +267,15 @@ def test_project_get_first_seen(tmp_path, monkeypatch):
 # Project.scan_directory tests
 
 
-def test_scan_directory(tmp_path, monkeypatch):
+def test_scan_directory(tmp_path, setup_config):
     """Test Project.scan_directory returns PNG files."""
-    wplace_dir = tmp_path / "wplace"
-    wplace_dir.mkdir()
-
-    monkeypatch.setattr("cam.projects.DIRS", SimpleNamespace(user_pictures_path=tmp_path))
+    # setup_config already creates projects_dir, just use it
+    projects_dir = setup_config.projects_dir
 
     # Create some files
-    png1 = wplace_dir / "file1.png"
-    png2 = wplace_dir / "file2.png"
-    txt = wplace_dir / "file.txt"
+    png1 = projects_dir / "file1.png"
+    png2 = projects_dir / "file2.png"
+    txt = projects_dir / "file.txt"
     png1.touch()
     png2.touch()
     txt.touch()
@@ -485,15 +475,16 @@ def test_metadata_update_tile():
     assert ("1_2", new_timestamp) in meta.tile_updates_24h
 
 
-def test_project_metadata_paths(tmp_path):
+def test_project_metadata_paths(tmp_path, setup_config):
     """Test snapshot_path and metadata_path properties."""
     path = tmp_path / "proj_0_0_0_0.png"
     path.touch()
     rect = Rectangle.from_point_size(Point(0, 0), Size(2, 2))
     proj = projects.Project(path, rect)
 
-    assert proj.snapshot_path == tmp_path / "proj_0_0_0_0.snapshot.png"
-    assert proj.metadata_path == tmp_path / "proj_0_0_0_0.metadata.yaml"
+    # Paths should now be in config's snapshots_dir and metadata_dir
+    assert proj.snapshot_path == setup_config.snapshots_dir / "proj_0_0_0_0.snapshot.png"
+    assert proj.metadata_path == setup_config.metadata_dir / "proj_0_0_0_0.metadata.yaml"
 
 
 def test_project_metadata_save_and_load(tmp_path):
@@ -684,7 +675,7 @@ def test_run_diff_complete_status(tmp_path, monkeypatch):
     assert proj.metadata.nochange_streak_count >= 1
 
 
-def test_update_single_tile_metadata_updates_when_newer(tmp_path, monkeypatch):
+def test_update_single_tile_metadata_updates_when_newer(tmp_path, monkeypatch, setup_config):
     """Test _update_single_tile_metadata updates when tile file is newer."""
     from cam.geometry import Tile
 
@@ -694,19 +685,9 @@ def test_update_single_tile_metadata_updates_when_newer(tmp_path, monkeypatch):
     rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
     proj = projects.Project(path, rect)
 
-    # Set up cache directory - monkeypatch the DIRS object in the projects module
-    cache_dir = tmp_path / "cache"
-    cache_dir.mkdir()
-
-    # Create a mock DIRS object with the cache_dir as user_cache_path
-    class MockDIRS:
-        user_cache_path = cache_dir
-
-    monkeypatch.setattr(projects, "DIRS", MockDIRS())
-
     # Create a tile file
     tile = Tile(0, 0)
-    tile_path = cache_dir / f"tile-{tile}.png"
+    tile_path = setup_config.tiles_dir / f"tile-{tile}.png"
     tile_path.write_bytes(b"dummy")
 
     # Set mtime to a known value
@@ -726,7 +707,7 @@ def test_update_single_tile_metadata_updates_when_newer(tmp_path, monkeypatch):
     assert ("0_0", tile_mtime) in proj.metadata.tile_updates_24h
 
 
-def test_update_single_tile_metadata_skips_when_not_newer(tmp_path, monkeypatch):
+def test_update_single_tile_metadata_skips_when_not_newer(tmp_path, monkeypatch, setup_config):
     """Test _update_single_tile_metadata skips update when tile not newer."""
     from cam.geometry import Tile
 
@@ -736,19 +717,9 @@ def test_update_single_tile_metadata_skips_when_not_newer(tmp_path, monkeypatch)
     rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
     proj = projects.Project(path, rect)
 
-    # Set up cache directory
-    cache_dir = tmp_path / "cache"
-    cache_dir.mkdir()
-
-    # Create a mock DIRS object
-    class MockDIRS:
-        user_cache_path = cache_dir
-
-    monkeypatch.setattr(projects, "DIRS", MockDIRS())
-
     # Create a tile file
     tile = Tile(0, 0)
-    tile_path = cache_dir / f"tile-{tile}.png"
+    tile_path = setup_config.tiles_dir / f"tile-{tile}.png"
     tile_path.write_bytes(b"dummy")
 
     # Set mtime to a known value
@@ -771,7 +742,7 @@ def test_update_single_tile_metadata_skips_when_not_newer(tmp_path, monkeypatch)
     assert ("0_0", 15000) in proj.metadata.tile_updates_24h
 
 
-def test_update_single_tile_metadata_handles_missing_file(tmp_path, monkeypatch):
+def test_update_single_tile_metadata_handles_missing_file(tmp_path, monkeypatch, setup_config):
     """Test _update_single_tile_metadata handles nonexistent tile file."""
     from cam.geometry import Tile
 
@@ -780,16 +751,6 @@ def test_update_single_tile_metadata_handles_missing_file(tmp_path, monkeypatch)
     path.touch()
     rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
     proj = projects.Project(path, rect)
-
-    # Set up cache directory (but don't create tile file)
-    cache_dir = tmp_path / "cache"
-    cache_dir.mkdir()
-
-    # Create a mock DIRS object
-    class MockDIRS:
-        user_cache_path = cache_dir
-
-    monkeypatch.setattr(projects, "DIRS", MockDIRS())
 
     tile = Tile(0, 0)
 
@@ -805,30 +766,22 @@ def test_update_single_tile_metadata_handles_missing_file(tmp_path, monkeypatch)
     assert len(proj.metadata.tile_updates_24h) == 0
 
 
-def test_has_missing_tiles_all_present(tmp_path, monkeypatch):
+def test_has_missing_tiles_all_present(tmp_path, monkeypatch, setup_config):
     """Test _has_missing_tiles returns False when all tiles exist."""
     path = tmp_path / "proj_0_0_0_0.png"
     path.touch()
     rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
     proj = projects.Project(path, rect)
 
-    cache_dir = tmp_path / "cache"
-    cache_dir.mkdir()
-
-    class MockDIRS:
-        user_cache_path = cache_dir
-
-    monkeypatch.setattr(projects, "DIRS", MockDIRS())
-
     # Create all tiles for this project (just tile 0_0 since it's 1000x1000)
     for tile in rect.tiles:
-        tile_file = cache_dir / f"tile-{tile}.png"
+        tile_file = setup_config.tiles_dir / f"tile-{tile}.png"
         tile_file.touch()
 
     assert proj._has_missing_tiles() is False
 
 
-def test_has_missing_tiles_some_missing(tmp_path, monkeypatch):
+def test_has_missing_tiles_some_missing(tmp_path, monkeypatch, setup_config):
     """Test _has_missing_tiles returns True when some tiles are missing."""
     path = tmp_path / "proj_0_0_0_0.png"
     path.touch()
@@ -836,41 +789,25 @@ def test_has_missing_tiles_some_missing(tmp_path, monkeypatch):
     rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 2000))
     proj = projects.Project(path, rect)
 
-    cache_dir = tmp_path / "cache"
-    cache_dir.mkdir()
-
-    class MockDIRS:
-        user_cache_path = cache_dir
-
-    monkeypatch.setattr(projects, "DIRS", MockDIRS())
-
     # Create only tile 0_0, not tile 0_1
-    tile_file = cache_dir / "tile-0_0.png"
+    tile_file = setup_config.tiles_dir / "tile-0_0.png"
     tile_file.touch()
 
     assert proj._has_missing_tiles() is True
 
 
-def test_has_missing_tiles_all_missing(tmp_path, monkeypatch):
+def test_has_missing_tiles_all_missing(tmp_path, monkeypatch, setup_config):
     """Test _has_missing_tiles returns True when all tiles are missing."""
     path = tmp_path / "proj_0_0_0_0.png"
     path.touch()
     rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
     proj = projects.Project(path, rect)
 
-    cache_dir = tmp_path / "cache"
-    cache_dir.mkdir()
-
-    class MockDIRS:
-        user_cache_path = cache_dir
-
-    monkeypatch.setattr(projects, "DIRS", MockDIRS())
-
     # Don't create any tiles
     assert proj._has_missing_tiles() is True
 
 
-def test_run_diff_sets_has_missing_tiles(tmp_path, monkeypatch):
+def test_run_diff_sets_has_missing_tiles(tmp_path, monkeypatch, setup_config):
     """Test run_diff properly sets has_missing_tiles flag."""
     path = tmp_path / "proj_0_0_0_0.png"
 
@@ -882,15 +819,6 @@ def test_run_diff_sets_has_missing_tiles(tmp_path, monkeypatch):
     rect = Rectangle.from_point_size(Point(0, 0), Size(10, 10))
     proj = projects.Project(path, rect)
 
-    cache_dir = tmp_path / "cache"
-    cache_dir.mkdir()
-
-    class MockDIRS:
-        user_cache_path = cache_dir
-        user_pictures_path = tmp_path
-
-    monkeypatch.setattr(projects, "DIRS", MockDIRS())
-
     # Mock stitch_tiles to return a blank image
     monkeypatch.setattr(projects, "stitch_tiles", lambda rect: _paletted_image((10, 10), 0))
 
@@ -901,7 +829,7 @@ def test_run_diff_sets_has_missing_tiles(tmp_path, monkeypatch):
     assert proj.metadata.has_missing_tiles is True
 
     # Now create the tile file
-    tile_file = cache_dir / "tile-0_0.png"
+    tile_file = setup_config.tiles_dir / "tile-0_0.png"
     tile_file.touch()
 
     # Run diff again

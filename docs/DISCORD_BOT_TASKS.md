@@ -116,7 +116,7 @@ Command to register a new project through Discord by downloading an image URL an
 - Download image from URL using aiohttp
 - Validate image palette using cam's `PALETTE.ensure()`
 - Generate proper filename: `<name>_<tx>_<ty>_<px>_<py>.png`
-- Save to `DIRS.user_pictures_path / "wplace"`
+- Save to `get_config().projects_dir`
 - Create initial status message
 - Store project registry entry
 - Handle errors gracefully (invalid URL, bad palette, file system errors)
@@ -126,7 +126,7 @@ Command to register a new project through Discord by downloading an image URL an
 
 **Dependencies:**
 - Reuse `PALETTE` from `src/cam/palette.py`
-- Reuse `DIRS` from `src/cam/__init__.py`
+- Reuse `get_config()` from `src/cam/config.py`
 - Import `Point`, `Tile` from `src/cam/geometry.py` for validation
 
 **Tests needed:**
@@ -246,7 +246,7 @@ WPLACE_PIXELS_PER_TILE = 1000
 - `src/cam/projects.py` (add new method and constants)
 
 **Files to create:**
-- Helper for folder paths (integrate with DIRS or add new config)
+- Helper for folder paths (use `get_config().data_dir`)
 
 **Dependencies:**
 - Keep Pillow updated for security patches
@@ -336,7 +336,7 @@ Command to list all registered projects with basic status information in a clean
 Implement JSON-based storage for project registry data (message IDs, channel IDs, metadata).
 
 **Implementation Considerations:**
-- Use `DIRS.user_data_path` for storage location
+- Use `get_config().data_dir` for storage location
 - File: `discord_projects.json`
 - Atomic writes (write to temp file, then rename)
 - Auto-save after registry modifications

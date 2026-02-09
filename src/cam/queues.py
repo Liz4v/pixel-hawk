@@ -16,7 +16,7 @@ from typing import Optional
 
 from loguru import logger
 
-from . import DIRS
+from .config import get_config
 from .geometry import Tile
 
 
@@ -44,7 +44,7 @@ class TileMetadata:
     @property
     def cache_path(self) -> Path:
         """Path to cached tile file."""
-        return DIRS.user_cache_path / f"tile-{self.tile}.png"
+        return get_config().tiles_dir / f"tile-{self.tile}.png"
 
     @classmethod
     def from_cache(cls, tile: Tile) -> "TileMetadata":

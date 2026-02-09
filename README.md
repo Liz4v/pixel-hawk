@@ -1,6 +1,6 @@
 # CAM (Canvas Activity Monitor)
 
-A small watcher for WPlace paint projects that monitors tile changes and tracks progress on your artwork.
+A change tracker for WPlace paint projects. It monitors tile changes and tracks progress and attacks on your artwork.
 
 ## What it does
 
@@ -42,21 +42,38 @@ Run the watcher:
 uv run cam
 ```
 
+By default, cam uses `./cam-data` in your current working directory. You can customize this:
+
+```powershell
+# Use custom directory
+uv run cam --cam-home /path/to/cam-data
+
+# Or set environment variable
+$env:CAM_HOME = "C:\path\to\cam-data"
+uv run cam
+```
+
+**Precedence:** CLI flag `--cam-home` > environment variable `CAM_HOME` > default `./cam-data`
+
 ### Setting up projects
 
 1. Create a project image using the WPlace palette (first color is treated as transparent)
 2. Name your file with coordinates in the format: `project_<tx>_<ty>_<px>_<py>.png` or similar (4 numbers separated by underscores or hyphens: tile x, tile y, pixel x within tile, pixel y within tile)
-3. Place it in your platform pictures folder under `wplace/` subdirectory
+3. Place it in `<cam-home>/projects/` directory (default: `./cam-data/projects/`)
 4. The watcher will automatically discover and track it
 
 ### Where data lives
 
-- **Project images:** `<user_pictures_path>/wplace/` — place your project PNGs here
-- **Tile cache:** `<user_cache_path>/cam/` — cached tiles from WPlace
-- **Metadata & snapshots:** Saved alongside each project as `.yaml` and `.snapshot.png` files for tracking completion history and detecting progress/regress
-- **Logs:** `<user_log_path>/cam.log` — application logs with 10 MB rotation and 7-day retention
+All cam data lives in a unified directory structure under `cam-home` (default: `./cam-data`):
 
-Platform paths are managed via `platformdirs.PlatformDirs("cam")`.
+- **`projects/`** — Place your project PNG files here
+- **`tiles/`** — Cached tiles from WPlace backend
+- **`snapshots/`** — Canvas state snapshots for tracking changes
+- **`metadata/`** — Project statistics and completion history (YAML files)
+- **`logs/`** — Application logs (`cam.log` with 10 MB rotation and 7-day retention)
+- **`data/`** — Reserved for future bot data and state
+
+**Recommendation:** Run cam from a dedicated directory (e.g., create `~/cam-workspace/` and run cam from there) so `./cam-data` stays organized.
 
 ## Development
 

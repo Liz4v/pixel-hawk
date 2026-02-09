@@ -1,6 +1,6 @@
 """Project discovery, parsing, validation, and diff computation.
 
-Scans DIRS.user_pictures_path / 'wplace' for PNG files with coordinate information
+Scans get_config().projects_dir for PNG files with coordinate information
 encoded in the filename (format: *_x_y_w_h.png). Valid project images must use
 the WPlace palette and are cached in memory with their metadata.
 
@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, ContextManager, Iterable
 from loguru import logger
 from ruamel.yaml import YAML
 
-from . import DIRS
+from .config import get_config
 from .geometry import Point, Rectangle, Size, Tile
 from .ingest import stitch_tiles
 from .metadata import DiffStatus, ProjectMetadata
@@ -79,16 +79,14 @@ class Project(ProjectShim):
     @classmethod
     def iter(cls) -> Iterable[ProjectShim]:
         """Yields all projects (valid and invalid) found in the user pictures directory."""
-        path = DIRS.user_pictures_path / "wplace"
-        path.mkdir(parents=True, exist_ok=True)
+        path = get_config().projects_dir
         logger.info(f"Searching for projects in {path}")
         return (cls.try_open(p) for p in sorted(path.iterdir()))
 
     @classmethod
     def scan_directory(cls) -> set[Path]:
         """Returns the set of PNG files in the user pictures/wplace directory."""
-        path = DIRS.user_pictures_path / "wplace"
-        path.mkdir(parents=True, exist_ok=True)
+        path = get_config().projects_dir
         return {p for p in path.glob("*.png") if p.is_file()}
 
     @classmethod
@@ -134,13 +132,13 @@ class Project(ProjectShim):
     def snapshot_path(self) -> Path:
         """Path to the snapshot file for this project."""
         # project_123_456_789_012.png -> project_123_456_789_012.snapshot.png
-        return self.path.with_suffix(".snapshot.png")
+        return get_config().snapshots_dir / self.path.name.replace(".png", ".snapshot.png")
 
     @property
     def metadata_path(self) -> Path:
         """Path to the metadata YAML file for this project."""
         # project_123_456_789_012.png -> project_123_456_789_012.metadata.yaml
-        return self.path.with_suffix(".metadata.yaml")
+        return get_config().metadata_dir / self.path.name.replace(".png", ".metadata.yaml")
 
     def load_metadata(self) -> ProjectMetadata:
         """Load metadata from YAML file, or create new if file doesn't exist."""
@@ -229,7 +227,7 @@ class Project(ProjectShim):
 
     def _update_single_tile_metadata(self, tile: Tile) -> None:
         """Update metadata for a single tile that changed."""
-        tile_path = DIRS.user_cache_path / f"tile-{tile}.png"
+        tile_path = get_config().tiles_dir / f"tile-{tile}.png"
         if tile_path.exists():
             mtime = round(tile_path.stat().st_mtime)
             tile_str = str(tile)
@@ -246,7 +244,7 @@ class Project(ProjectShim):
 
         # Check each tile in project area
         for tile in self.rect.tiles:
-            tile_path = DIRS.user_cache_path / f"tile-{tile}.png"
+            tile_path = get_config().tiles_dir / f"tile-{tile}.png"
             if tile_path.exists():
                 mtime = round(tile_path.stat().st_mtime)
                 tile_str = str(tile)
@@ -259,7 +257,7 @@ class Project(ProjectShim):
     def _has_missing_tiles(self) -> bool:
         """Check if any tiles required by this project are missing from cache."""
         for tile in self.rect.tiles:
-            tile_path = DIRS.user_cache_path / f"tile-{tile}.png"
+            tile_path = get_config().tiles_dir / f"tile-{tile}.png"
             if not tile_path.exists():
                 return True
         return False

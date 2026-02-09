@@ -150,14 +150,14 @@ The worst griefing incident recorded for a project (most pixels lost in a single
 
 ## File Structure & Paths
 
-### Platform Directories (DIRS)
-Standardized paths for user data managed by the `platformdirs` library. Includes user_cache_path, user_pictures_path, and user_log_path.
+### Configuration (CONFIG)
+Configurable directory structure managed by `config.py`. Default cam-home is `./cam-data` (configurable via `--cam-home` or `CAM_HOME` env var).
 
-### User Pictures Path
-`<user_pictures_path>/wplace/` — where users place their project PNG files.
+### Projects Directory
+`<cam-home>/projects/` — where users place their project PNG files.
 
-### User Cache Path
-`<user_cache_path>/cam/` — where cached tiles are stored.
+### Tiles Cache
+`<cam-home>/tiles/` — where cached tiles are stored.
 
 ### User Log Path
 `<user_log_path>/cam.log` — where application logs are written.

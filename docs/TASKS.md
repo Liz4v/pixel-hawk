@@ -1,8 +1,8 @@
 # CAM Tasks
 
-## High Priority
+## Active
 
-_No active high priority tasks._
+No active tasks.
 
 ---
 
@@ -30,7 +30,7 @@ Create a Discord bot that integrates with cam to provide real-time project monit
 **Related Code:**
 - Will integrate with `Project` class in `src/cam/projects.py`
 - Will reuse `PALETTE` from `src/cam/palette.py` for image validation
-- Will use `DIRS` from `src/cam/__init__.py` for file management
+- Will use `get_config()` from `src/cam/config.py` for directory paths
 
 ---
 
@@ -78,6 +78,10 @@ Add memory profiling to identify and optimize memory usage for deployment on mem
 ## Completed
 
 > **Note:** Keep completed task descriptions to a single concise paragraph summarizing what was done.
+
+### ✅ Configurable directory paths with unified cam-home structure (2026-02-08)
+
+Migrated from platformdirs to configurable local `./cam-data` directory structure: created `config.py` module with `Config` dataclass containing 6 computed subdirectory properties (projects, snapshots, metadata, tiles, logs, data); implemented `load_config()` with CLI/env/default precedence (`--cam-home` > `CAM_HOME` > `./cam-data`); replaced `DIRS` with module-level `CONFIG` variable and `get_config()` helper; updated `main()` to initialize all subdirectories at startup and log cam-home location; migrated all path references in projects.py, ingest.py, queues.py; removed platformdirs dependency from pyproject.toml; created comprehensive test_config.py with 12 tests covering all configuration scenarios; updated conftest.py with autouse `setup_config` fixture; all 178 tests passing with 96.5% coverage; mypy type checking successful.
 
 ### ✅ Refined burning queue to prioritize by project first_seen timestamp (2026-02-08)
 

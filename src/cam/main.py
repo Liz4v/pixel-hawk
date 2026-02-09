@@ -12,7 +12,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from . import DIRS
+from .config import get_config
 from .ingest import TileChecker
 from .projects import Project
 
@@ -68,12 +68,16 @@ class Main:
 
 def main():
     """Main entry point for cam (Canvas Activity Monitor)."""
-    log_file = DIRS.user_log_path / "cam.log"
+    # Set up logging
+    cfg = get_config()
+    log_file = cfg.logs_dir / "cam.log"
     log_fmt = "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
     logger.add(log_file, rotation="10 MB", retention="7 days", level="DEBUG", format=log_fmt)
     logger.info("============================================================================================")
     logger.info("cam - Canvas Activity Monitor")
-    logger.info(f"Logging to file: {log_file}")
+    logger.debug(f"cam-home: {cfg.home}")
+    logger.debug(f"Logging to file: {log_file}")
+    logger.info(f"Place project PNG files in: {cfg.projects_dir}")
     # set up main loop
     worker = Main()
     consecutive_errors = 0

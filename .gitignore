@@ -7,3 +7,4 @@ wheels/
 *.egg-info
 .venv/
 .*cache/
+cam-data/

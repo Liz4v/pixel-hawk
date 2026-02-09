@@ -164,15 +164,9 @@ def test_maybe_load_project_invalid(monkeypatch):
 # check_projects tests (file watching)
 
 
-def test_check_projects_detects_added_and_deleted(tmp_path, monkeypatch):
+def test_check_projects_detects_added_and_deleted(tmp_path, monkeypatch, setup_config):
     """Test that check_projects detects added and deleted project files."""
-    wplace_dir = tmp_path / "wplace"
-    wplace_dir.mkdir()
-
-    # Setup DIRS to point to tmp_path
-    monkeypatch.setattr(
-        projects, "DIRS", SimpleNamespace(user_pictures_path=tmp_path, user_cache_path=tmp_path / "cache")
-    )
+    projects_dir = setup_config.projects_dir
 
     # Start with no projects
     monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: []))
@@ -196,7 +190,7 @@ def test_check_projects_detects_added_and_deleted(tmp_path, monkeypatch):
     m.forget_project = track_forget
 
     # Create a new project file
-    proj_path = wplace_dir / "proj_0_0_1_1.png"
+    proj_path = projects_dir / "proj_0_0_1_1.png"
     proj_path.touch()
 
     # Mock Project.try_open to return a dummy project
@@ -226,21 +220,15 @@ def test_check_projects_detects_added_and_deleted(tmp_path, monkeypatch):
     assert proj_path in forgotten
 
 
-def test_check_projects_processes_added_and_deleted(tmp_path, monkeypatch):
+def test_check_projects_processes_added_and_deleted(tmp_path, monkeypatch, setup_config):
     """Test that check_projects correctly handles adding and deleting projects."""
-    wplace_dir = tmp_path / "wplace"
-    wplace_dir.mkdir()
-
-    # Setup DIRS to point to tmp_path
-    monkeypatch.setattr(
-        projects, "DIRS", SimpleNamespace(user_pictures_path=tmp_path, user_cache_path=tmp_path / "cache")
-    )
+    projects_dir = setup_config.projects_dir
 
     # ensure Project.iter returns empty for deterministic start
     monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: []))
     m = main_mod.Main()
 
-    path = wplace_dir / "proj_0_0_1_1.png"
+    path = projects_dir / "proj_0_0_1_1.png"
     path.touch()
 
     # Dummy project that exposes a single tile and records calls
@@ -277,19 +265,14 @@ def test_check_projects_processes_added_and_deleted(tmp_path, monkeypatch):
     assert path not in m.projects
 
 
-def test_check_projects_handles_modified_files(tmp_path, monkeypatch):
+def test_check_projects_handles_modified_files(tmp_path, monkeypatch, setup_config):
     """Test that check_projects detects modified files via mtime."""
-    wplace_dir = tmp_path / "wplace"
-    wplace_dir.mkdir()
-
-    monkeypatch.setattr(
-        projects, "DIRS", SimpleNamespace(user_pictures_path=tmp_path, user_cache_path=tmp_path / "cache")
-    )
+    projects_dir = setup_config.projects_dir
 
     monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: []))
     m = main_mod.Main()
 
-    proj_path = wplace_dir / "proj_0_0_1_1.png"
+    proj_path = projects_dir / "proj_0_0_1_1.png"
     proj_path.touch()
 
     class DummyProj:
@@ -337,17 +320,12 @@ def test_check_projects_handles_modified_files(tmp_path, monkeypatch):
     assert load_called["count"] >= 1
 
 
-def test_check_projects_skips_deleted_files_in_current_loop(tmp_path, monkeypatch):
+def test_check_projects_skips_deleted_files_in_current_loop(tmp_path, monkeypatch, setup_config):
     """Test that check_projects doesn't try to load files that are in deleted set."""
-    wplace_dir = tmp_path / "wplace"
-    wplace_dir.mkdir()
-
-    monkeypatch.setattr(
-        projects, "DIRS", SimpleNamespace(user_pictures_path=tmp_path, user_cache_path=tmp_path / "cache")
-    )
+    projects_dir = setup_config.projects_dir
 
     # Start with one project already loaded
-    proj_path = wplace_dir / "proj_0_0_1_1.png"
+    proj_path = projects_dir / "proj_0_0_1_1.png"
 
     class DummyProj:
         def __init__(self, path):
@@ -367,7 +345,7 @@ def test_check_projects_skips_deleted_files_in_current_loop(tmp_path, monkeypatc
     m = main_mod.Main()
 
     # Create a different file on disk
-    other_path = wplace_dir / "other_0_0_1_1.png"
+    other_path = projects_dir / "other_0_0_1_1.png"
     other_path.touch()
 
     monkeypatch.setattr(projects.Project, "try_open", classmethod(lambda cls, p: DummyProj(p)))
@@ -529,10 +507,7 @@ def test_stitch_tiles_warns_on_missing_and_returns_paletted_image(tmp_path, caps
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     # replace module cache dir so stitch_tiles looks at tmp cache
-    monkeypatch.setattr(projects, "DIRS", SimpleNamespace(user_cache_path=cache_dir))
     from cam import ingest
-
-    monkeypatch.setattr(ingest, "DIRS", SimpleNamespace(user_cache_path=cache_dir))
 
     img = ingest.stitch_tiles(rect)
     assert isinstance(img, Image.Image)

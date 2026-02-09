@@ -1,13 +1,13 @@
 ## Project Overview
 
-cam (Canvas Activity Monitor) is a small watcher for WPlace paint projects. It polls WPlace tile images, stitches cached tiles, and diffs them against project image files a user places in their platform pictures folder. The package entry point is exposed as the console script `cam` (see `pyproject.toml`).
+cam (Canvas Activity Monitor) is a change tracker for WPlace paint projects. It polls WPlace tile images, and diffs them against project image files provided by users. The package entry point is exposed as the console script `cam` (see `pyproject.toml`).
 
 ## Quick facts
 
 - **Requires:** Python >= 3.14 (see `pyproject.toml`)
 - **Console script:** `cam = "cam.main:main"`
 - **Main package:** `src/cam`
-- **Key dependencies:** `loguru`, `pillow`, `platformdirs`, `requests`, `ruamel.yaml`
+- **Key dependencies:** `loguru`, `pillow`, `requests`, `ruamel.yaml`
 - **Linting:** `ruff` configured with `line-length = 120`
 
 ## Where to look for further context
@@ -46,10 +46,21 @@ uv sync
 uv run cam
 ```
 
-## Where data lives
+## Configuration and data directories
 
-- The package uses `platformdirs.PlatformDirs("cam")` and exposes `DIRS` from `src/cam/__init__.py`.
-- User pictures path: `DIRS.user_pictures_path / "wplace"` — drop project PNGs here.
+- Configuration managed through `src/cam/config.py`
+- Default cam-home: `./cam-data` (current working directory)
+- Configurable via CLI flag `--cam-home` or environment variable `CAM_HOME`
+- All data lives under cam-home with organized subdirectories:
+  - `projects/` — project PNG files
+  - `tiles/` — cached tiles from WPlace
+  - `snapshots/` — canvas state snapshots
+  - `metadata/` — project completion tracking (YAML)
+  - `logs/` — application logs
+  - `data/` — future bot data and state
+- Access configuration via `get_config()` from `config.py`
+- CONFIG singleton is lazily initialized on first access
+- All subdirectories auto-created by `load_config()` on startup
 
 ## How it works (high level)
 
@@ -57,16 +68,17 @@ uv run cam
 - Tile polling uses intelligent temperature-based queue system: `QueueSystem` (in `queues.py`) maintains burning and temperature queues with Zipf distribution sizing. Tiles are selected round-robin across queues, with least-recently-checked tile selected from each queue.
 - `TileChecker` (in `ingest.py`) manages tile monitoring: selects tiles via `QueueSystem`, calls `has_tile_changed()` to fetch from WPlace backend, and triggers project diffs when changes are detected.
 - `has_tile_changed()` (in `ingest.py`) requests tiles from the WPlace tile backend and updates a cached paletted PNG if there are changes.
-- `Project` (in `projects.py`) discovers project PNGs placed under the `wplace` pictures folder. Filenames must include 4 coordinates in format `*_<tx>_<ty>_<px>_<py>.png` (tile x, tile y, pixel x 0-999, pixel y 0-999) and must use the project's palette.
+- `Project` (in `projects.py`) discovers project PNGs placed in the configured `projects_dir`. Filenames must include 4 coordinates in format `*_<tx>_<ty>_<px>_<py>.png` (tile x, tile y, pixel x 0-999, pixel y 0-999) and must use the project's palette.
 - Invalid files (missing coordinates, bad palette) are tracked as `ProjectShim` instances to avoid repeated load attempts.
 - `PALETTE` (in `palette.py`) enforces and converts images to the project palette (first color treated as transparent).
-- `ProjectMetadata` (in `metadata.py`) tracks completion history, progress/regress statistics, streaks, and rates. Persists to YAML files alongside project images.
+- `ProjectMetadata` (in `metadata.py`) tracks completion history, progress/regress statistics, streaks, and rates. Persists to YAML files in `metadata_dir` (separate from project files).
 - `Main` (in `main.py`) runs the polling loop: `TileChecker.check_next_tile()` handles tile selection and checking, `check_projects()` scans for new/modified/deleted project files. On tile changes it diffs updated tiles with project images and logs progress.
 - Queue system tracks tile metadata (last checked, last modified) and repositions tiles surgically when modification times change. When a tile moves to a hotter queue, coldest tiles cascade down through intervening queues to maintain Zipf distribution sizes.
 
 ## File/Module map (where to look)
 
-- `src/cam/__init__.py` — `DIRS` (platform dirs)
+- `src/cam/__init__.py` — empty package marker (just comment + docstring)
+- `src/cam/config.py` — `Config` dataclass, `load_config()`, `get_config()`, CONFIG singleton
 - `src/cam/main.py` — application entry, unified polling loop, project load/forget logic
 - `src/cam/geometry.py` — `Tile`, `Point`, `Size`, `Rectangle` helpers (tile math)
 - `src/cam/ingest.py` — `TileChecker` (tile monitoring orchestration), `has_tile_changed()` (tile download), `stitch_tiles()` (canvas assembly)
@@ -117,13 +129,12 @@ This project embraces core principles from PEP 20 ("The Zen of Python"):
   - Coverage is configured in `pyproject.toml` under `[tool.pytest.ini_options]`.
   - The project enforces a coverage threshold for all modules.
   - Test assertions: Write tests that verify assertions fire for "shouldn't happen" cases (use `pytest.raises(AssertionError)`).
-  - Mocking `DIRS`: The `DIRS` object from `platformdirs` has read-only properties (`user_cache_path`, `user_pictures_path`, etc.). To mock these in tests, create a simple mock class with the needed attributes and monkeypatch the entire `DIRS` object in the module that imports it. Example: `class MockDIRS: user_cache_path = tmp_path / "cache"` then `monkeypatch.setattr(module_under_test, "DIRS", MockDIRS())`. Do NOT try to `setattr` on DIRS properties directly.
   - Run tests: `uv run pytest`
 
 ## Running and debugging
 
-- To debug tile fetching behavior, call `has_tile_changed()` directly with a `Tile` object in an interactive script and observe `DIRS.user_cache_path` for generated `tile-*.png` files.
-- To debug project parsing, drop a correctly named PNG into `DIRS.user_pictures_path / 'wplace'` and watch the log output from `Main`.
+- To debug tile fetching behavior, call `has_tile_changed()` directly with a `Tile` object in an interactive script and observe `get_config().tiles_dir` for generated `tile-*.png` files.
+- To debug project parsing, drop a correctly named PNG into `get_config().projects_dir` and watch the log output from `Main`.
 
 ## Notes for Copilot (how to suggest changes)
 

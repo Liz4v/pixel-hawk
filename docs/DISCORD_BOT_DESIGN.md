@@ -200,7 +200,7 @@ TRUSTED_SERVERS = [
 - **discord.py**: Discord bot framework
 - **aiohttp**: Async HTTP for image downloads
 - **Pillow**: Image validation (reuse from cam)
-- **platformdirs**: Data directory management (reuse from cam)
+- **ruamel.yaml**: Configuration management (reuse from cam)
 
 ### Bot Configuration
 
