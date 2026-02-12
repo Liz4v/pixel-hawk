@@ -1,7 +1,7 @@
 [project]
-name = "cam"
+name = "pixel-hawk"
 version = "0.1.0"
-description = "Canvas Activity Monitor"
+description = "Pixel Hawk - WPlace paint project change tracker"
 authors = [
     { name = "Liz Balbuena" }
 ]
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-cam = "cam.main:main"
+pixel-hawk = "pixel_hawk.main:main"
 
 [tool.ruff]
 line-length = 120
@@ -34,7 +34,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "--cov=cam --cov-report=term-missing --cov-fail-under=95 -q"
+addopts = "--cov=pixel_hawk --cov-report=term-missing --cov-fail-under=95 -q"
 python_files = ["tests/*.py"]
 testpaths = ["tests"]
 
@@ -52,7 +52,7 @@ strict_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 show_error_codes = true
-files = ["src/cam"]
+files = ["src/pixel_hawk"]
 
 [[tool.mypy.overrides]]
 module = "tests.*"

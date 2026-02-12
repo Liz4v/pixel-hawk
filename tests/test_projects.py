@@ -3,10 +3,10 @@ from types import SimpleNamespace
 
 from PIL import Image
 
-from cam import projects
-from cam.geometry import Point, Rectangle, Size
-from cam.metadata import ProjectMetadata
-from cam.palette import PALETTE
+from pixel_hawk import projects
+from pixel_hawk.geometry import Point, Rectangle, Size
+from pixel_hawk.metadata import ProjectMetadata
+from pixel_hawk.palette import PALETTE
 
 
 def _paletted_image(size=(4, 4), value=1):
@@ -243,7 +243,7 @@ def test_projectshim_get_first_seen():
 
 def test_project_get_first_seen(tmp_path, setup_config):
     """Test that Project.get_first_seen returns metadata first_seen."""
-    from cam.palette import PALETTE
+    from pixel_hawk.palette import PALETTE
 
     # Create a valid project file in projects_dir
     path = setup_config.projects_dir / "proj_0_0_0_0.png"
@@ -456,7 +456,7 @@ def test_metadata_prune_old_tile_updates():
 
 def test_metadata_update_tile():
     """Test tile update recording."""
-    from cam.geometry import Tile
+    from pixel_hawk.geometry import Tile
 
     meta = ProjectMetadata()
     tile = Tile(1, 2)
@@ -677,7 +677,7 @@ def test_run_diff_complete_status(tmp_path, monkeypatch):
 
 def test_update_single_tile_metadata_updates_when_newer(tmp_path, monkeypatch, setup_config):
     """Test _update_single_tile_metadata updates when tile file is newer."""
-    from cam.geometry import Tile
+    from pixel_hawk.geometry import Tile
 
     # Create a project
     path = tmp_path / "proj_0_0_0_0.png"
@@ -709,7 +709,7 @@ def test_update_single_tile_metadata_updates_when_newer(tmp_path, monkeypatch, s
 
 def test_update_single_tile_metadata_skips_when_not_newer(tmp_path, monkeypatch, setup_config):
     """Test _update_single_tile_metadata skips update when tile not newer."""
-    from cam.geometry import Tile
+    from pixel_hawk.geometry import Tile
 
     # Create a project
     path = tmp_path / "proj_0_0_0_0.png"
@@ -744,7 +744,7 @@ def test_update_single_tile_metadata_skips_when_not_newer(tmp_path, monkeypatch,
 
 def test_update_single_tile_metadata_handles_missing_file(tmp_path, monkeypatch, setup_config):
     """Test _update_single_tile_metadata handles nonexistent tile file."""
-    from cam.geometry import Tile
+    from pixel_hawk.geometry import Tile
 
     # Create a project
     path = tmp_path / "proj_0_0_0_0.png"

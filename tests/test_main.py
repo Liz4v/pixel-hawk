@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 from PIL import Image
 
-from cam import main as main_mod
-from cam import projects
-from cam.geometry import Point, Rectangle, Size, Tile
+from pixel_hawk import main as main_mod
+from pixel_hawk import projects
+from pixel_hawk.geometry import Point, Rectangle, Size, Tile
 
 # Basic Main initialization and tile tracking
 
@@ -37,12 +37,12 @@ def test_main_load_and_check_tiles(monkeypatch):
     proj = FakeProj(proj_path, Rectangle.from_point_size(Point(0, 0), Size(1000, 1000)))
 
     # monkeypatch Project.iter and Project.try_open
-    monkeypatch.setattr("cam.main.Project.iter", classmethod(lambda cls: [proj]))
-    monkeypatch.setattr("cam.main.Project.try_open", classmethod(lambda cls, p: proj))
+    monkeypatch.setattr("pixel_hawk.main.Project.iter", classmethod(lambda cls: [proj]))
+    monkeypatch.setattr("pixel_hawk.main.Project.try_open", classmethod(lambda cls, p: proj))
 
     m = main_mod.Main()
     # Mock has_tile_changed to return tuple (True, valid_timestamp)
-    monkeypatch.setattr("cam.ingest.has_tile_changed", lambda tile: (True, 1700000000))
+    monkeypatch.setattr("pixel_hawk.ingest.has_tile_changed", lambda tile: (True, 1700000000))
     # check_next_tile should call project's run_diff for tile (0,0)
     m.tile_checker.check_next_tile()
     assert proj._called["run_diff"] >= 1
@@ -87,7 +87,7 @@ def test_main_indexing_and_check_tiles_and_load_forget(tmp_path, monkeypatch):
     assert Tile(0, 0) in m.tile_checker.tiles
 
     # check_next_tile with has_tile_changed returning True should call run_diff
-    monkeypatch.setattr("cam.ingest.has_tile_changed", lambda tile: (True, 1700000000))
+    monkeypatch.setattr("pixel_hawk.ingest.has_tile_changed", lambda tile: (True, 1700000000))
     m.tile_checker.check_next_tile()
     assert called.get("run") is True
 
@@ -507,7 +507,7 @@ def test_stitch_tiles_warns_on_missing_and_returns_paletted_image(tmp_path, caps
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     # replace module cache dir so stitch_tiles looks at tmp cache
-    from cam import ingest
+    from pixel_hawk import ingest
 
     img = ingest.stitch_tiles(rect)
     assert isinstance(img, Image.Image)
@@ -555,7 +555,7 @@ def test_main_check_tiles_round_robin(monkeypatch):
     proj2 = FakeProj(Path("/tmp/proj2.png"), Tile(1, 0))
     proj3 = FakeProj(Path("/tmp/proj3.png"), Tile(0, 1))
 
-    monkeypatch.setattr("cam.main.Project.iter", classmethod(lambda cls: [proj1, proj2, proj3]))
+    monkeypatch.setattr("pixel_hawk.main.Project.iter", classmethod(lambda cls: [proj1, proj2, proj3]))
 
     m = main_mod.Main()
     assert len(m.tile_checker.tiles) == 3  # Three tiles tracked
@@ -568,7 +568,7 @@ def test_main_check_tiles_round_robin(monkeypatch):
         checked_tiles.append(tile)
         return (True, 0)  # Return tuple: (changed, last_modified)
 
-    monkeypatch.setattr("cam.ingest.has_tile_changed", mock_has_tile_changed)
+    monkeypatch.setattr("pixel_hawk.ingest.has_tile_changed", mock_has_tile_changed)
 
     # First cycle: should check only one tile
     m.tile_checker.check_next_tile()
@@ -589,7 +589,7 @@ def test_main_check_tiles_round_robin(monkeypatch):
 
 def test_main_check_tiles_empty_tiles(monkeypatch):
     """Test that check_tiles handles empty tiles gracefully."""
-    monkeypatch.setattr("cam.main.Project.iter", classmethod(lambda cls: []))
+    monkeypatch.setattr("pixel_hawk.main.Project.iter", classmethod(lambda cls: []))
 
     m = main_mod.Main()
     assert len(m.tile_checker.tiles) == 0
@@ -602,7 +602,7 @@ def test_main_check_tiles_empty_tiles(monkeypatch):
 
 def test_poll_once_checks_projects_before_tiles(monkeypatch):
     """Test that poll_once() checks projects before tiles (inverted order)."""
-    monkeypatch.setattr("cam.main.Project.iter", classmethod(lambda cls: []))
+    monkeypatch.setattr("pixel_hawk.main.Project.iter", classmethod(lambda cls: []))
 
     m = main_mod.Main()
 
@@ -631,7 +631,7 @@ def test_poll_once_checks_projects_before_tiles(monkeypatch):
 
 def test_main_handles_consecutive_errors(monkeypatch):
     """Test that main() exits after three consecutive errors."""
-    monkeypatch.setattr("cam.main.Project.iter", classmethod(lambda cls: []))
+    monkeypatch.setattr("pixel_hawk.main.Project.iter", classmethod(lambda cls: []))
 
     error_count = {"count": 0}
 
@@ -657,7 +657,7 @@ def test_main_handles_consecutive_errors(monkeypatch):
 
 def test_main_resets_error_count_on_success(monkeypatch):
     """Test that main() resets consecutive error count after a successful cycle."""
-    monkeypatch.setattr("cam.main.Project.iter", classmethod(lambda cls: []))
+    monkeypatch.setattr("pixel_hawk.main.Project.iter", classmethod(lambda cls: []))
 
     cycle_count = {"count": 0}
 

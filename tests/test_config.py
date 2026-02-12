@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-import cam.config
-from cam.config import Config, get_config, load_config
+import pixel_hawk.config
+from pixel_hawk.config import Config, get_config, load_config
 
 
 class TestConfig:
@@ -33,32 +33,32 @@ class TestConfig:
 class TestLoadConfig:
     """Tests for load_config function."""
 
-    def test_default_cam_home(self, monkeypatch):
-        """Test that default cam-home is ./cam-data (converted to absolute)."""
+    def test_default_pixel_hawk_home(self, monkeypatch):
+        """Test that default pixel-hawk-home is ./pixel-hawk-data (converted to absolute)."""
         # Clear environment variable if it exists
-        monkeypatch.delenv("CAM_HOME", raising=False)
+        monkeypatch.delenv("PIXEL_HAWK_HOME", raising=False)
 
         config = load_config(args=[])
 
-        # Should be ./cam-data resolved to absolute path
-        expected = Path("./cam-data").resolve()
+        # Should be ./pixel-hawk-data resolved to absolute path
+        expected = Path("./pixel-hawk-data").resolve()
         assert config.home == expected
 
     def test_cli_flag_precedence(self, tmp_path, monkeypatch):
-        """Test that --cam-home CLI flag takes precedence over env var."""
+        """Test that --pixel-hawk-home CLI flag takes precedence over env var."""
         cli_path = tmp_path / "cli-home"
         env_path = tmp_path / "env-home"
 
-        monkeypatch.setenv("CAM_HOME", str(env_path))
+        monkeypatch.setenv("PIXEL_HAWK_HOME", str(env_path))
 
-        config = load_config(args=["--cam-home", str(cli_path)])
+        config = load_config(args=["--pixel-hawk-home", str(cli_path)])
 
         assert config.home == cli_path.resolve()
 
     def test_env_var_precedence(self, tmp_path, monkeypatch):
-        """Test that CAM_HOME env var takes precedence over default."""
+        """Test that PIXEL_HAWK_HOME env var takes precedence over default."""
         env_path = tmp_path / "env-home"
-        monkeypatch.setenv("CAM_HOME", str(env_path))
+        monkeypatch.setenv("PIXEL_HAWK_HOME", str(env_path))
 
         config = load_config(args=[])
 
@@ -69,7 +69,7 @@ class TestLoadConfig:
         # Change to tmp_path as working directory
         monkeypatch.chdir(tmp_path)
 
-        config = load_config(args=["--cam-home", "my-data"])
+        config = load_config(args=["--pixel-hawk-home", "my-data"])
 
         expected = (tmp_path / "my-data").resolve()
         assert config.home == expected
@@ -78,7 +78,7 @@ class TestLoadConfig:
     def test_env_var_with_relative_path(self, tmp_path, monkeypatch):
         """Test that env var converts relative paths to absolute."""
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setenv("CAM_HOME", "my-env-data")
+        monkeypatch.setenv("PIXEL_HAWK_HOME", "my-env-data")
 
         config = load_config(args=[])
 
@@ -87,31 +87,31 @@ class TestLoadConfig:
         assert config.home.is_absolute()
 
     def test_cli_flag_missing_value(self, monkeypatch):
-        """Test that --cam-home without value falls back to env or default."""
-        monkeypatch.delenv("CAM_HOME", raising=False)
+        """Test that --pixel-hawk-home without value falls back to env or default."""
+        monkeypatch.delenv("PIXEL_HAWK_HOME", raising=False)
 
-        # --cam-home at end of args with no value
-        config = load_config(args=["--cam-home"])
+        # --pixel-hawk-home at end of args with no value
+        config = load_config(args=["--pixel-hawk-home"])
 
         # Should fall back to default since no value provided
-        expected = Path("./cam-data").resolve()
+        expected = Path("./pixel-hawk-data").resolve()
         assert config.home == expected
 
     def test_cli_flag_with_other_args(self, tmp_path, monkeypatch):
-        """Test that --cam-home works correctly with other args present."""
+        """Test that --pixel-hawk-home works correctly with other args present."""
         cli_path = tmp_path / "cli-home"
 
-        config = load_config(args=["--other-flag", "--cam-home", str(cli_path), "--another"])
+        config = load_config(args=["--other-flag", "--pixel-hawk-home", str(cli_path), "--another"])
 
         assert config.home == cli_path.resolve()
 
     def test_no_args_no_env(self, monkeypatch):
         """Test default behavior when no args or env var."""
-        monkeypatch.delenv("CAM_HOME", raising=False)
+        monkeypatch.delenv("PIXEL_HAWK_HOME", raising=False)
 
         config = load_config(args=[])
 
-        expected = Path("./cam-data").resolve()
+        expected = Path("./pixel-hawk-data").resolve()
         assert config.home == expected
 
 
@@ -121,14 +121,14 @@ class TestGetConfig:
     def test_get_config_returns_config_when_initialized(self, tmp_path):
         """Test that get_config returns CONFIG when it's set."""
         # Save original CONFIG
-        original = cam.config.CONFIG
+        original = pixel_hawk.config.CONFIG
         try:
             # Set CONFIG
-            cam.config.CONFIG = Config(home=tmp_path)
+            pixel_hawk.config.CONFIG = Config(home=tmp_path)
 
             config = get_config()
-            assert config == cam.config.CONFIG
+            assert config == pixel_hawk.config.CONFIG
             assert config.home == tmp_path
         finally:
             # Restore original CONFIG
-            cam.config.CONFIG = original
+            pixel_hawk.config.CONFIG = original

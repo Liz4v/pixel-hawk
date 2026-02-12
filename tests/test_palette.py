@@ -1,4 +1,4 @@
-from cam.palette import PALETTE, ColorNotInPalette
+from pixel_hawk.palette import PALETTE, ColorNotInPalette
 
 
 def test_lookup_transparent():
@@ -54,7 +54,7 @@ def test_open_image_with_existing_paletted_file(tmp_path):
 def test_ensure_rgba_conversion_for_rgb_image():
     from PIL import Image
 
-    from cam.palette import _ensure_rgba
+    from pixel_hawk.palette import _ensure_rgba
 
     rgb_im = Image.new("RGB", (1, 1), (1, 2, 3))
     rgba = _ensure_rgba(rgb_im)

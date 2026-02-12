@@ -1,18 +1,18 @@
 import pytest
 from loguru import logger
 
-import cam.config
-from cam.config import Config
+import pixel_hawk.config
+from pixel_hawk.config import Config
 
 
 @pytest.fixture(autouse=True)
 def setup_config(tmp_path, monkeypatch):
     """Set up test CONFIG before each test using tmp_path."""
     # Create Config with test-specific tmp_path
-    config = Config(home=tmp_path / "cam-data")
+    config = Config(home=tmp_path / "pixel-hawk-data")
 
     # Set module-level CONFIG
-    cam.config.CONFIG = config
+    pixel_hawk.config.CONFIG = config
 
     # Create all subdirectories for tests
     config.projects_dir.mkdir(parents=True, exist_ok=True)
@@ -25,7 +25,7 @@ def setup_config(tmp_path, monkeypatch):
     yield config
 
     # Cleanup: Reset CONFIG after test
-    cam.config.CONFIG = None
+    pixel_hawk.config.CONFIG = None
 
 
 @pytest.fixture(autouse=True)

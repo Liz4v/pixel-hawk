@@ -1,9 +1,9 @@
 import io
 from types import SimpleNamespace
 
-from cam.geometry import Point, Rectangle, Size, Tile
-from cam.ingest import has_tile_changed, stitch_tiles
-from cam.palette import PALETTE
+from pixel_hawk.geometry import Point, Rectangle, Size, Tile
+from pixel_hawk.ingest import has_tile_changed, stitch_tiles
+from pixel_hawk.palette import PALETTE
 
 
 def _paletted_png_bytes(size=(1, 1), data=(0,)):
@@ -20,7 +20,7 @@ def test_has_tile_changed_http_error(monkeypatch, tmp_path):
         content = b""
         headers = {}
 
-    monkeypatch.setattr("cam.ingest.requests.get", lambda *a, **k: Resp())
+    monkeypatch.setattr("pixel_hawk.ingest.requests.get", lambda *a, **k: Resp())
     changed, last_modified = has_tile_changed(Tile(0, 0))
     assert not changed
     assert last_modified == 0
@@ -32,7 +32,7 @@ def test_has_tile_changed_bad_image(monkeypatch, tmp_path):
         content = b"not an image"
         headers = {"Last-Modified": "Wed, 15 Nov 2023 12:45:26 GMT"}
 
-    monkeypatch.setattr("cam.ingest.requests.get", lambda *a, **k: Resp())
+    monkeypatch.setattr("pixel_hawk.ingest.requests.get", lambda *a, **k: Resp())
     changed, last_modified = has_tile_changed(Tile(0, 0))
     assert not changed
     assert last_modified == 0
@@ -44,7 +44,7 @@ def test_has_tile_changed_network_exception(monkeypatch, tmp_path):
     def raise_exception(*args, **kwargs):
         raise ConnectionError("Network unavailable")
 
-    monkeypatch.setattr("cam.ingest.requests.get", raise_exception)
+    monkeypatch.setattr("pixel_hawk.ingest.requests.get", raise_exception)
     changed, last_modified = has_tile_changed(Tile(0, 0))
     assert not changed
     assert last_modified == 0
@@ -58,7 +58,7 @@ def test_has_tile_changed_sets_mtime_from_last_modified(monkeypatch, setup_confi
         content = png
         headers = {"Last-Modified": "Wed, 15 Nov 2023 12:45:26 GMT"}
 
-    monkeypatch.setattr("cam.ingest.requests.get", lambda *a, **k: Resp())
+    monkeypatch.setattr("pixel_hawk.ingest.requests.get", lambda *a, **k: Resp())
 
     cache_path = setup_config.tiles_dir / "tile-0_0.png"
     changed, last_modified = has_tile_changed(Tile(0, 0))
@@ -82,7 +82,7 @@ def test_has_tile_changed_handles_missing_last_modified(monkeypatch, setup_confi
         content = png
         headers = {}  # No Last-Modified header
 
-    monkeypatch.setattr("cam.ingest.requests.get", lambda *a, **k: Resp())
+    monkeypatch.setattr("pixel_hawk.ingest.requests.get", lambda *a, **k: Resp())
 
     cache_path = setup_config.tiles_dir / "tile-0_0.png"
     changed, last_modified = has_tile_changed(Tile(0, 0))
@@ -100,7 +100,7 @@ def test_has_tile_changed_handles_invalid_last_modified(monkeypatch, setup_confi
         content = png
         headers = {"Last-Modified": "invalid-date-format"}
 
-    monkeypatch.setattr("cam.ingest.requests.get", lambda *a, **k: Resp())
+    monkeypatch.setattr("pixel_hawk.ingest.requests.get", lambda *a, **k: Resp())
 
     cache_path = setup_config.tiles_dir / "tile-0_0.png"
     changed, last_modified = has_tile_changed(Tile(0, 0))
@@ -123,7 +123,7 @@ def test_has_tile_changed_304_not_modified(monkeypatch, setup_config):
         call_args.append((a, k))
         return Resp()
 
-    monkeypatch.setattr("cam.ingest.requests.get", mock_get)
+    monkeypatch.setattr("pixel_hawk.ingest.requests.get", mock_get)
 
     # Create existing cache file
     cache_path = setup_config.tiles_dir / "tile-0_0.png"
@@ -154,7 +154,7 @@ def test_has_tile_changed_sends_if_modified_since_when_cache_exists(monkeypatch,
         call_args.append((a, k))
         return Resp()
 
-    monkeypatch.setattr("cam.ingest.requests.get", mock_get)
+    monkeypatch.setattr("pixel_hawk.ingest.requests.get", mock_get)
 
     # Create existing cache file
     cache_path = setup_config.tiles_dir / "tile-0_0.png"
@@ -182,7 +182,7 @@ def test_has_tile_changed_no_if_modified_since_when_no_cache(monkeypatch, setup_
         call_args.append((a, k))
         return Resp()
 
-    monkeypatch.setattr("cam.ingest.requests.get", mock_get)
+    monkeypatch.setattr("pixel_hawk.ingest.requests.get", mock_get)
 
     # No cache file exists
     has_tile_changed(Tile(0, 0))

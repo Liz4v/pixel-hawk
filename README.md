@@ -1,10 +1,10 @@
-# CAM (Canvas Activity Monitor)
+# Pixel Hawk
 
 A change tracker for WPlace paint projects. It monitors tile changes and tracks progress and attacks on your artwork.
 
 ## What it does
 
-cam polls WPlace tile images, stitches cached tiles, and diffs them against project image files you place in your platform pictures folder. It runs a unified ~97 second polling loop (60φ = 30(1+√5), chosen to avoid resonance with WPlace's internal timers) that:
+pixel-hawk polls WPlace tile images, stitches cached tiles, and diffs them against project image files you place in your platform pictures folder. It runs a unified ~97 second polling loop (60φ = 30(1+√5), chosen to avoid resonance with WPlace's internal timers) that:
 
 - Uses intelligent temperature-based queue system with Zipf distribution to prioritize hot tiles
 - Checks one tile per cycle in round-robin fashion across burning and temperature queues
@@ -39,43 +39,43 @@ uv sync
 Run the watcher:
 
 ```powershell
-uv run cam
+uv run pixel-hawk
 ```
 
-By default, cam uses `./cam-data` in your current working directory. You can customize this:
+By default, pixel-hawk uses `./pixel-hawk-data` in your current working directory. You can customize this:
 
 ```powershell
 # Use custom directory
-uv run cam --cam-home /path/to/cam-data
+uv run pixel-hawk --pixel-hawk-home /path/to/pixel-hawk-data
 
 # Or set environment variable
-$env:CAM_HOME = "C:\path\to\cam-data"
-uv run cam
+$env:PIXEL_HAWK_HOME = "C:\path\to\pixel-hawk-data"
+uv run pixel-hawk
 ```
 
-**Precedence:** CLI flag `--cam-home` > environment variable `CAM_HOME` > default `./cam-data`
+**Precedence:** CLI flag `--pixel-hawk-home` > environment variable `PIXEL_HAWK_HOME` > default `./pixel-hawk-data`
 
 ### Setting up projects
 
 1. Create a project image using the WPlace palette (first color is treated as transparent)
 2. Name your file with coordinates in the format: `project_<tx>_<ty>_<px>_<py>.png` or similar (4 numbers separated by underscores or hyphens: tile x, tile y, pixel x within tile, pixel y within tile)
-3. Place it in `<cam-home>/projects/` directory (default: `./cam-data/projects/`)
+3. Place it in `<pixel-hawk-home>/projects/` directory (default: `./pixel-hawk-data/projects/`)
 4. The watcher will automatically discover and track it
 
 ### Where data lives
 
-All cam data lives in a unified directory structure under `cam-home` (default: `./cam-data`):
+All pixel-hawk data lives in a unified directory structure under `pixel-hawk-home` (default: `./pixel-hawk-data`):
 
 - **`projects/`** — Place your project PNG files here
 - **`tiles/`** — Cached tiles from WPlace backend
 - **`snapshots/`** — Canvas state snapshots for tracking changes
 - **`metadata/`** — Project statistics and completion history (YAML files)
-- **`logs/`** — Application logs (`cam.log` with 10 MB rotation and 7-day retention)
+- **`logs/`** — Application logs (`pixel-hawk.log` with 10 MB rotation and 7-day retention)
 - **`data/`** — Reserved for future bot data and state
 
-**Development workflow:** The default `./cam-data` location is designed to work seamlessly when running cam from the project root directory during development. This keeps all data files easily accessible for inspection from your IDE and AI agents, making debugging and analysis straightforward.
+**Development workflow:** The default `./pixel-hawk-data` location is designed to work seamlessly when running pixel-hawk from the project root directory during development. This keeps all data files easily accessible for inspection from your IDE and AI agents, making debugging and analysis straightforward.
 
-**Production deployment:** For production use, it is recommended to set `--cam-home` explicitly.
+**Production deployment:** For production use, it is recommended to set `--pixel-hawk-home` explicitly.
 
 ## Development
 

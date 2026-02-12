@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import pytest
 from loguru import logger
 
-from cam.geometry import Tile
-from cam.queues import (
+from pixel_hawk.geometry import Tile
+from pixel_hawk.queues import (
     QueueSystem,
     TileMetadata,
     TileQueue,
@@ -852,7 +852,7 @@ def test_calculate_zipf_queue_sizes_fallback(tmp_path, monkeypatch, setup_config
         os.utime(cache_path, (now, now))
 
     # Mock calculate_zipf_queue_sizes to return empty list (shouldn't happen normally)
-    with patch("cam.queues.calculate_zipf_queue_sizes", return_value=[]):
+    with patch("pixel_hawk.queues.calculate_zipf_queue_sizes", return_value=[]):
         qs = QueueSystem(tiles, {})
 
     # Should have created a single queue with all tiles as fallback
@@ -990,7 +990,7 @@ def test_reposition_tile_stays_in_queue_explicit(tmp_path, monkeypatch, setup_co
 
 def test_burning_queue_prioritizes_by_project_first_seen(tmp_path, monkeypatch):
     """Burning queue should select tiles from oldest projects first."""
-    from cam.geometry import Rectangle
+    from pixel_hawk.geometry import Rectangle
 
     # Create three tiles
     tile1 = Tile(0, 0)
@@ -1045,8 +1045,8 @@ def test_burning_queue_prioritizes_by_project_first_seen(tmp_path, monkeypatch):
 
 def test_burning_queue_handles_projectshim(tmp_path, monkeypatch):
     """Burning queue should handle ProjectShim instances (no metadata)."""
-    from cam.geometry import Rectangle
-    from cam.projects import ProjectShim
+    from pixel_hawk.geometry import Rectangle
+    from pixel_hawk.projects import ProjectShim
 
     tile1 = Tile(0, 0)
     tile2 = Tile(1, 0)
@@ -1071,7 +1071,7 @@ def test_burning_queue_handles_projectshim(tmp_path, monkeypatch):
 
 def test_burning_queue_handles_shared_tiles(tmp_path, monkeypatch):
     """Tiles shared by multiple projects use minimum first_seen."""
-    from cam.geometry import Rectangle
+    from pixel_hawk.geometry import Rectangle
 
     # Create two tiles that overlap multiple projects
     tile1 = Tile(0, 0)
@@ -1109,7 +1109,7 @@ def test_burning_queue_handles_shared_tiles(tmp_path, monkeypatch):
 
 def test_temperature_queue_selection_unchanged(tmp_path, monkeypatch, setup_config):
     """Temperature queues should continue using last_checked only."""
-    from cam.geometry import Rectangle
+    from pixel_hawk.geometry import Rectangle
 
     # Create tiles with cache files (so they go to temperature queues)
     tiles = {Tile(i, 0) for i in range(10)}

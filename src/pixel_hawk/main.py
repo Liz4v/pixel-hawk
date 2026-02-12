@@ -67,15 +67,15 @@ class Main:
 
 
 def main():
-    """Main entry point for cam (Canvas Activity Monitor)."""
+    """Main entry point for pixel-hawk."""
     # Set up logging
     cfg = get_config()
-    log_file = cfg.logs_dir / "cam.log"
+    log_file = cfg.logs_dir / "pixel-hawk.log"
     log_fmt = "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
     logger.add(log_file, rotation="10 MB", retention="7 days", level="DEBUG", format=log_fmt)
     logger.info("============================================================================================")
-    logger.info("cam - Canvas Activity Monitor")
-    logger.debug(f"cam-home: {cfg.home}")
+    logger.info("pixel-hawk - WPlace paint project change tracker")
+    logger.debug(f"pixel-hawk-home: {cfg.home}")
     logger.debug(f"Logging to file: {log_file}")
     logger.info(f"Place project PNG files in: {cfg.projects_dir}")
     # set up main loop

@@ -2,8 +2,8 @@
 
 import time
 
-from cam.geometry import Point, Rectangle, Size, Tile
-from cam.metadata import ProjectMetadata
+from pixel_hawk.geometry import Point, Rectangle, Size, Tile
+from pixel_hawk.metadata import ProjectMetadata
 
 
 def test_metadata_default_initialization():

@@ -1,10 +1,10 @@
-"""Configuration management for cam.
+"""Configuration management for pixel-hawk.
 
 Provides Config dataclass with unified directory structure and load_config()
 function to parse CLI arguments, environment variables, and defaults.
 
-Default cam-home is ./cam-data (relative to current working directory).
-Can be overridden with --cam-home CLI flag or CAM_HOME environment variable.
+Default pixel-hawk-home is ./pixel-hawk-data (relative to current working directory).
+Can be overridden with --pixel-hawk-home CLI flag or PIXEL_HAWK_HOME environment variable.
 Precedence: CLI flag > env var > default
 """
 
@@ -18,7 +18,7 @@ from pathlib import Path
 class Config:
     """Configuration with unified directory structure.
 
-    All cam data lives under a single home directory with organized subdirectories.
+    All pixel-hawk data lives under a single home directory with organized subdirectories.
     """
 
     home: Path
@@ -57,7 +57,7 @@ class Config:
 def load_config(args: list[str] | None = None) -> Config:
     """Load configuration from CLI args, environment, or defaults.
 
-    Precedence: CLI flag > env var > default (./cam-data)
+    Precedence: CLI flag > env var > default (./pixel-hawk-data)
 
     Args:
         args: Command line arguments (defaults to sys.argv[1:])
@@ -68,22 +68,22 @@ def load_config(args: list[str] | None = None) -> Config:
     if args is None:
         args = sys.argv[1:]
 
-    # Check CLI argument: --cam-home /path/to/cam-data
+    # Check CLI argument: --pixel-hawk-home /path/to/pixel-hawk-data
     home_path: Path | None = None
     for i, arg in enumerate(args):
-        if arg == "--cam-home" and i + 1 < len(args):
+        if arg == "--pixel-hawk-home" and i + 1 < len(args):
             home_path = Path(args[i + 1])
             break
 
-    # Check environment variable: CAM_HOME
+    # Check environment variable: PIXEL_HAWK_HOME
     if home_path is None:
-        env_home = os.environ.get("CAM_HOME")
+        env_home = os.environ.get("PIXEL_HAWK_HOME")
         if env_home:
             home_path = Path(env_home)
 
-    # Fall back to default: ./cam-data
+    # Fall back to default: ./pixel-hawk-data
     if home_path is None:
-        home_path = Path("./cam-data")
+        home_path = Path("./pixel-hawk-data")
 
     # Convert to absolute path
     home_path = home_path.resolve()
