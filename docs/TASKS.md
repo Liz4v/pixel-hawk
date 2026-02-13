@@ -1,4 +1,4 @@
-# CAM Tasks
+# Pixel Hawk Tasks
 
 ## Active
 
@@ -14,10 +14,10 @@ No active tasks.
 **Priority:** Medium
 
 **Description:**
-Create a Discord bot that integrates with cam to provide real-time project monitoring through Discord. Users can add and manage projects via Discord commands, and the bot maintains living status messages that update as progress changes. Bot will only operate in trusted servers.
+Create a Discord bot that integrates with pixel-hawk to provide real-time project monitoring through Discord. Users can add and manage projects via Discord commands, and the bot maintains living status messages that update as progress changes. Bot will only operate in trusted servers.
 
 **Key Features:**
-- Project management through Discord commands (`/cam add`, `/cam remove`, `/cam list`)
+- Project management through Discord commands (`/hawk add`, `/hawk remove`, `/hawk list`)
 - Automatic status message updates showing progress, last change, timestamps
 - Server whitelist for security
 - Rich embeds with progress bars and visual indicators
@@ -28,9 +28,9 @@ Create a Discord bot that integrates with cam to provide real-time project monit
 - See `DISCORD_BOT_TASKS.md` for detailed implementation task breakdown
 
 **Related Code:**
-- Will integrate with `Project` class in `src/cam/projects.py`
-- Will reuse `PALETTE` from `src/cam/palette.py` for image validation
-- Will use `get_config()` from `src/cam/config.py` for directory paths
+- Will integrate with `Project` class in `src/pixel_hawk/projects.py`
+- Will reuse `PALETTE` from `src/pixel_hawk/palette.py` for image validation
+- Will use `get_config()` from `src/pixel_hawk/config.py` for directory paths
 
 ---
 
@@ -49,7 +49,7 @@ When project progress changes are detected, analyze whether the change represent
 - May want to distinguish between minor griefing and coordinated attacks based on regression magnitude
 
 **Related Code:**
-- `Project.run_diff()` in `src/cam/projects.py` (where diffs are computed)
+- `Project.run_diff()` in `src/pixel_hawk/projects.py` (where diffs are computed)
 - Progress tracking would need to be added to the `Project` class
 
 ---
@@ -70,8 +70,8 @@ Add memory profiling to identify and optimize memory usage for deployment on mem
 - Project image caching already fixed (2026-02-07) - images now properly closed after each diff via `with` blocks
 
 **Related Code:**
-- `Project.run_diff()` in `src/cam/projects.py`
-- `stitch_tiles()` in `src/cam/ingest.py`
+- `Project.run_diff()` in `src/pixel_hawk/projects.py`
+- `stitch_tiles()` in `src/pixel_hawk/ingest.py`
 
 ---
 
@@ -79,9 +79,9 @@ Add memory profiling to identify and optimize memory usage for deployment on mem
 
 > **Note:** Keep completed task descriptions to a single concise paragraph summarizing what was done.
 
-### ✅ Configurable directory paths with unified cam-home structure (2026-02-08)
+### ✅ Configurable directory paths with unified pixel-hawk-home structure (2026-02-08)
 
-Migrated from platformdirs to configurable local `./cam-data` directory structure: created `config.py` module with `Config` dataclass containing 6 computed subdirectory properties (projects, snapshots, metadata, tiles, logs, data); implemented `load_config()` with CLI/env/default precedence (`--cam-home` > `CAM_HOME` > `./cam-data`); replaced `DIRS` with module-level `CONFIG` variable and `get_config()` helper; updated `main()` to initialize all subdirectories at startup and log cam-home location; migrated all path references in projects.py, ingest.py, queues.py; removed platformdirs dependency from pyproject.toml; created comprehensive test_config.py with 12 tests covering all configuration scenarios; updated conftest.py with autouse `setup_config` fixture; all 178 tests passing with 96.5% coverage; mypy type checking successful.
+Migrated from platformdirs to configurable local `./pixel-hawk-data` directory structure: created `config.py` module with `Config` dataclass containing 6 computed subdirectory properties (projects, snapshots, metadata, tiles, logs, data); implemented `load_config()` with CLI/env/default precedence (`--pixel-hawk-home` > `PIXEL_HAWK_HOME` > `./pixel-hawk-data`); replaced `DIRS` with module-level `CONFIG` variable and `get_config()` helper; updated `main()` to initialize all subdirectories at startup and log pixel-hawk-home location; migrated all path references in projects.py, ingest.py, queues.py; removed platformdirs dependency from pyproject.toml; created comprehensive test_config.py with 12 tests covering all configuration scenarios; updated conftest.py with autouse `setup_config` fixture; all 178 tests passing with 96.5% coverage; mypy type checking successful.
 
 ### ✅ Refined burning queue to prioritize by project first_seen timestamp (2026-02-08)
 

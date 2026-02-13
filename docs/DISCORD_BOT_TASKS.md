@@ -34,19 +34,19 @@ Set up the Discord bot application through Discord Developer Portal, configure b
 **Effort:** 2 hours
 
 **Description:**
-Create the basic project structure for the Discord bot as a new module within the cam package or as a separate entry point.
+Create the basic project structure for the Discord bot as a new module within the pixel-hawk package or as a separate entry point.
 
 **Implementation Considerations:**
-- Decide on module location: `src/cam/discord_bot/` or separate package
-- Create entry point (console script in pyproject.toml: `cam-bot = "cam.discord_bot.main:main"`)
+- Decide on module location: `src/pixel_hawk/discord_bot/` or separate package
+- Create entry point (console script in pyproject.toml: `pixel-hawk-bot = "cam.discord_bot.main:main"`)
 - Set up configuration management (environment variables, config file)
 - Add discord.py and aiohttp to dependencies in pyproject.toml
 - Create basic bot initialization and startup code
 
 **Files to create:**
-- `src/cam/discord_bot/__init__.py`
-- `src/cam/discord_bot/main.py`
-- `src/cam/discord_bot/config.py`
+- `src/pixel_hawk/discord_bot/__init__.py`
+- `src/pixel_hawk/discord_bot/main.py`
+- `src/pixel_hawk/discord_bot/config.py`
 - `.env.example` (template for configuration)
 
 ---
@@ -68,7 +68,7 @@ Create middleware to enforce server whitelist and role-based permissions for all
 - Log all permission check failures for security monitoring
 
 **Files to create:**
-- `src/cam/discord_bot/permissions.py`
+- `src/pixel_hawk/discord_bot/permissions.py`
 
 **Tests needed:**
 - Test permission decorator with whitelisted/non-whitelisted servers
@@ -88,20 +88,20 @@ Set up the command handling system using discord.py's slash commands or prefix c
 
 **Implementation Considerations:**
 - Choose command style (slash commands recommended for better UX)
-- Create base command cog/group for cam commands
+- Create base command cog/group for pixel-hawk commands
 - Set up error handling for commands
 - Add help/usage documentation
 - Implement command logging
 
 **Files to create:**
-- `src/cam/discord_bot/commands/__init__.py`
-- `src/cam/discord_bot/commands/base.py`
+- `src/pixel_hawk/discord_bot/commands/__init__.py`
+- `src/pixel_hawk/discord_bot/commands/base.py`
 
 ---
 
 ## Phase 2: Project Management
 
-### Implement `/cam add` command
+### Implement `/hawk add` command
 
 **Status:** Not Started
 **Priority:** High
@@ -114,7 +114,7 @@ Command to register a new project through Discord by downloading an image URL an
 - Parse command arguments (name, tx, ty, px, py, image_url)
 - Validate coordinate ranges (tile coords, pixel coords 0-999)
 - Download image from URL using aiohttp
-- Validate image palette using cam's `PALETTE.ensure()`
+- Validate image palette using pixel-hawk's `PALETTE.ensure()`
 - Generate proper filename: `<name>_<tx>_<ty>_<px>_<py>.png`
 - Save to `get_config().projects_dir`
 - Create initial status message
@@ -122,12 +122,12 @@ Command to register a new project through Discord by downloading an image URL an
 - Handle errors gracefully (invalid URL, bad palette, file system errors)
 
 **Files to modify:**
-- `src/cam/discord_bot/commands/projects.py` (new file)
+- `src/pixel_hawk/discord_bot/commands/projects.py` (new file)
 
 **Dependencies:**
-- Reuse `PALETTE` from `src/cam/palette.py`
-- Reuse `get_config()` from `src/cam/config.py`
-- Import `Point`, `Tile` from `src/cam/geometry.py` for validation
+- Reuse `PALETTE` from `src/pixel_hawk/palette.py`
+- Reuse `get_config()` from `src/pixel_hawk/config.py`
+- Import `Point`, `Tile` from `src/pixel_hawk/geometry.py` for validation
 
 **Tests needed:**
 - Test with valid project addition
@@ -243,7 +243,7 @@ WPLACE_PIXELS_PER_TILE = 1000
 - Rate limiting per user/server
 
 **Files to modify:**
-- `src/cam/projects.py` (add new method and constants)
+- `src/pixel_hawk/projects.py` (add new method and constants)
 
 **Files to create:**
 - Helper for folder paths (use `get_config().data_dir`)
@@ -267,13 +267,13 @@ WPLACE_PIXELS_PER_TILE = 1000
 - Test multiple exception types
 
 **Related Tasks:**
-- Must be integrated with `/cam add` command implementation
+- Must be integrated with `/hawk add` command implementation
 - Coordinate with project registry persistence
 - Consider integration with error reporting system
 
 ---
 
-### Implement `/cam remove` command
+### Implement `/hawk remove` command
 
 **Status:** Not Started
 **Priority:** High
@@ -291,7 +291,7 @@ Command to deregister a project by name, removing the PNG file and cleaning up s
 - Confirm action with user (require confirmation for safety)
 
 **Files to modify:**
-- `src/cam/discord_bot/commands/projects.py`
+- `src/pixel_hawk/discord_bot/commands/projects.py`
 
 **Tests needed:**
 - Test removal of existing project
@@ -300,7 +300,7 @@ Command to deregister a project by name, removing the PNG file and cleaning up s
 
 ---
 
-### Implement `/cam list` command
+### Implement `/hawk list` command
 
 **Status:** Not Started
 **Priority:** Medium
@@ -317,7 +317,7 @@ Command to list all registered projects with basic status information in a clean
 - Paginate if many projects (Discord embed limits)
 
 **Files to modify:**
-- `src/cam/discord_bot/commands/projects.py`
+- `src/pixel_hawk/discord_bot/commands/projects.py`
 
 **Tests needed:**
 - Test with no projects
@@ -344,7 +344,7 @@ Implement JSON-based storage for project registry data (message IDs, channel IDs
 - Handle corruption (backup previous version)
 
 **Files to create:**
-- `src/cam/discord_bot/registry.py`
+- `src/pixel_hawk/discord_bot/registry.py`
 
 **Tests needed:**
 - Test save and load
@@ -366,28 +366,28 @@ Create system to read progress data written by cam, either by directly importing
 
 **Implementation Considerations:**
 - **Option A (direct import)**: Import `Project` class and call `run_diff()` - requires careful threading/async handling
-- **Option B (file-based)**: cam writes `.status.json` files, bot reads them - simpler but requires cam changes
+- **Option B (file-based)**: pixel-hawk writes `.status.json` files, bot reads them - simpler but requires pixel-hawk changes
 - Decide on update frequency (polling interval)
 - Handle missing or stale data gracefully
 - Cache data to minimize filesystem reads
 
 **Implementation decision needed:**
-- If file-based, cam needs to write status files (see cam enhancement task)
-- If direct import, need to ensure thread-safety with cam's main loop
+- If file-based, pixel-hawk needs to write status files (see pixel-hawk enhancement task)
+- If direct import, need to ensure thread-safety with pixel-hawk's main loop
 
 **Files to create:**
-- `src/cam/discord_bot/progress.py`
+- `src/pixel_hawk/discord_bot/progress.py`
 
 ---
 
-### Enhance cam to write status files (if using file-based approach)
+### Enhance pixel-hawk to write status files (if using file-based approach)
 
 **Status:** Not Started
 **Priority:** High (if file-based approach chosen)
 **Effort:** 2 hours
 
 **Description:**
-Modify cam's Project class to write JSON status files after each diff computation, containing progress metrics and timestamps.
+Modify pixel-hawk's Project class to write JSON status files after each diff computation, containing progress metrics and timestamps.
 
 **Implementation Considerations:**
 - Write status file in same directory as project PNG
@@ -397,7 +397,7 @@ Modify cam's Project class to write JSON status files after each diff computatio
 - Only write if progress changed (avoid unnecessary I/O)
 
 **Files to modify:**
-- `src/cam/projects.py` (modify `Project.run_diff()`)
+- `src/pixel_hawk/projects.py` (modify `Project.run_diff()`)
 
 **Related Code:**
 - `Project.run_diff()` already computes matched/total pixels
@@ -423,7 +423,7 @@ System to create, update, and manage Discord status messages for each project.
 - Handle Discord API errors (message deleted, permissions lost)
 
 **Files to create:**
-- `src/cam/discord_bot/status_manager.py`
+- `src/pixel_hawk/discord_bot/status_manager.py`
 
 **Features:**
 - Progress bar: `[████████░░░░░░░░░░░░] 40%`
@@ -450,14 +450,14 @@ Main async loop that periodically checks for progress updates and triggers Disco
 
 **Implementation Considerations:**
 - Run as background task in Discord bot
-- Check frequency: every 60 seconds (align with cam's polling cycle)
+- Check frequency: every 60 seconds (align with pixel-hawk's polling cycle)
 - For each project: read progress data, compare to last known state, update if changed
 - Respect rate limits and throttling
 - Log update activity
 - Handle exceptions without crashing loop
 
 **Files to modify:**
-- `src/cam/discord_bot/main.py`
+- `src/pixel_hawk/discord_bot/main.py`
 
 ---
 
@@ -511,7 +511,7 @@ Monitoring system to track bot health, command usage, and error rates.
 **Features:**
 - Log all commands with user/server/timestamp
 - Track update loop health (last successful update time)
-- Expose `/cam status` command for bot health
+- Expose `/hawk status` command for bot health
 - Log rate limit hits
 - Alert on repeated errors
 
@@ -568,7 +568,7 @@ User-facing documentation for setting up and using the Discord bot.
 **Priority:** Low
 
 **Description:**
-Integrate with cam's griefing detection (when implemented) to send Discord alerts when projects are attacked.
+Integrate with pixel-hawk's griefing detection (when implemented) to send Discord alerts when projects are attacked.
 
 **Features:**
 - Mention role when regression detected
@@ -619,6 +619,6 @@ Generate and post progress charts showing project completion over time.
 Allow users to add projects from a library of templates (popular artworks, common projects).
 
 **Features:**
-- `/cam add-template <template_name> <tx> <ty> <px> <py>`
+- `/hawk add-template <template_name> <tx> <ty> <px> <py>`
 - Template library stored in bot
 - Community-submitted templates

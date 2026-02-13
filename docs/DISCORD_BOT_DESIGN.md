@@ -2,14 +2,14 @@
 
 ## Overview
 
-A Discord bot that integrates with the cam (Canvas Activity Monitor) to provide real-time project monitoring and status updates through Discord messages. The bot enables project management via Discord commands and maintains living status messages that update as project progress changes.
+A Discord bot that integrates with pixel-hawk to provide real-time project monitoring and status updates through Discord messages. The bot enables project management via Discord commands and maintains living status messages that update as project progress changes.
 
 ## Goals
 
 - **Project Management**: Allow trusted users to add, remove, and configure projects through Discord messages
 - **Real-time Updates**: Track project progress and automatically edit Discord messages with current status
 - **Trusted Environment**: Bot operates only in explicitly trusted servers with appropriate permission controls
-- **Seamless Integration**: Leverage existing cam infrastructure for tile monitoring and diff computation
+- **Seamless Integration**: Leverage existing pixel-hawk infrastructure for tile monitoring and diff computation
 
 ## Architecture
 
@@ -29,7 +29,7 @@ A Discord bot that integrates with the cam (Canvas Activity Monitor) to provide 
                     └───────┬────────┘
                             │
 ┌───────────────────────────▼─────────────────────────────────┐
-│                     cam Core                                 │
+│                     pixel-hawk Core                                 │
 │  ┌────────────┐  ┌──────────┐  ┌────────────┐             │
 │  │QueueSystem │  │ Projects │  │  Ingest    │             │
 │  └────────────┘  └──────────┘  └────────────┘             │
@@ -41,11 +41,11 @@ A Discord bot that integrates with the cam (Canvas Activity Monitor) to provide 
 **Option A: Parallel Process**
 - Discord bot runs as separate process alongside cam
 - Shares data through filesystem (project definitions, status files)
-- cam writes progress data, bot reads and updates Discord messages
+- pixel-hawk writes progress data, bot reads and updates Discord messages
 - Simpler separation of concerns, easier to develop/debug
 
 **Option B: Embedded Integration**
-- Discord bot runs within cam's main loop
+- Discord bot runs within pixel-hawk's main loop
 - Direct access to Project objects and diff results
 - No filesystem intermediary needed
 - Tighter coupling but more efficient
@@ -59,7 +59,7 @@ A Discord bot that integrates with the cam (Canvas Activity Monitor) to provide 
 Projects are registered through Discord messages with a command syntax:
 
 ```
-/cam add <name> <tx> <ty> <px> <py> <image_url>
+/hawk add <name> <tx> <ty> <px> <py> <image_url>
 ```
 
 - **name**: Human-readable project identifier
@@ -67,12 +67,12 @@ Projects are registered through Discord messages with a command syntax:
 - **px, py**: Pixel offset within tile (0-999)
 - **image_url**: URL to project PNG (must use project palette)
 
-The bot downloads the image, validates it (palette check), and creates the project file in cam's expected location.
+The bot downloads the image, validates it (palette check), and creates the project file in pixel-hawk's expected location.
 
 ### Project Deregistration
 
 ```
-/cam remove <name>
+/hawk remove <name>
 ```
 
 Removes project file and cleans up associated status messages.
@@ -80,7 +80,7 @@ Removes project file and cleans up associated status messages.
 ### Project Listing
 
 ```
-/cam list
+/hawk list
 ```
 
 Shows all registered projects with basic status information.
@@ -90,7 +90,7 @@ Shows all registered projects with basic status information.
 ### Message Lifecycle
 
 1. **Creation**: When a project is added, bot creates a status message and stores the message ID
-2. **Updates**: As cam detects changes, bot edits the message with new progress data
+2. **Updates**: As pixel-hawk detects changes, bot edits the message with new progress data
 3. **Cleanup**: When project is removed, bot can either delete or archive the status message
 
 ### Status Message Format
@@ -209,7 +209,7 @@ Environment variables or config file:
 DISCORD_BOT_TOKEN=...
 DISCORD_TRUSTED_SERVERS=123456789,987654321
 DISCORD_REQUIRED_ROLE=ProjectManager
-CAM_WPLACE_DIR=/path/to/wplace
+PIXEL_HAWK_HOME=/path/to/wplace
 ```
 
 ## Implementation Phases
@@ -227,7 +227,7 @@ See `DISCORD_BOT_TASKS.md` for detailed task breakdown.
 - File management in wplace directory
 
 ### Phase 3: Status Integration
-- Read cam progress data
+- Read pixel-hawk progress data
 - Create and update status messages
 - Rate limiting and throttling
 
@@ -238,7 +238,7 @@ See `DISCORD_BOT_TASKS.md` for detailed task breakdown.
 
 ## Future Enhancements
 
-- **Regression Alerts**: Notify when projects are griefed (tie into cam's griefing detection task)
+- **Regression Alerts**: Notify when projects are griefed (tie into pixel-hawk's griefing detection task)
 - **Multi-Project Dashboards**: Single message showing all project statuses
 - **Historical Charts**: Progress over time visualizations
 - **Project Templates**: Pre-configured popular projects

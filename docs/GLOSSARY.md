@@ -1,11 +1,11 @@
-# CAM Glossary
+# Pixel Hawk Glossary
 
-This document defines key terminology used throughout the cam (Canvas Activity Monitor) project. Focus is on concepts users need to understand when working with projects, not implementation details.
+This document defines key terminology used throughout the pixel-hawk project. Focus is on concepts users need to understand when working with projects, not implementation details.
 
 ## Core Concepts
 
-### cam
-Canvas Activity Monitor — the application that watches WPlace paint projects, polls tile images, and tracks pixel placement progress.
+### pixel-hawk
+Pixel Hawk — the application that watches WPlace paint projects, polls tile images, and tracks pixel placement progress.
 
 ### WPlace
 [WPlace.live](https://wplace.live) is an online collaborative pixel art canvas where users place individual pixels. The canvas is organized into tiles, each containing 1000×1000 pixels.
@@ -151,16 +151,16 @@ The worst griefing incident recorded for a project (most pixels lost in a single
 ## File Structure & Paths
 
 ### Configuration (CONFIG)
-Configurable directory structure managed by `config.py`. Default cam-home is `./cam-data` (configurable via `--cam-home` or `CAM_HOME` env var).
+Configurable directory structure managed by `config.py`. Default pixel-hawk-home is `./pixel-hawk-data` (configurable via `--pixel-hawk-home` or `PIXEL_HAWK_HOME` env var).
 
 ### Projects Directory
-`<cam-home>/projects/` — where users place their project PNG files.
+`<pixel-hawk-home>/projects/` — where users place their project PNG files.
 
 ### Tiles Cache
-`<cam-home>/tiles/` — where cached tiles are stored.
+`<pixel-hawk-home>/tiles/` — where cached tiles are stored.
 
 ### User Log Path
-`<user_log_path>/cam.log` — where application logs are written.
+`<user_log_path>/pixel-hawk.log` — where application logs are written.
 
 ### Metadata File
 YAML file saved alongside each project as `<project_name>.yaml` containing all metadata and statistics.
