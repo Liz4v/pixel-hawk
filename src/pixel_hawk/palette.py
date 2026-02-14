@@ -114,10 +114,7 @@ class ColorsNotInPalette(ValueError):
     """Raised when there are colors not found in the palette."""
 
     def __init__(self, report: dict[int, int]) -> None:
-        if len(report) == 1:
-            detail = f"color #{next(iter(report.keys())):06X}"
-        else:
-            detail = f"{len(report)} colors"
+        detail = f"{len(report)} colors" if len(report) > 5 else ", ".join(f"#{i:06x}" for i in report.keys())
         super().__init__(f"Found {sum(report.values())} pixels not in the palette ({detail})")
 
 

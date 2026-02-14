@@ -18,11 +18,11 @@ from typing import TYPE_CHECKING, Iterable
 
 import requests
 from loguru import logger
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 from .config import get_config
 from .geometry import Rectangle, Size, Tile
-from .palette import PALETTE
+from .palette import PALETTE, ColorsNotInPalette
 from .queues import QueueSystem
 
 if TYPE_CHECKING:
@@ -75,17 +75,14 @@ def has_tile_changed(tile: Tile) -> tuple[bool, int]:
         last_modified_timestamp = int(time.time())
 
     try:
-        img = PALETTE.open_bytes(data)
-    except Exception as e:
+        with PALETTE.open_bytes(data) as img:
+            logger.info(f"Tile {tile}: Change detected, updating cache...")
+            img.save(cache_path)
+            os.utime(cache_path, (last_modified_timestamp, last_modified_timestamp))
+    except (UnidentifiedImageError, ColorsNotInPalette) as e:
         logger.debug(f"Tile {tile}: image decode failed: {e}")
         return False, 0
 
-    # ensure() may close img and return new image, or return img unchanged.
-    # Either way, the with statement ensures the result gets closed at block end.
-    with PALETTE.ensure(img) as paletted:
-        logger.info(f"Tile {tile}: Change detected, updating cache...")
-        paletted.save(cache_path)
-        os.utime(cache_path, (last_modified_timestamp, last_modified_timestamp))
     return True, last_modified_timestamp
 
 
