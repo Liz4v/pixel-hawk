@@ -674,6 +674,29 @@ def test_update_streak_breaks():
     assert meta.nochange_streak_count == 0  # Nochange broken
 
 
+def test_update_streak_same_type_resets_nochange():
+    """Test that continuing the same change streak type still resets nochange streak."""
+    meta = ProjectMetadata()
+
+    # Build progress streak
+    meta.update_streak(1, 0)
+    assert meta.change_streak_type == "progress"
+    assert meta.change_streak_count == 1
+
+    # Nochange events build up nochange streak
+    meta.update_streak(0, 0)
+    meta.update_streak(0, 0)
+    meta.update_streak(0, 0)
+    assert meta.nochange_streak_count == 3
+    assert meta.change_streak_count == 1  # Unchanged
+
+    # Same type (progress) continues - nochange streak must reset
+    meta.update_streak(1, 0)
+    assert meta.change_streak_type == "progress"
+    assert meta.change_streak_count == 2  # Continued
+    assert meta.nochange_streak_count == 0  # Reset!
+
+
 def test_update_rate_new_window():
     """Test rate calculation starting new window."""
     meta = ProjectMetadata()

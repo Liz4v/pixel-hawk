@@ -188,7 +188,7 @@ class Project(ProjectShim):
         Tracks progress (pixels placed toward goal) and regress (pixels removed/griefed),
         updates metadata with completion history, saves snapshot and metadata.
         """
-        # If any tiles have been missing from cache, check again.
+        # If any tiles have been missing from cache, maybe they just arrived.
         if self.metadata.has_missing_tiles:
             self.metadata.has_missing_tiles = self._has_missing_tiles()
 

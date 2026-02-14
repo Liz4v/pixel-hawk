@@ -276,12 +276,12 @@ class ProjectMetadata:
         else:
             event = "mixed"
 
+        self.nochange_streak_count = 0  # Break nochange streak
         if self.change_streak_type == event:
             self.change_streak_count += 1  # Continue existing streak
-        else:  # Mixed progress and regress: start fresh mixed streak, break nochange streak
+        else:  # New streak type
             self.change_streak_type = event
             self.change_streak_count = 1
-            self.nochange_streak_count = 0
 
     def update_rate(self, progress_pixels: int, regress_pixels: int, timestamp: int) -> None:
         """Update completion rate (pixels per hour)."""
