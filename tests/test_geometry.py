@@ -70,8 +70,8 @@ GEO_EXAMPLES = [
 
 
 @pytest.mark.parametrize("pixel, geo", GEO_EXAMPLES)
-def test_point_to_geo(pixel: Point, geo: GeoPoint):
-    result = pixel.to_geo()
+def test_geopoint_from_pixel(pixel: Point, geo: GeoPoint):
+    result = GeoPoint.from_pixel(pixel.x, pixel.y)
     assert abs(result.latitude - geo.latitude) < 0.001
     assert abs(result.longitude - geo.longitude) < 0.001
 
@@ -86,7 +86,7 @@ def test_geopoint_to_pixel(pixel: Point, geo: GeoPoint):
 def test_geo_round_trip():
     """Point -> GeoPoint -> Point should round-trip within 1 pixel."""
     for pt, _ in GEO_EXAMPLES:
-        recovered = pt.to_geo().to_pixel()
+        recovered = GeoPoint.from_pixel(pt.x, pt.y).to_pixel()
         assert abs(recovered.x - pt.x) <= 1
         assert abs(recovered.y - pt.y) <= 1
 
@@ -94,6 +94,71 @@ def test_geo_round_trip():
 def test_geo_round_trip_reverse():
     """GeoPoint -> Point -> GeoPoint should round-trip within tight tolerance."""
     for _, geo in GEO_EXAMPLES:
-        recovered = geo.to_pixel().to_geo()
+        px = geo.to_pixel()
+        recovered = GeoPoint.from_pixel(px.x, px.y)
         assert abs(recovered.latitude - geo.latitude) < 0.0001
         assert abs(recovered.longitude - geo.longitude) < 0.0001
+
+
+def test_geopoint_from_pixel_float():
+    """from_pixel should accept float coordinates (for rectangle centers)."""
+    geo_int = GeoPoint.from_pixel(1024000, 1024000)
+    geo_float = GeoPoint.from_pixel(1024000.5, 1024000.5)
+    assert abs(geo_int.latitude - geo_float.latitude) < 0.0001
+    assert abs(geo_int.longitude - geo_float.longitude) < 0.0001
+
+
+@pytest.mark.parametrize(
+    "size, expected_zoom",
+    [
+        (Size(2197, 1), 11.093),
+        (Size(398, 1), 13.558),
+        (Size(18, 1), 18.025),
+        (Size(5, 1), 19.873),
+    ],
+)
+def test_size_to_zoom(size: Size, expected_zoom: float):
+    result = size.to_zoom(600)
+    assert abs(result - expected_zoom) < 0.01
+
+
+def test_size_to_zoom_uses_longest_side():
+    assert Size(100, 50).to_zoom(600) == Size(100, 1).to_zoom(600)
+    assert Size(50, 100).to_zoom(600) == Size(1, 100).to_zoom(600)
+
+
+def test_size_to_zoom_monotonic():
+    """Larger sizes should produce smaller (more zoomed out) zoom levels."""
+    zooms = [Size(s, 1).to_zoom(600) for s in [5, 18, 398, 2197]]
+    assert zooms == sorted(zooms, reverse=True)
+
+
+def test_size_to_zoom_viewport_scales():
+    """Doubling viewport size should add 1 to zoom level."""
+    z1 = Size(100, 100).to_zoom(300)
+    z2 = Size(100, 100).to_zoom(600)
+    assert abs((z2 - z1) - 1.0) < 0.001
+
+
+def test_zoom_wont_fail_on_empty_size():
+    """There will be no division by zero on an empty size."""
+    z = Size(0, 0).to_zoom(600)
+    assert 10 <= z <= 22
+
+
+def test_rectangle_to_link():
+    rect = Rectangle.from_point_size(Point(1024000, 1024000), Size(100, 200))
+    link = rect.to_link()
+    assert link.startswith("https://wplace.live/?")
+    assert "lat=" in link
+    assert "lng=" in link
+    assert "zoom=" in link
+
+
+def test_rectangle_to_link_center():
+    """Link should point to the center of the rectangle."""
+    rect = Rectangle(1024000, 1024000, 1024100, 1024200)
+    link = rect.to_link()
+    # Center is (1024050, 1024100) -> very close to (0, 0) geo
+    assert "lat=-0.0" in link or "lat=0.0" in link
+    assert "lng=" in link

@@ -3,17 +3,19 @@
 Provides immutable types for working with WPlace's coordinate system:
 - Tile: 2048x2048 grid cells in the tile lattice, each containing 1000x1000 pixels
 - Point: individual pixel coordinates in the canvas
-- Size: width and height dimensions
-- Rectangle: axis-aligned rectangular regions with tile enumeration
+- Size: width and height dimensions, with Web Mercator zoom level conversion
+- Rectangle: axis-aligned rectangular regions with tile enumeration and wplace.live links
+- GeoPoint: latitude/longitude coordinates with Web Mercator projection to/from pixel space
 
-All types support conversion between tile space and pixel space.
+All types support conversion between tile space, pixel space, and geographic coordinates.
 """
 
 from functools import cache
-from math import asinh, atan, degrees, pi, radians, sinh, tan
+from math import asinh, atan, degrees, log2, pi, radians, sinh, tan
 from typing import NamedTuple
 
 CANVAS_SIZE = 2048 * 1000
+ZOOM_FACTOR = log2(CANVAS_SIZE / 256)
 
 
 class Tile(NamedTuple):
@@ -51,12 +53,6 @@ class Point(NamedTuple):
         ty, py = divmod(self.y, 1000)
         return tx, ty, px, py
 
-    def to_geo(self) -> GeoPoint:
-        # Inverse Web Mercator projection on a 2048000x2048000 pixel canvas.
-        longitude = self.x / CANVAS_SIZE * 360 - 180
-        latitude = degrees(atan(sinh(pi * (1 - 2 * self.y / CANVAS_SIZE))))
-        return GeoPoint(latitude, longitude)
-
     def __str__(self) -> str:
         return "_".join(map(str, self.to4()))
 
@@ -76,6 +72,11 @@ class Size(NamedTuple):
     def __bool__(self) -> bool:
         """Non-empty size."""
         return self.w != 0 and self.h != 0
+
+    def to_zoom(self, viewport_size: float) -> float:
+        """Convert to a Web Mercator zoom level that will display a piece of this size."""
+        # zoom = log2((canvas_size / subject_size) * (viewport_size / 256))
+        return ZOOM_FACTOR + log2(viewport_size / max(5, *self))
 
 
 class Rectangle(NamedTuple):
@@ -124,10 +125,27 @@ class Rectangle(NamedTuple):
         bottom = (self.bottom + 999) // 1000
         return frozenset(Tile(tx, ty) for tx in range(left, right) for ty in range(top, bottom))
 
+    def to_link(self, viewport_size: float = 600) -> str:
+        """Converts to a wplace.live link to display the live contents of this rectangle."""
+        geo = GeoPoint.from_pixel((self.left + self.right) / 2, (self.top + self.bottom) / 2)
+        lat = round(geo.latitude, 5)
+        lon = round(geo.longitude, 5)
+        zoom = round(self.size.to_zoom(viewport_size), 3)
+        return f"https://wplace.live/?lat={lat}&lng={lon}&zoom={zoom}"
+
 
 class GeoPoint(NamedTuple):
+    """Latitude/longitude coordinates with Web Mercator projection conversion."""
+
     latitude: float
     longitude: float
+
+    @classmethod
+    def from_pixel(cls, x: float, y: float) -> GeoPoint:
+        """Inverse Web Mercator projection on a square pixel canvas."""
+        longitude = x / CANVAS_SIZE * 360 - 180
+        latitude = degrees(atan(sinh(pi * (1 - 2 * y / CANVAS_SIZE))))
+        return cls(latitude, longitude)
 
     def to_pixel(self) -> Point:
         """Forward Web Mercator projection: geo coordinates to pixel coordinates."""
