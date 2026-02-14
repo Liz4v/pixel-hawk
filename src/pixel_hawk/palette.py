@@ -6,14 +6,22 @@ the PALETTE singleton for converting images to paletted mode. The first color
 
 The Palette class validates images against the palette and provides exact color
 matching via binary search. Colors not in the palette raise ColorsNotInPalette.
+
+PaletteAsync wraps Palette's I/O methods to run in a thread, returning AsyncImage
+handles that can be used as async context managers or awaited directly via __call__.
+
+Singletons:
+    PALETTE       — synchronous palette operations
+    PALETTE_ASYNC — async wrapper around PALETTE
 """
 
+import asyncio
 from bisect import bisect_left
 from functools import partial
 from io import BytesIO
 from itertools import chain
 from pathlib import Path
-from typing import cast
+from typing import Callable, cast
 
 from loguru import logger
 from PIL import Image
@@ -31,13 +39,27 @@ RGBATuple = tuple[int, int, int, int]
 
 
 class Palette:
+    """Synchronous palette enforcement for WPlace images.
+
+    Converts images to the official WPlace palette using exact color matching
+    via binary search. The first palette entry is treated as transparent.
+    """
+
     def __init__(self, colors: list[bytes]):
-        """Initialize the palette with the given list of RGB colors (as bytes). The first color is treated as transparent."""
+        """Initialize with a list of 3-byte RGB colors. The first color is treated as transparent."""
         self._raw = bytes(chain.from_iterable(colors))
         rgb2pal = {int.from_bytes(c, "big"): i for i, c in enumerate(colors) if i}
         rgb2pal[0x10AE82] = rgb2pal[0x10AEA6]  # wrong teal reported in wplacepaint.com
         self._idx = tuple(sorted(rgb2pal.keys()))
         self._values = bytes(rgb2pal[c] for c in self._idx)
+
+    def aopen_file(self, path: str | Path) -> AsyncImage:
+        """Return an AsyncImage that will open and palette-convert the file at `path`."""
+        return AsyncImage(self.open_file, path)
+
+    def aopen_bytes(self, payload: bytes) -> AsyncImage:
+        """Return an AsyncImage that will open and palette-convert `payload` bytes."""
+        return AsyncImage(self.open_bytes, payload)
 
     def open_file(self, path: str | Path) -> Image.Image:
         """Open an image from `path`, convert to this palette if needed, and overwrite the file if converted.
@@ -83,7 +105,11 @@ class Palette:
         return image  # Return new image (caller must close)
 
     def lookup(self, colors_not_in_palette: dict[int, int], rgba: RGBATuple) -> int:
-        """Look up the palette index for the given RGBA color."""
+        """Look up the palette index for an RGBA color via binary search.
+
+        Transparent pixels (alpha == 0) return index 0. Unknown colors are recorded
+        in `colors_not_in_palette` (rgb -> count) and also return 0.
+        """
         if rgba[3] == 0:
             return 0
         rgb = (rgba[0] << 16) | (rgba[1] << 8) | rgba[2]
@@ -103,7 +129,10 @@ class Palette:
 
 
 def _ensure_rgba(image: Image.Image) -> Image.Image:
-    """Ensure the given image is in RGBA mode, converting if needed."""
+    """Ensure the given image is in RGBA mode, converting if needed.
+
+    If conversion is needed, the original image is closed and a new RGBA image is returned.
+    """
     if image.mode == "RGBA":
         return image
     with image:
@@ -116,6 +145,44 @@ class ColorsNotInPalette(ValueError):
     def __init__(self, report: dict[int, int]) -> None:
         detail = f"{len(report)} colors" if len(report) > 5 else ", ".join(f"#{i:06x}" for i in report.keys())
         super().__init__(f"Found {sum(report.values())} pixels not in the palette ({detail})")
+
+
+class AsyncImage:
+    """Deferred async handle for a palette image.
+
+    Wraps a blocking Palette call and runs it in a thread on first access.
+    Supports two usage patterns:
+
+    As an async context manager (auto-closes the image)::
+
+        async with handle as image:
+            ...
+
+    As a direct awaitable (caller must close)::
+
+        image = await handle()
+    """
+
+    def __init__(self, function: Callable[..., Image.Image], *args, **kwargs) -> None:
+        self.callable = partial(function, *args, **kwargs)
+        self.image: Image.Image | None = None
+
+    async def __call__(self) -> Image.Image:
+        """Run the blocking palette operation in a thread, returning the resulting image.
+
+        The image is cached — repeated calls return the same instance.
+        """
+        if self.image is None:
+            self.image = await asyncio.to_thread(self.callable)
+        return self.image
+
+    async def __aenter__(self) -> Image.Image:
+        """Enter the async context, loading the image if not already loaded."""
+        return await self()
+
+    async def __aexit__(self, *_) -> None:
+        """Exit the async context, closing the image."""
+        getattr(self.image, "close", lambda: None)()
 
 
 PALETTE = Palette([bytes.fromhex(c) for c in _COLORS.split()])

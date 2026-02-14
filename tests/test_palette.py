@@ -1,3 +1,7 @@
+import io
+
+import pytest
+
 from pixel_hawk.palette import PALETTE
 
 
@@ -73,3 +77,92 @@ def test_lookup_wrong_teal_mapping():
     idx = PALETTE.lookup(report, (r, g, b, 255))
     assert isinstance(idx, int)
     assert report == {}
+
+
+# --- Async tests (aopen_file / aopen_bytes on Palette) ---
+
+
+@pytest.mark.asyncio
+async def test_aopen_file(tmp_path):
+    path = tmp_path / "pal.png"
+    im = PALETTE.new((2, 2))
+    im.putdata([0, 1, 2, 3])
+    im.save(path)
+    im.close()
+
+    async with PALETTE.aopen_file(path) as image:
+        assert image.mode == "P"
+        assert image.size == (2, 2)
+        assert list(image.get_flattened_data()) == [0, 1, 2, 3]
+    # image should be closed after exiting context
+    assert getattr(image, "fp", None) is None
+
+
+@pytest.mark.asyncio
+async def test_aopen_file_converts_non_paletted(tmp_path):
+    from PIL import Image
+
+    # pick a known palette color
+    rgb_int = PALETTE._idx[0]
+    r, g, b = (rgb_int >> 16) & 0xFF, (rgb_int >> 8) & 0xFF, rgb_int & 0xFF
+
+    path = tmp_path / "rgba.png"
+    Image.new("RGBA", (1, 1), (r, g, b, 255)).save(path)
+
+    async with PALETTE.aopen_file(path) as image:
+        assert image.mode == "P"
+
+
+@pytest.mark.asyncio
+async def test_aopen_bytes():
+    im = PALETTE.new((3, 3))
+    im.putdata([0, 1, 2, 3, 4, 5, 6, 7, 8])
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    im.close()
+
+    async with PALETTE.aopen_bytes(buf.getvalue()) as image:
+        assert image.mode == "P"
+        assert image.size == (3, 3)
+        assert list(image.get_flattened_data()) == [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    assert getattr(image, "fp", None) is None
+
+
+@pytest.mark.asyncio
+async def test_aopen_bytes_converts_non_paletted():
+    from PIL import Image
+
+    rgb_int = PALETTE._idx[0]
+    r, g, b = (rgb_int >> 16) & 0xFF, (rgb_int >> 8) & 0xFF, rgb_int & 0xFF
+
+    buf = io.BytesIO()
+    Image.new("RGBA", (1, 1), (r, g, b, 255)).save(buf, format="PNG")
+
+    async with PALETTE.aopen_bytes(buf.getvalue()) as image:
+        assert image.mode == "P"
+
+
+@pytest.mark.asyncio
+async def test_aopen_file_closes_on_exception(tmp_path):
+    path = tmp_path / "pal.png"
+    im = PALETTE.new((1, 1))
+    im.save(path)
+    im.close()
+
+    with pytest.raises(RuntimeError, match="test"):
+        async with PALETTE.aopen_file(path) as image:
+            raise RuntimeError("test")
+    assert getattr(image, "fp", None) is None
+
+
+@pytest.mark.asyncio
+async def test_aopen_bytes_closes_on_exception():
+    im = PALETTE.new((1, 1))
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    im.close()
+
+    with pytest.raises(RuntimeError, match="test"):
+        async with PALETTE.aopen_bytes(buf.getvalue()) as image:
+            raise RuntimeError("test")
+    assert getattr(image, "fp", None) is None
