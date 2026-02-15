@@ -71,6 +71,7 @@ async def test_main_load_and_check_tiles(monkeypatch):
 
 async def test_main_indexing_and_check_tiles_and_load_forget(tmp_path, monkeypatch):
     """Test Main tile indexing and project tracking."""
+
     # start with no projects
     async def fake_iter():
         return []
@@ -467,6 +468,7 @@ async def test_project_init_handles_stat_oserror(tmp_path, monkeypatch):
 
 async def test_main_handles_keyboard_interrupt_during_sleep(monkeypatch):
     """Test that _async_main() handles KeyboardInterrupt during sleep gracefully."""
+
     async def fake_iter():
         return []
 
@@ -496,6 +498,7 @@ async def test_main_handles_keyboard_interrupt_during_sleep(monkeypatch):
 
 async def test_main_sleeps_and_loops(monkeypatch):
     """Test that _async_main() sleeps between cycles and can be interrupted."""
+
     async def fake_iter():
         return []
 
@@ -663,6 +666,7 @@ async def test_main_check_tiles_round_robin(monkeypatch):
 
 async def test_main_check_tiles_empty_tiles(monkeypatch):
     """Test that check_tiles handles empty tiles gracefully."""
+
     async def fake_iter():
         return []
 
@@ -680,6 +684,7 @@ async def test_main_check_tiles_empty_tiles(monkeypatch):
 
 async def test_poll_once_checks_projects_before_tiles(monkeypatch):
     """Test that poll_once() checks projects before tiles (inverted order)."""
+
     async def fake_iter():
         return []
 
@@ -713,6 +718,7 @@ async def test_poll_once_checks_projects_before_tiles(monkeypatch):
 
 async def test_main_handles_consecutive_errors(monkeypatch):
     """Test that _async_main() exits after three consecutive errors."""
+
     async def fake_iter():
         return []
 
@@ -743,6 +749,7 @@ async def test_main_handles_consecutive_errors(monkeypatch):
 
 async def test_main_resets_error_count_on_success(monkeypatch):
     """Test that _async_main() resets consecutive error count after a successful cycle."""
+
     async def fake_iter():
         return []
 

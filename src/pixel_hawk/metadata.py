@@ -33,23 +33,23 @@ def update_tile(info: ProjectInfo, tile: Tile, timestamp: int) -> None:
         info.tile_updates_24h.append(entry)
 
 
-def count_remaining_pixels(info: ProjectInfo, remaining_bytes: Any) -> int:
+def count_remaining_pixels(remaining_bytes: Any) -> int:
     """Count non-zero pixels in remaining diff bytes."""
     return sum(1 for v in remaining_bytes if v)
 
 
-def count_target_pixels(info: ProjectInfo, target_bytes: Any) -> int:
+def count_target_pixels(target_bytes: Any) -> int:
     """Count non-zero pixels in target image bytes."""
     count = sum(1 for v in target_bytes if v)
     return count or 1  # Return 1 to avoid division by zero
 
 
-def calculate_completion_percent(info: ProjectInfo, num_remaining: int, num_target: int) -> float:
+def calculate_completion_percent(num_remaining: int, num_target: int) -> float:
     """Calculate completion percentage from remaining and target pixel counts."""
     return 100.0 - (num_remaining * 100.0 / num_target)
 
 
-def compare_snapshots(info: ProjectInfo, current_data: bytes, prev_data: bytes, target_data: bytes) -> tuple[int, int]:
+def compare_snapshots(current_data: bytes, prev_data: bytes, target_data: bytes) -> tuple[int, int]:
     """Compare current and previous snapshots to detect progress and regress.
 
     Returns:
@@ -108,11 +108,12 @@ def process_diff(info: ProjectInfo, current_data: bytes, target_data: bytes, pre
         HistoryChange object (not yet saved to DB - caller must await change.save()).
     """
     from .models import DiffStatus, HistoryChange
+
     # Update last check timestamp
     info.last_check = timestamp = round(time.time())
 
     # Count target pixels
-    num_target = count_target_pixels(info, target_data)
+    num_target = count_target_pixels(target_data)
 
     # Compare current vs target to find remaining pixels
     remaining = bytes(0 if target == current else target for current, target in zip(current_data, target_data))
@@ -132,15 +133,15 @@ def process_diff(info: ProjectInfo, current_data: bytes, target_data: bytes, pre
         )
 
     # Count remaining pixels and calculate completion
-    num_remaining = count_remaining_pixels(info, remaining)
-    percent_complete = calculate_completion_percent(info, num_remaining, num_target)
+    num_remaining = count_remaining_pixels(remaining)
+    percent_complete = calculate_completion_percent(num_remaining, num_target)
 
     # Compare with previous snapshot to detect progress/regress
     progress_pixels = 0
     regress_pixels = 0
 
     if prev_data:
-        progress_pixels, regress_pixels = compare_snapshots(info, current_data, prev_data, target_data)
+        progress_pixels, regress_pixels = compare_snapshots(current_data, prev_data, target_data)
 
     # Update totals
     info.total_progress += progress_pixels
