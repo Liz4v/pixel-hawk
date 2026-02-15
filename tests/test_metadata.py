@@ -1,312 +1,211 @@
-"""Tests for project metadata tracking and persistence."""
+"""Tests for project metadata computation and ProjectInfo model."""
 
 import time
 
 from pixel_hawk.geometry import Point, Rectangle, Size, Tile
-from pixel_hawk.metadata import ProjectMetadata
+from pixel_hawk.models import ProjectInfo
 
 
-def test_metadata_default_initialization():
-    """Test ProjectMetadata can be created with defaults."""
-    meta = ProjectMetadata()
+async def test_project_info_default_initialization():
+    """Test ProjectInfo can be created with defaults via DB."""
+    info = await ProjectInfo.create(name="test")
 
-    assert meta.x == 0
-    assert meta.y == 0
-    assert meta.width == 0
-    assert meta.height == 0
-    assert meta.first_seen == 0
-    assert meta.last_check == 0
-    assert meta.last_snapshot == 0
-    assert meta.max_completion_pixels == 0
-    assert meta.max_completion_percent == 0.0
-    assert meta.max_completion_time == 0
-    assert meta.total_progress == 0
-    assert meta.total_regress == 0
-    assert meta.largest_regress_pixels == 0
-    assert meta.largest_regress_time == 0
-    assert meta.recent_rate_pixels_per_hour == 0.0
-    assert meta.recent_rate_window_start == 0
-    assert meta.tile_last_update == {}
-    assert meta.tile_updates_24h == []
+    assert info.x == 0
+    assert info.y == 0
+    assert info.width == 0
+    assert info.height == 0
+    assert info.first_seen == 0
+    assert info.last_check == 0
+    assert info.last_snapshot == 0
+    assert info.max_completion_pixels == 0
+    assert info.max_completion_percent == 0.0
+    assert info.max_completion_time == 0
+    assert info.total_progress == 0
+    assert info.total_regress == 0
+    assert info.largest_regress_pixels == 0
+    assert info.largest_regress_time == 0
+    assert info.recent_rate_pixels_per_hour == 0.0
+    assert info.recent_rate_window_start == 0
+    assert info.tile_last_update == {}
+    assert info.tile_updates_24h == []
 
 
-def test_metadata_from_rect():
-    """Test ProjectMetadata.from_rect creates correct initial state."""
+async def test_from_rect():
+    """Test ProjectInfo.from_rect creates correct initial state."""
     rect = Rectangle.from_point_size(Point(100, 200), Size(50, 60))
 
     before_time = round(time.time())
-    meta = ProjectMetadata.from_rect(rect, "test_project.png")
+    info = await ProjectInfo.from_rect(rect, "test_project.png")
     after_time = round(time.time())
 
-    assert meta.name == "test_project.png"
-    assert meta.x == 100
-    assert meta.y == 200
-    assert meta.width == 50
-    assert meta.height == 60
-    assert before_time <= meta.first_seen <= after_time
-    assert before_time <= meta.last_check <= after_time
-    assert meta.first_seen == meta.last_check
-    assert meta.max_completion_pixels == 0
-    assert meta.total_progress == 0
-    assert meta.total_regress == 0
+    assert info.name == "test_project.png"
+    assert info.x == 100
+    assert info.y == 200
+    assert info.width == 50
+    assert info.height == 60
+    assert before_time <= info.first_seen <= after_time
+    assert before_time <= info.last_check <= after_time
+    assert info.first_seen == info.last_check
+    assert info.max_completion_pixels == 0
+    assert info.total_progress == 0
+    assert info.total_regress == 0
 
 
-def test_metadata_from_rect_with_offset():
-    """Test ProjectMetadata.from_rect with non-zero origin."""
+async def test_from_rect_with_offset():
+    """Test ProjectInfo.from_rect with non-zero origin."""
     rect = Rectangle.from_point_size(Point.from4(5, 7, 250, 380), Size(120, 80))
-    meta = ProjectMetadata.from_rect(rect, "offset_project.png")
+    info = await ProjectInfo.from_rect(rect, "offset_project.png")
 
-    assert meta.name == "offset_project.png"
-    assert meta.x == 5250  # 5 * 1000 + 250
-    assert meta.y == 7380  # 7 * 1000 + 380
-    assert meta.width == 120
-    assert meta.height == 80
+    assert info.name == "offset_project.png"
+    assert info.x == 5250  # 5 * 1000 + 250
+    assert info.y == 7380  # 7 * 1000 + 380
+    assert info.width == 120
+    assert info.height == 80
 
 
-def test_metadata_to_dict():
-    """Test metadata serialization to dictionary."""
-    meta = ProjectMetadata(
-        x=10,
-        y=20,
-        width=30,
-        height=40,
-        first_seen=1000,
-        last_check=2000,
-        last_snapshot=3000,
-        max_completion_pixels=100,
-        max_completion_percent=75.5,
-        max_completion_time=4000,
-        total_progress=50,
-        total_regress=5,
-        largest_regress_pixels=10,
-        largest_regress_time=5000,
-        recent_rate_pixels_per_hour=12.5,
-        recent_rate_window_start=6000,
-        tile_last_update={"1_2": 7000, "3_4": 8000},
-        tile_updates_24h=[("1_2", 7000), ("3_4", 8000)],
+async def test_get_or_create_from_rect_creates_new():
+    """Test get_or_create_from_rect creates when not in DB."""
+    rect = Rectangle.from_point_size(Point(10, 20), Size(30, 40))
+    info = await ProjectInfo.get_or_create_from_rect(rect, "new_project")
+
+    assert info.name == "new_project"
+    assert info.x == 10
+    assert info.width == 30
+
+
+async def test_get_or_create_from_rect_returns_existing():
+    """Test get_or_create_from_rect returns existing record."""
+    rect = Rectangle.from_point_size(Point(10, 20), Size(30, 40))
+    info1 = await ProjectInfo.from_rect(rect, "existing_project")
+    info1.total_progress = 42
+    await info1.save()
+
+    info2 = await ProjectInfo.get_or_create_from_rect(rect, "existing_project")
+    assert info2.total_progress == 42
+
+
+async def test_db_persistence_round_trip():
+    """Test ProjectInfo saves to and loads from DB correctly."""
+    await ProjectInfo.create(
+        name="roundtrip",
+        x=10, y=20, width=30, height=40,
+        first_seen=1000, last_check=2000,
+        max_completion_pixels=100, max_completion_percent=75.5,
+        total_progress=50, total_regress=5,
+        tile_last_update={"1_2": 7000},
+        tile_updates_24h=[["1_2", 7000]],
     )
 
-    data = meta.to_dict()
-
-    assert data["bounds"]["x"] == 10
-    assert data["bounds"]["y"] == 20
-    assert data["bounds"]["width"] == 30
-    assert data["bounds"]["height"] == 40
-    assert data["timestamps"]["first_seen"] == 1000
-    assert data["timestamps"]["last_check"] == 2000
-    assert data["timestamps"]["last_snapshot"] == 3000
-    assert data["max_completion"]["pixels_remaining"] == 100
-    assert data["max_completion"]["percent_complete"] == 75.5
-    assert data["max_completion"]["achieved_at"] == 4000
-    assert data["totals"]["progress_pixels"] == 50
-    assert data["totals"]["regress_pixels"] == 5
-    assert data["largest_regress"]["pixels"] == 10
-    assert data["largest_regress"]["timestamp"] == 5000
-    assert data["recent_rate"]["pixels_per_hour"] == 12.5
-    assert data["recent_rate"]["window_start"] == 6000
-    assert data["tile_updates"]["last_update_by_tile"] == {"1_2": 7000, "3_4": 8000}
-    assert len(data["tile_updates"]["recent_24h"]) == 2
-    assert data["tile_updates"]["recent_24h"][0]["tile"] == "1_2"
-    assert data["tile_updates"]["recent_24h"][0]["timestamp"] == 7000
+    loaded = await ProjectInfo.get(name="roundtrip")
+    assert loaded.x == 10
+    assert loaded.y == 20
+    assert loaded.width == 30
+    assert loaded.height == 40
+    assert loaded.first_seen == 1000
+    assert loaded.max_completion_pixels == 100
+    assert loaded.max_completion_percent == 75.5
+    assert loaded.total_progress == 50
+    assert loaded.total_regress == 5
+    assert loaded.tile_last_update == {"1_2": 7000}
+    assert loaded.tile_updates_24h == [["1_2", 7000]]
 
 
-def test_metadata_from_dict():
-    """Test metadata deserialization from dictionary."""
-    data = {
-        "bounds": {"x": 10, "y": 20, "width": 30, "height": 40},
-        "timestamps": {
-            "first_seen": 1000,
-            "last_check": 2000,
-            "last_snapshot": 3000,
-        },
-        "max_completion": {
-            "pixels_remaining": 100,
-            "percent_complete": 75.5,
-            "achieved_at": 4000,
-        },
-        "totals": {
-            "progress_pixels": 50,
-            "regress_pixels": 5,
-        },
-        "largest_regress": {
-            "pixels": 10,
-            "timestamp": 5000,
-        },
-        "recent_rate": {
-            "pixels_per_hour": 12.5,
-            "window_start": 6000,
-        },
-        "tile_updates": {
-            "last_update_by_tile": {"1_2": 7000, "3_4": 8000},
-            "recent_24h": [
-                {"tile": "1_2", "timestamp": 7000},
-                {"tile": "3_4", "timestamp": 8000},
-            ],
-        },
-    }
-
-    meta = ProjectMetadata.from_dict(data)
-
-    assert meta.x == 10
-    assert meta.y == 20
-    assert meta.width == 30
-    assert meta.height == 40
-    assert meta.first_seen == 1000
-    assert meta.last_check == 2000
-    assert meta.last_snapshot == 3000
-    assert meta.max_completion_pixels == 100
-    assert meta.max_completion_percent == 75.5
-    assert meta.max_completion_time == 4000
-    assert meta.total_progress == 50
-    assert meta.total_regress == 5
-    assert meta.largest_regress_pixels == 10
-    assert meta.largest_regress_time == 5000
-    assert meta.recent_rate_pixels_per_hour == 12.5
-    assert meta.recent_rate_window_start == 6000
-    assert meta.tile_last_update == {"1_2": 7000, "3_4": 8000}
-    assert meta.tile_updates_24h == [("1_2", 7000), ("3_4", 8000)]
-
-
-def test_metadata_from_dict_with_missing_fields():
-    """Test from_dict handles missing fields gracefully."""
-    data = {"bounds": {"x": 100}}  # Minimal data
-
-    meta = ProjectMetadata.from_dict(data)
-
-    assert meta.x == 100
-    assert meta.y == 0  # Default value
-    assert meta.width == 0
-    assert meta.tile_last_update == {}
-    assert meta.tile_updates_24h == []
-
-
-def test_metadata_round_trip():
-    """Test metadata serialization round-trip preserves all data."""
-    rect = Rectangle.from_point_size(Point(10, 20), Size(30, 40))
-    meta = ProjectMetadata.from_rect(rect, "roundtrip_test.png")
-    meta.max_completion_pixels = 100
-    meta.max_completion_percent = 75.5
-    meta.total_progress = 50
-    meta.total_regress = 5
-    meta.tile_last_update = {"1_2": 7000}
-    meta.tile_updates_24h = [("1_2", 7000)]
-
-    data = meta.to_dict()
-    meta2 = ProjectMetadata.from_dict(data)
-
-    assert meta2.x == meta.x
-    assert meta2.y == meta.y
-    assert meta2.width == meta.width
-    assert meta2.height == meta.height
-    assert meta2.first_seen == meta.first_seen
-    assert meta2.max_completion_pixels == meta.max_completion_pixels
-    assert meta2.max_completion_percent == meta.max_completion_percent
-    assert meta2.total_progress == meta.total_progress
-    assert meta2.total_regress == meta.total_regress
-    assert meta2.tile_last_update == meta.tile_last_update
-    assert meta2.tile_updates_24h == meta.tile_updates_24h
-
-
-def test_metadata_prune_old_tile_updates():
+async def test_prune_old_tile_updates():
     """Test pruning of old tile updates from 24h list."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="prune_test")
     now = round(time.time())
     old_time = now - 100000  # more than 24h ago
     recent_time = now - 1000  # within 24h
 
-    meta.tile_updates_24h = [
-        ("old_tile_1", old_time),
-        ("recent_tile", recent_time),
-        ("old_tile_2", old_time - 5000),
-        ("recent_tile_2", now),
+    info.tile_updates_24h = [
+        ["old_tile_1", old_time],
+        ["recent_tile", recent_time],
+        ["old_tile_2", old_time - 5000],
+        ["recent_tile_2", now],
     ]
 
-    meta.last_check = now  # Set last_check so cutoff = now - 86400
-    meta.prune_old_tile_updates()
+    info.last_check = now
+    info.prune_old_tile_updates()
 
-    assert len(meta.tile_updates_24h) == 2
-    assert ("recent_tile", recent_time) in meta.tile_updates_24h
-    assert ("recent_tile_2", now) in meta.tile_updates_24h
-    assert ("old_tile_1", old_time) not in meta.tile_updates_24h
-    assert ("old_tile_2", old_time - 5000) not in meta.tile_updates_24h
+    assert len(info.tile_updates_24h) == 2
+    assert ["recent_tile", recent_time] in info.tile_updates_24h
+    assert ["recent_tile_2", now] in info.tile_updates_24h
+    assert ["old_tile_1", old_time] not in info.tile_updates_24h
+    assert ["old_tile_2", old_time - 5000] not in info.tile_updates_24h
 
 
-def test_metadata_prune_empty_list():
+async def test_prune_empty_list():
     """Test pruning on empty tile updates list."""
-    meta = ProjectMetadata()
-    meta.tile_updates_24h = []
+    info = await ProjectInfo.create(name="prune_empty")
+    info.tile_updates_24h = []
 
-    meta.last_check = round(time.time())
-    meta.prune_old_tile_updates()
+    info.last_check = round(time.time())
+    info.prune_old_tile_updates()
 
-    assert meta.tile_updates_24h == []
+    assert info.tile_updates_24h == []
 
 
-def test_metadata_prune_all_old():
+async def test_prune_all_old():
     """Test pruning when all updates are old."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="prune_all_old")
     old_time = round(time.time()) - 200000
-    meta.tile_updates_24h = [
-        ("tile_1", old_time),
-        ("tile_2", old_time + 1000),
+    info.tile_updates_24h = [
+        ["tile_1", old_time],
+        ["tile_2", old_time + 1000],
     ]
 
-    meta.last_check = round(time.time())
-    meta.prune_old_tile_updates()
+    info.last_check = round(time.time())
+    info.prune_old_tile_updates()
 
-    assert meta.tile_updates_24h == []
+    assert info.tile_updates_24h == []
 
 
-def test_metadata_update_tile():
+async def test_update_tile():
     """Test tile update recording."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="update_tile")
     tile = Tile(1, 2)
     timestamp = 12345
 
-    meta.update_tile(tile, timestamp)
+    info.update_tile(tile, timestamp)
 
-    assert meta.tile_last_update["1_2"] == timestamp
-    assert ("1_2", timestamp) in meta.tile_updates_24h
+    assert info.tile_last_update["1_2"] == timestamp
+    assert ["1_2", timestamp] in info.tile_updates_24h
 
 
-def test_metadata_update_tile_multiple_times():
+async def test_update_tile_multiple_times():
     """Test updating the same tile multiple times."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="update_multi")
     tile = Tile(5, 10)
 
-    # First update
-    meta.update_tile(tile, 1000)
-    assert meta.tile_last_update["5_10"] == 1000
-    assert len(meta.tile_updates_24h) == 1
+    info.update_tile(tile, 1000)
+    assert info.tile_last_update["5_10"] == 1000
+    assert len(info.tile_updates_24h) == 1
 
-    # Second update with different timestamp
-    meta.update_tile(tile, 2000)
-    assert meta.tile_last_update["5_10"] == 2000
-    assert len(meta.tile_updates_24h) == 2
-    assert ("5_10", 1000) in meta.tile_updates_24h
-    assert ("5_10", 2000) in meta.tile_updates_24h
+    info.update_tile(tile, 2000)
+    assert info.tile_last_update["5_10"] == 2000
+    assert len(info.tile_updates_24h) == 2
+    assert ["5_10", 1000] in info.tile_updates_24h
+    assert ["5_10", 2000] in info.tile_updates_24h
 
 
-def test_metadata_update_tile_duplicate_prevention():
+async def test_update_tile_duplicate_prevention():
     """Test that duplicate tile updates are not added."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="update_dup")
     tile = Tile(3, 7)
     timestamp = 5000
 
-    # Add same tile with same timestamp multiple times
-    meta.update_tile(tile, timestamp)
-    meta.update_tile(tile, timestamp)
-    meta.update_tile(tile, timestamp)
+    info.update_tile(tile, timestamp)
+    info.update_tile(tile, timestamp)
+    info.update_tile(tile, timestamp)
 
-    # Should only appear once in 24h list
-    assert meta.tile_last_update["3_7"] == timestamp
-    assert len(meta.tile_updates_24h) == 1
-    assert meta.tile_updates_24h[0] == ("3_7", timestamp)
+    assert info.tile_last_update["3_7"] == timestamp
+    assert len(info.tile_updates_24h) == 1
+    assert info.tile_updates_24h[0] == ["3_7", timestamp]
 
 
-def test_metadata_update_multiple_tiles():
+async def test_update_multiple_tiles():
     """Test updating multiple different tiles."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="update_many")
 
     tiles_and_times = [
         (Tile(1, 2), 1000),
@@ -315,333 +214,267 @@ def test_metadata_update_multiple_tiles():
     ]
 
     for tile, timestamp in tiles_and_times:
-        meta.update_tile(tile, timestamp)
+        info.update_tile(tile, timestamp)
 
-    assert len(meta.tile_last_update) == 3
-    assert meta.tile_last_update["1_2"] == 1000
-    assert meta.tile_last_update["3_4"] == 2000
-    assert meta.tile_last_update["5_6"] == 3000
+    assert len(info.tile_last_update) == 3
+    assert info.tile_last_update["1_2"] == 1000
+    assert info.tile_last_update["3_4"] == 2000
+    assert info.tile_last_update["5_6"] == 3000
 
-    assert len(meta.tile_updates_24h) == 3
-    assert ("1_2", 1000) in meta.tile_updates_24h
-    assert ("3_4", 2000) in meta.tile_updates_24h
-    assert ("5_6", 3000) in meta.tile_updates_24h
+    assert len(info.tile_updates_24h) == 3
+    assert ["1_2", 1000] in info.tile_updates_24h
+    assert ["3_4", 2000] in info.tile_updates_24h
+    assert ["5_6", 3000] in info.tile_updates_24h
 
 
-def test_metadata_tile_tracking_integrated():
+async def test_tile_tracking_integrated():
     """Test integrated tile tracking with updates and pruning."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="integrated")
     now = round(time.time())
 
-    # Add some old updates
     old_time = now - 100000
-    meta.update_tile(Tile(1, 1), old_time)
-    meta.update_tile(Tile(2, 2), old_time + 1000)
+    info.update_tile(Tile(1, 1), old_time)
+    info.update_tile(Tile(2, 2), old_time + 1000)
 
-    # Add some recent updates
     recent_time = now - 1000
-    meta.update_tile(Tile(3, 3), recent_time)
-    meta.update_tile(Tile(4, 4), now)
+    info.update_tile(Tile(3, 3), recent_time)
+    info.update_tile(Tile(4, 4), now)
 
-    # Verify all tiles recorded
-    assert len(meta.tile_last_update) == 4
-    assert len(meta.tile_updates_24h) == 4
+    assert len(info.tile_last_update) == 4
+    assert len(info.tile_updates_24h) == 4
 
-    # Prune old updates
-    meta.last_check = now
-    meta.prune_old_tile_updates()
+    info.last_check = now
+    info.prune_old_tile_updates()
 
-    # Only recent tiles remain in 24h list
-    assert len(meta.tile_updates_24h) == 2
-    assert ("3_3", recent_time) in meta.tile_updates_24h
-    assert ("4_4", now) in meta.tile_updates_24h
+    assert len(info.tile_updates_24h) == 2
+    assert ["3_3", recent_time] in info.tile_updates_24h
+    assert ["4_4", now] in info.tile_updates_24h
 
-    # But all tiles still in last_update map
-    assert len(meta.tile_last_update) == 4
-    assert "1_1" in meta.tile_last_update
-    assert "2_2" in meta.tile_last_update
+    assert len(info.tile_last_update) == 4
+    assert "1_1" in info.tile_last_update
+    assert "2_2" in info.tile_last_update
 
 
-def test_metadata_numeric_fields_precision():
-    """Test floating point precision in metadata."""
-    meta = ProjectMetadata(
+async def test_numeric_fields_precision():
+    """Test floating point precision in DB round-trip."""
+    info = await ProjectInfo.create(
+        name="precision",
         max_completion_percent=99.99999,
         recent_rate_pixels_per_hour=123.456789,
     )
 
-    data = meta.to_dict()
-    meta2 = ProjectMetadata.from_dict(data)
-
-    assert meta2.max_completion_percent == meta.max_completion_percent
-    assert meta2.recent_rate_pixels_per_hour == meta.recent_rate_pixels_per_hour
+    loaded = await ProjectInfo.get(name="precision")
+    assert loaded.max_completion_percent == info.max_completion_percent
+    assert loaded.recent_rate_pixels_per_hour == info.recent_rate_pixels_per_hour
 
 
 # Pixel counting tests
 
 
-def test_count_remaining_pixels():
+async def test_count_remaining_pixels():
     """Test counting remaining pixels from diff bytes."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="count_rem")
 
-    # All zeros - nothing remaining
-    assert meta.count_remaining_pixels(bytes([0, 0, 0, 0])) == 0
-
-    # Some pixels remaining
-    assert meta.count_remaining_pixels(bytes([0, 1, 0, 2, 0, 3])) == 3
-
-    # All pixels remaining
-    assert meta.count_remaining_pixels(bytes([1, 2, 3, 4])) == 4
+    assert info.count_remaining_pixels(bytes([0, 0, 0, 0])) == 0
+    assert info.count_remaining_pixels(bytes([0, 1, 0, 2, 0, 3])) == 3
+    assert info.count_remaining_pixels(bytes([1, 2, 3, 4])) == 4
 
 
-def test_count_target_pixels():
+async def test_count_target_pixels():
     """Test counting target pixels with division-by-zero protection."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="count_tgt")
 
-    # Normal case
-    assert meta.count_target_pixels(bytes([0, 1, 2, 3])) == 3
-
-    # All target pixels
-    assert meta.count_target_pixels(bytes([1, 1, 1, 1])) == 4
-
-    # No target pixels - should return 1 to avoid div/0
-    assert meta.count_target_pixels(bytes([0, 0, 0, 0])) == 1
+    assert info.count_target_pixels(bytes([0, 1, 2, 3])) == 3
+    assert info.count_target_pixels(bytes([1, 1, 1, 1])) == 4
+    assert info.count_target_pixels(bytes([0, 0, 0, 0])) == 1
 
 
-def test_calculate_completion_percent():
+async def test_calculate_completion_percent():
     """Test completion percentage calculation."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="calc_pct")
 
-    # 50% complete
-    assert meta.calculate_completion_percent(50, 100) == 50.0
-
-    # Fully complete
-    assert meta.calculate_completion_percent(0, 100) == 100.0
-
-    # Not started
-    assert meta.calculate_completion_percent(100, 100) == 0.0
-
-    # Nearly complete
-    assert meta.calculate_completion_percent(1, 100) == 99.0
+    assert info.calculate_completion_percent(50, 100) == 50.0
+    assert info.calculate_completion_percent(0, 100) == 100.0
+    assert info.calculate_completion_percent(100, 100) == 0.0
+    assert info.calculate_completion_percent(1, 100) == 99.0
 
 
-def test_compare_snapshots_progress():
+async def test_compare_snapshots_progress():
     """Test snapshot comparison detecting progress."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="snap_prog")
 
-    # Target: pixels 1 and 2 should be colored
     target = bytes([0, 1, 2, 0])
-    # Previous: pixel 1 correct, pixel 2 wrong
     prev = bytes([0, 1, 0, 0])
-    # Current: both correct (progress on pixel 2)
     current = bytes([0, 1, 2, 0])
 
-    progress, regress = meta.compare_snapshots(current, prev, target)
+    progress, regress = info.compare_snapshots(current, prev, target)
 
     assert progress == 1
     assert regress == 0
 
 
-def test_compare_snapshots_regress():
+async def test_compare_snapshots_regress():
     """Test snapshot comparison detecting regress."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="snap_reg")
 
-    # Target: pixels 1 and 2 should be colored
     target = bytes([0, 1, 2, 0])
-    # Previous: both correct
     prev = bytes([0, 1, 2, 0])
-    # Current: pixel 2 griefed (regress)
     current = bytes([0, 1, 0, 0])
 
-    progress, regress = meta.compare_snapshots(current, prev, target)
+    progress, regress = info.compare_snapshots(current, prev, target)
 
     assert progress == 0
     assert regress == 1
 
 
-def test_compare_snapshots_mixed():
+async def test_compare_snapshots_mixed():
     """Test snapshot comparison with both progress and regress."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="snap_mix")
 
-    # Target: pixels 1, 2, 3 should be colored
     target = bytes([0, 1, 2, 3, 0])
-    # Previous: pixel 1 correct, rest wrong
     prev = bytes([0, 1, 0, 0, 0])
-    # Current: pixels 1 and 2 correct, 3 gets griefed
     current = bytes([0, 1, 2, 0, 0])
 
-    progress, regress = meta.compare_snapshots(current, prev, target)
+    progress, regress = info.compare_snapshots(current, prev, target)
 
-    assert progress == 1  # pixel 2 fixed
-    assert regress == 0  # pixel 3 was already wrong
+    assert progress == 1
+    assert regress == 0
 
 
-def test_compare_snapshots_no_change():
+async def test_compare_snapshots_no_change():
     """Test snapshot comparison with no changes."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="snap_nochg")
 
     target = bytes([0, 1, 2, 0])
     prev = bytes([0, 1, 0, 0])
-    current = bytes([0, 1, 0, 0])  # Same as previous
+    current = bytes([0, 1, 0, 0])
 
-    progress, regress = meta.compare_snapshots(current, prev, target)
+    progress, regress = info.compare_snapshots(current, prev, target)
 
     assert progress == 0
     assert regress == 0
 
 
-def test_compare_snapshots_skips_transparent():
+async def test_compare_snapshots_skips_transparent():
     """Test that transparent pixels are skipped in comparison."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="snap_trans")
 
-    # Target has transparent (0) pixels
     target = bytes([0, 1, 0, 2])
-    prev = bytes([5, 1, 5, 0])  # Changes in transparent areas
-    current = bytes([9, 1, 9, 2])  # Different, but transparent pixels ignored
+    prev = bytes([5, 1, 5, 0])
+    current = bytes([9, 1, 9, 2])
 
-    progress, regress = meta.compare_snapshots(current, prev, target)
+    progress, regress = info.compare_snapshots(current, prev, target)
 
-    # Only pixel 3 (index 3) matters: was wrong, now correct
     assert progress == 1
     assert regress == 0
 
 
-def test_update_completion_new_record():
+async def test_update_completion_new_record():
     """Test updating max completion when improved."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="comp_new")
 
-    meta.update_completion(100, 50.0, 1000)
-    assert meta.max_completion_pixels == 100
-    assert meta.max_completion_percent == 50.0
-    assert meta.max_completion_time == 1000
+    info.update_completion(100, 50.0, 1000)
+    assert info.max_completion_pixels == 100
+    assert info.max_completion_percent == 50.0
+    assert info.max_completion_time == 1000
 
-    # Better completion
-    meta.update_completion(50, 75.0, 2000)
-    assert meta.max_completion_pixels == 50
-    assert meta.max_completion_percent == 75.0
-    assert meta.max_completion_time == 2000
+    info.update_completion(50, 75.0, 2000)
+    assert info.max_completion_pixels == 50
+    assert info.max_completion_percent == 75.0
+    assert info.max_completion_time == 2000
 
 
-def test_update_completion_no_improvement():
+async def test_update_completion_no_improvement():
     """Test that completion doesn't downgrade."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="comp_noimpr")
 
-    meta.update_completion(50, 75.0, 1000)
+    info.update_completion(50, 75.0, 1000)
 
-    # Worse completion - should not update
-    meta.update_completion(100, 50.0, 2000)
-    assert meta.max_completion_pixels == 50
-    assert meta.max_completion_percent == 75.0
-    assert meta.max_completion_time == 1000
+    info.update_completion(100, 50.0, 2000)
+    assert info.max_completion_pixels == 50
+    assert info.max_completion_percent == 75.0
+    assert info.max_completion_time == 1000
 
 
-def test_update_regress_new_record():
+async def test_update_regress_new_record():
     """Test updating largest regress event."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="reg_new")
 
-    meta.update_regress(10, 1000)
-    assert meta.largest_regress_pixels == 10
-    assert meta.largest_regress_time == 1000
+    info.update_regress(10, 1000)
+    assert info.largest_regress_pixels == 10
+    assert info.largest_regress_time == 1000
 
-    # Larger regress
-    meta.update_regress(20, 2000)
-    assert meta.largest_regress_pixels == 20
-    assert meta.largest_regress_time == 2000
+    info.update_regress(20, 2000)
+    assert info.largest_regress_pixels == 20
+    assert info.largest_regress_time == 2000
 
 
-def test_update_regress_not_larger():
+async def test_update_regress_not_larger():
     """Test that smaller regress doesn't update record."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="reg_smaller")
 
-    meta.update_regress(20, 1000)
-    meta.update_regress(5, 2000)  # Smaller
+    info.update_regress(20, 1000)
+    info.update_regress(5, 2000)
 
-    assert meta.largest_regress_pixels == 20
-    assert meta.largest_regress_time == 1000
+    assert info.largest_regress_pixels == 20
+    assert info.largest_regress_time == 1000
 
 
-def test_update_rate_new_window():
+async def test_update_rate_new_window():
     """Test rate calculation starting new window."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="rate_new")
 
-    meta.update_rate(10, 2, 1000)
+    info.update_rate(10, 2, 1000)
 
-    assert meta.recent_rate_window_start == 1000
-    assert meta.recent_rate_pixels_per_hour == 0.0  # No elapsed time yet
+    assert info.recent_rate_window_start == 1000
+    assert info.recent_rate_pixels_per_hour == 0.0
 
 
-def test_update_rate_with_elapsed_time():
+async def test_update_rate_with_elapsed_time():
     """Test rate calculation with elapsed time."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="rate_elapsed")
 
-    meta.recent_rate_window_start = 1000
-    # 1 hour later (3600 seconds)
-    meta.update_rate(10, 2, 1000 + 3600)
+    info.recent_rate_window_start = 1000
+    info.update_rate(10, 2, 1000 + 3600)
 
-    # Net change: 10 progress - 2 regress = 8 pixels in 1 hour
-    assert meta.recent_rate_pixels_per_hour == 8.0
+    assert info.recent_rate_pixels_per_hour == 8.0
 
 
-def test_update_rate_window_reset():
+async def test_update_rate_window_reset():
     """Test rate window resets after 24 hours."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="rate_reset")
 
-    meta.recent_rate_window_start = 1000
-    meta.recent_rate_pixels_per_hour = 100.0
+    info.recent_rate_window_start = 1000
+    info.recent_rate_pixels_per_hour = 100.0
 
-    # More than 24 hours later (86400 seconds = 24 hours)
-    meta.update_rate(5, 0, 1000 + 86401)
+    info.update_rate(5, 0, 1000 + 86401)
 
-    # Window should reset
-    assert meta.recent_rate_window_start == 1000 + 86401
-    assert meta.recent_rate_pixels_per_hour == 0.0
+    assert info.recent_rate_window_start == 1000 + 86401
+    assert info.recent_rate_pixels_per_hour == 0.0
 
 
-def test_update_rate_negative_net_change():
+async def test_update_rate_negative_net_change():
     """Test rate calculation with net regress."""
-    meta = ProjectMetadata()
+    info = await ProjectInfo.create(name="rate_neg")
 
-    meta.recent_rate_window_start = 1000
-    # 1 hour later, more regress than progress
-    meta.update_rate(2, 10, 1000 + 3600)
+    info.recent_rate_window_start = 1000
+    info.update_rate(2, 10, 1000 + 3600)
 
-    # Net change: 2 - 10 = -8 pixels per hour
-    assert meta.recent_rate_pixels_per_hour == -8.0
+    assert info.recent_rate_pixels_per_hour == -8.0
 
 
-def test_has_missing_tiles_default():
+async def test_has_missing_tiles_default():
     """Test has_missing_tiles defaults to True."""
-    meta = ProjectMetadata()
-    assert meta.has_missing_tiles is True
+    info = await ProjectInfo.create(name="miss_default")
+    assert info.has_missing_tiles is True
 
 
-def test_has_missing_tiles_to_dict():
-    """Test has_missing_tiles is serialized to dictionary."""
-    meta = ProjectMetadata(has_missing_tiles=True)
-    data = meta.to_dict()
-    assert data["cache_state"]["has_missing_tiles"] is True
+async def test_has_missing_tiles_persistence():
+    """Test has_missing_tiles persists through DB round-trip."""
+    await ProjectInfo.create(name="miss_persist", has_missing_tiles=False)
+    loaded = await ProjectInfo.get(name="miss_persist")
+    assert loaded.has_missing_tiles is False
 
-    meta2 = ProjectMetadata(has_missing_tiles=False)
-    data2 = meta2.to_dict()
-    assert data2["cache_state"]["has_missing_tiles"] is False
-
-
-def test_has_missing_tiles_from_dict():
-    """Test has_missing_tiles is deserialized from dictionary."""
-    data = {
-        "cache_state": {"has_missing_tiles": True},
-    }
-    meta = ProjectMetadata.from_dict(data)
-    assert meta.has_missing_tiles is True
-
-    data2 = {
-        "cache_state": {"has_missing_tiles": False},
-    }
-    meta2 = ProjectMetadata.from_dict(data2)
-    assert meta2.has_missing_tiles is False
-
-
-def test_has_missing_tiles_from_dict_defaults():
-    """Test has_missing_tiles defaults to False when missing from dictionary."""
-    data = {}  # No cache_state key
-    meta = ProjectMetadata.from_dict(data)
-    assert meta.has_missing_tiles is True
+    await ProjectInfo.create(name="miss_persist2", has_missing_tiles=True)
+    loaded2 = await ProjectInfo.get(name="miss_persist2")
+    assert loaded2.has_missing_tiles is True

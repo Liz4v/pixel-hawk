@@ -13,6 +13,7 @@ from pathlib import Path
 from loguru import logger
 
 from .config import get_config
+from .db import close_db, init_db
 from .ingest import TileChecker
 from .projects import Project
 
@@ -86,27 +87,32 @@ async def _async_main():
     logger.debug(f"pixel-hawk-home: {cfg.home}")
     logger.debug(f"Logging to file: {log_file}")
     logger.info(f"Place project PNG files in: {cfg.projects_dir}")
-    # set up main loop
-    worker = Main()
-    await worker.start()
-    consecutive_errors = 0
-    logger.info(f"Starting polling loop ({POLLING_CYCLE_SECONDS:.1f}s cycle, 60φ = 30(1+√5))...")
-    while True:
-        try:
-            await worker.poll_once()
-            consecutive_errors = 0  # Reset on success
-        except Exception as e:
-            consecutive_errors += 1
-            logger.error(f"Error during polling cycle: {e} (consecutive errors: {consecutive_errors})")
-            if consecutive_errors >= 3:
-                logger.critical("Three consecutive errors encountered. Exiting.")
-                raise
-        logger.debug(f"Cycle complete, sleeping for {POLLING_CYCLE_SECONDS:.1f} seconds...")
-        try:
-            await asyncio.sleep(POLLING_CYCLE_SECONDS)
-        except (KeyboardInterrupt, asyncio.CancelledError):
-            logger.info("Exiting due to user interrupt.")
-            return
+    # Initialize database
+    await init_db()
+    try:
+        # set up main loop
+        worker = Main()
+        await worker.start()
+        consecutive_errors = 0
+        logger.info(f"Starting polling loop ({POLLING_CYCLE_SECONDS:.1f}s cycle, 60φ = 30(1+√5))...")
+        while True:
+            try:
+                await worker.poll_once()
+                consecutive_errors = 0  # Reset on success
+            except Exception as e:
+                consecutive_errors += 1
+                logger.error(f"Error during polling cycle: {e} (consecutive errors: {consecutive_errors})")
+                if consecutive_errors >= 3:
+                    logger.critical("Three consecutive errors encountered. Exiting.")
+                    raise
+            logger.debug(f"Cycle complete, sleeping for {POLLING_CYCLE_SECONDS:.1f} seconds...")
+            try:
+                await asyncio.sleep(POLLING_CYCLE_SECONDS)
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                logger.info("Exiting due to user interrupt.")
+                return
+    finally:
+        await close_db()
 
 
 def main():

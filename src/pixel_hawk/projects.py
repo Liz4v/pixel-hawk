@@ -7,8 +7,9 @@ the WPlace palette and are cached in memory with their metadata.
 The Project class orchestrates diff computation by:
 - Loading target project images and stitching current canvas tiles
 - Comparing current state against previous snapshots to detect progress/regress
-- Delegating pixel counting and statistical calculations to ProjectMetadata
-- Persisting YAML metadata and PNG snapshots adjacent to project files
+- Delegating pixel counting and statistical calculations to ProjectInfo
+- Persisting project info to SQLite via Tortoise ORM Active Record
+- Saving PNG snapshots to the snapshots directory
 - Logging detailed progress reports with completion estimates
 
 Invalid files are moved to get_config().rejected_dir to avoid repeated parsing.
@@ -27,7 +28,7 @@ from ruamel.yaml import YAML
 from .config import get_config
 from .geometry import Point, Rectangle, Size, Tile
 from .ingest import stitch_tiles
-from .metadata import DiffStatus, ProjectMetadata
+from .models import DiffStatus, HistoryChange, ProjectInfo
 from .palette import PALETTE, AsyncImage, ColorsNotInPalette
 
 if TYPE_CHECKING:
@@ -35,15 +36,11 @@ if TYPE_CHECKING:
 
 _RE_HAS_COORDS = re.compile(r"[- _](\d+)[- _](\d+)[- _](\d+)[- _](\d+)\.png$", flags=re.IGNORECASE)
 
-yaml = YAML(typ="safe")
-yaml.default_flow_style = False
-yaml.width = 120
-
 
 class Project:
     """Represents a wplace project stored on disk that has been validated."""
 
-    def __init__(self, path: Path, rect: Rectangle):
+    def __init__(self, path: Path, rect: Rectangle, info: ProjectInfo):
         """Represents a wplace project stored at `path`, covering the area defined by `rect`."""
         self.path = path
         self.rect = rect
@@ -52,7 +49,7 @@ class Project:
             self.mtime = round(path.stat().st_mtime)
         except OSError:
             pass
-        self.metadata = self.load_metadata()
+        self.info = info
 
     def has_been_modified(self) -> bool:
         """Check if the file has been modified since it was loaded."""
@@ -106,10 +103,12 @@ class Project:
             cls._reject(path, str(e))
             return None
         rect = Rectangle.from_point_size(Point.from4(*map(int, match.groups())), size)
+        name = path.with_suffix("").name
 
         logger.info(f"{path.name}: Detected project at {rect}")
 
-        new = cls(path, rect)
+        info = await _load_or_migrate_info(rect, name)
+        new = cls(path, rect, info)
         await new.run_diff()
         return new
 
@@ -122,41 +121,13 @@ class Project:
     @property
     def snapshot_path(self) -> Path:
         """Path to the snapshot file for this project."""
-        # project_123_456_789_012.png -> project_123_456_789_012.snapshot.png
         return get_config().snapshots_dir / self.path.name.replace(".png", ".snapshot.png")
-
-    @property
-    def metadata_path(self) -> Path:
-        """Path to the metadata YAML file for this project."""
-        # project_123_456_789_012.png -> project_123_456_789_012.metadata.yaml
-        return get_config().metadata_dir / self.path.name.replace(".png", ".metadata.yaml")
-
-    def load_metadata(self) -> ProjectMetadata:
-        """Load metadata from YAML file, or create new if file doesn't exist."""
-        if not self.metadata_path.exists():
-            return ProjectMetadata.from_rect(self.rect, self.path.with_suffix("").name)
-
-        try:
-            with open(self.metadata_path, "r", encoding="utf-8") as f:
-                data = yaml.load(f)
-            return ProjectMetadata.from_dict(data)
-        except Exception as e:
-            logger.warning(f"Failed to load metadata for {self.path.name}: {e}. Creating new.")
-            return ProjectMetadata.from_rect(self.rect, self.path.with_suffix("").name)
-
-    def save_metadata(self) -> None:
-        """Save metadata to YAML file."""
-        try:
-            with open(self.metadata_path, "w", encoding="utf-8") as f:
-                yaml.dump(self.metadata.to_dict(), f)
-        except Exception as e:
-            logger.error(f"Failed to save metadata for {self.path.name}: {e}")
 
     async def save_snapshot(self, image) -> None:
         """Save current canvas snapshot to disk."""
         try:
             await asyncio.to_thread(image.save, self.snapshot_path)
-            self.metadata.last_snapshot = round(time.time())
+            self.info.last_snapshot = round(time.time())
         except Exception as e:
             logger.error(f"Failed to save snapshot for {self.path.name}: {e}")
 
@@ -181,11 +152,11 @@ class Project:
             changed_tile: The specific tile that changed (if known), for efficient metadata updates
 
         Tracks progress (pixels placed toward goal) and regress (pixels removed/griefed),
-        updates metadata with completion history, saves snapshot and metadata.
+        updates info with completion history, saves snapshot and persists to DB.
         """
         # If any tiles have been missing from cache, maybe they just arrived.
-        if self.metadata.has_missing_tiles:
-            self.metadata.has_missing_tiles = self._has_missing_tiles()
+        if self.info.has_missing_tiles:
+            self.info.has_missing_tiles = self._has_missing_tiles()
 
         # Load target project image
         async with PALETTE.aopen_file(self.path) as target:
@@ -200,24 +171,35 @@ class Project:
             current_data = get_flattened_data(current)
             await self.save_snapshot(current)
 
-        # Process diff: count, compare, update metadata, build log message
-        result = self.metadata.process_diff(current_data, target_data, prev_data)
+        # Process diff: count, compare, update info, build log message
+        result = self.info.process_diff(current_data, target_data, prev_data)
+
+        # Create HistoryChange record
+        await HistoryChange.create(
+            project=self.info,
+            timestamp=result["timestamp"],
+            status=DiffStatus(result["status"]),
+            num_remaining=result["num_remaining"],
+            num_target=result["num_target"],
+            completion_percent=result["completion_percent"],
+            progress_pixels=result["progress_pixels"],
+            regress_pixels=result["regress_pixels"],
+        )
 
         # Update tile metadata if a specific tile changed
-        if changed_tile is not None and result.status == DiffStatus.IN_PROGRESS:
+        if changed_tile is not None and result["status"] == DiffStatus.IN_PROGRESS:
             self._update_single_tile_metadata(changed_tile)
-        elif result.status == DiffStatus.IN_PROGRESS:
-            # Fallback: check all tiles in project area (less efficient)
+        elif result["status"] == DiffStatus.IN_PROGRESS:
             self._update_tile_metadata()
 
         # Log and save
-        logger.info(self.metadata.last_log_message)
-        self.save_metadata()
+        logger.info(self.info.last_log_message)
+        await self.info.save()
 
     async def run_nochange(self) -> None:
-        self.metadata.last_check = round(time.time())
-        self.metadata.prune_old_tile_updates()  # regular cleanup task
-        self.save_metadata()
+        self.info.last_check = round(time.time())
+        self.info.prune_old_tile_updates()  # regular cleanup task
+        await self.info.save()
 
     def _update_single_tile_metadata(self, tile: Tile) -> None:
         """Update metadata for a single tile that changed."""
@@ -226,27 +208,23 @@ class Project:
             mtime = round(tile_path.stat().st_mtime)
             tile_str = str(tile)
 
-            # Check if this tile has been updated since last check
-            last_update = self.metadata.tile_last_update.get(tile_str, 0)
+            last_update = self.info.tile_last_update.get(tile_str, 0)
             if mtime > last_update:
-                self.metadata.update_tile(tile, mtime)
+                self.info.update_tile(tile, mtime)
 
     def _update_tile_metadata(self) -> None:
         """Update tile modification times from cached tile files."""
-        # Prune old 24h entries
-        self.metadata.prune_old_tile_updates()
+        self.info.prune_old_tile_updates()
 
-        # Check each tile in project area
         for tile in self.rect.tiles:
             tile_path = get_config().tiles_dir / f"tile-{tile}.png"
             if tile_path.exists():
                 mtime = round(tile_path.stat().st_mtime)
                 tile_str = str(tile)
 
-                # Check if this tile has been updated since last check
-                last_update = self.metadata.tile_last_update.get(tile_str, 0)
+                last_update = self.info.tile_last_update.get(tile_str, 0)
                 if mtime > last_update:
-                    self.metadata.update_tile(tile, mtime)
+                    self.info.update_tile(tile, mtime)
 
     def _has_missing_tiles(self) -> bool:
         """Check if any tiles required by this project are missing from cache."""
@@ -255,6 +233,79 @@ class Project:
             if not tile_path.exists():
                 return True
         return False
+
+
+async def _load_or_migrate_info(rect: Rectangle, name: str) -> ProjectInfo:
+    """Load ProjectInfo from DB, migrate from YAML if needed, or create new."""
+    existing = await ProjectInfo.filter(name=name).first()
+    if existing:
+        return existing
+
+    # Check for legacy YAML metadata file
+    yaml_path = get_config().metadata_dir / f"{name}.metadata.yaml"
+    if yaml_path.exists():
+        try:
+            info = await _migrate_from_yaml(yaml_path, name)
+            logger.info(f"{name}: Migrated metadata from YAML to SQLite")
+            return info
+        except Exception as e:
+            logger.warning(f"{name}: Failed to migrate YAML metadata: {e}. Creating new.")
+
+    return await ProjectInfo.from_rect(rect, name)
+
+
+async def _migrate_from_yaml(yaml_path: Path, name: str) -> ProjectInfo:
+    """Read legacy YAML metadata and create a ProjectInfo record in the database."""
+    yaml_reader = YAML(typ="safe")
+
+    def _read():
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            return yaml_reader.load(f)
+
+    data = await asyncio.to_thread(_read)
+
+    bounds = data.get("bounds", {})
+    timestamps = data.get("timestamps", {})
+    max_comp = data.get("max_completion", {})
+    totals = data.get("totals", {})
+    largest_reg = data.get("largest_regress", {})
+    rate = data.get("recent_rate", {})
+    tile_updates = data.get("tile_updates", {})
+    cache_state = data.get("cache_state", {})
+
+    # Convert tile_updates_24h from YAML format [{tile, timestamp}, ...] to list format [[tile, ts], ...]
+    raw_24h = tile_updates.get("recent_24h", [])
+    tile_updates_24h = [[item["tile"], item["timestamp"]] for item in raw_24h]
+
+    info = await ProjectInfo.create(
+        name=name,
+        x=bounds.get("x", 0),
+        y=bounds.get("y", 0),
+        width=bounds.get("width", 0),
+        height=bounds.get("height", 0),
+        first_seen=timestamps.get("first_seen", 0),
+        last_check=timestamps.get("last_check", 0),
+        last_snapshot=timestamps.get("last_snapshot", 0),
+        max_completion_pixels=max_comp.get("pixels_remaining", 0),
+        max_completion_percent=max_comp.get("percent_complete", 0.0),
+        max_completion_time=max_comp.get("achieved_at", 0),
+        total_progress=totals.get("progress_pixels", 0),
+        total_regress=totals.get("regress_pixels", 0),
+        largest_regress_pixels=largest_reg.get("pixels", 0),
+        largest_regress_time=largest_reg.get("timestamp", 0),
+        recent_rate_pixels_per_hour=rate.get("pixels_per_hour", 0.0),
+        recent_rate_window_start=rate.get("window_start", 0),
+        tile_last_update=tile_updates.get("last_update_by_tile", {}),
+        tile_updates_24h=tile_updates_24h,
+        has_missing_tiles=cache_state.get("has_missing_tiles", True),
+        last_log_message=data.get("last_log_message", ""),
+    )
+
+    # Rename YAML file to prevent re-processing
+    migrated_path = yaml_path.with_suffix(".yaml.migrated")
+    await asyncio.to_thread(yaml_path.rename, migrated_path)
+
+    return info
 
 
 def get_flattened_data(image: Image.Image) -> bytes:

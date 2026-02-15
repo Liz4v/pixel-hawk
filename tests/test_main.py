@@ -28,7 +28,7 @@ async def test_main_load_and_check_tiles(monkeypatch):
         class _Meta:
             first_seen = 1000
 
-        metadata = _Meta()
+        info = _Meta()
 
         def __hash__(self):
             return hash(self.path)
@@ -97,7 +97,7 @@ async def test_main_indexing_and_check_tiles_and_load_forget(tmp_path, monkeypat
         class _Meta:
             first_seen = 1000
 
-        metadata = _Meta()
+        info = _Meta()
 
     async def fake_try_open(p):
         return DummyProj(p)
@@ -147,7 +147,7 @@ async def test_main_forget_removes_tile_key(monkeypatch):
         class _Meta:
             first_seen = 1000
 
-        metadata = _Meta()
+        info = _Meta()
 
         def __hash__(self):
             return hash(self.path)
@@ -233,7 +233,7 @@ async def test_check_projects_detects_added_and_deleted(tmp_path, monkeypatch, s
         class _Meta:
             first_seen = 1000
 
-        metadata = _Meta()
+        info = _Meta()
 
     async def fake_try_open(p):
         return DummyProj(p)
@@ -283,7 +283,7 @@ async def test_check_projects_processes_added_and_deleted(tmp_path, monkeypatch,
         class _Meta:
             first_seen = 1000
 
-        metadata = _Meta()
+        info = _Meta()
 
     async def make_proj(p):
         inst = DummyProj(p)
@@ -337,7 +337,7 @@ async def test_check_projects_handles_modified_files(tmp_path, monkeypatch, setu
         class _Meta:
             first_seen = 1000
 
-        metadata = _Meta()
+        info = _Meta()
 
         async def run_diff(self):
             pass
@@ -389,7 +389,7 @@ async def test_check_projects_skips_deleted_files_in_current_loop(tmp_path, monk
         class _Meta:
             first_seen = 1000
 
-        metadata = _Meta()
+        info = _Meta()
 
     existing_proj = DummyProj(proj_path)
 
@@ -441,8 +441,11 @@ async def test_check_projects_skips_deleted_files_in_current_loop(tmp_path, monk
 
 async def test_project_init_handles_stat_oserror(tmp_path, monkeypatch):
     """Test that Project.__init__ handles OSError when getting mtime."""
+    from pixel_hawk.models import ProjectInfo
+
     proj_path = tmp_path / "proj_0_0_1_1.png"
     rect = Rectangle.from_point_size(Point(0, 0), Size(10, 10))
+    info = await ProjectInfo.get_or_create_from_rect(rect, "proj_0_0_1_1")
 
     # Mock Path.stat to raise OSError for this specific path
     original_stat = Path.stat
@@ -455,7 +458,7 @@ async def test_project_init_handles_stat_oserror(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "stat", mock_stat)
 
     # Project.__init__ should handle the OSError and set mtime to 0
-    proj = projects.Project(proj_path, rect)
+    proj = projects.Project(proj_path, rect, info)
     assert proj.mtime == 0
 
 
@@ -610,7 +613,7 @@ async def test_main_check_tiles_round_robin(monkeypatch):
         class _Meta:
             first_seen = 1000
 
-        metadata = _Meta()
+        info = _Meta()
 
         def __hash__(self):
             return hash(self.path)
