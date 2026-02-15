@@ -125,11 +125,11 @@ class Rectangle(NamedTuple):
         bottom = (self.bottom + 999) // 1000
         return frozenset(Tile(tx, ty) for tx in range(left, right) for ty in range(top, bottom))
 
-    def to_link(self, viewport_size: float = 600) -> str:
+    def to_link(self, viewport_size: float = 300) -> str:
         """Converts to a wplace.live link to display the live contents of this rectangle."""
         geo = GeoPoint.from_pixel((self.left + self.right) / 2, (self.top + self.bottom) / 2)
-        lat = round(geo.latitude, 5)
-        lon = round(geo.longitude, 5)
+        lat = round(geo.latitude, 6)
+        lon = round(geo.longitude, 6)
         zoom = round(self.size.to_zoom(viewport_size), 3)
         return f"https://wplace.live/?lat={lat}&lng={lon}&zoom={zoom}"
 

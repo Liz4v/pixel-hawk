@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum, auto
 from typing import Any
 
-from .geometry import Rectangle, Tile
+from .geometry import Point, Rectangle, Size, Tile
 
 
 class DiffStatus(StrEnum):
@@ -104,6 +104,10 @@ class ProjectMetadata:
             first_seen=now,
             last_check=now,
         )
+
+    @property
+    def rectangle(self) -> Rectangle:
+        return Rectangle.from_point_size(Point(self.x, self.y), Size(self.width, self.height))
 
     def to_dict(self) -> dict:
         """Convert to dictionary for YAML serialization."""
@@ -307,7 +311,7 @@ class ProjectMetadata:
 
         # Check for completion
         if max(remaining) == 0:
-            self.last_log_message = f"{self.name}: Complete! {num_target} pixels total."
+            self.last_log_message = f"{self.name}: Complete! {num_target} pixels total. {self.rectangle.to_link()}"
             return DiffResult(status=DiffStatus.COMPLETE, num_remaining=0, num_target=num_target)
 
         # Calculate rate (pixels per hour)
@@ -326,7 +330,8 @@ class ProjectMetadata:
         if progress_pixels > 0 or regress_pixels > 0:
             status_parts.append(f"[+{progress_pixels}/-{regress_pixels}]")
 
-        status_parts.append(f"ETA: {days}d{hours}h to {when}")
+        status_parts.append(f"ETA: {days}d{hours}h to {when}.")
+        status_parts.append(self.rectangle.to_link())
 
         self.last_log_message = " ".join(status_parts)
         return DiffResult(status=DiffStatus.IN_PROGRESS, num_remaining=num_remaining, num_target=num_target)
