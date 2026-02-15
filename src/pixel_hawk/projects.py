@@ -25,10 +25,11 @@ from typing import TYPE_CHECKING
 from loguru import logger
 from ruamel.yaml import YAML
 
+from . import metadata
 from .config import get_config
 from .geometry import Point, Rectangle, Size, Tile
 from .ingest import stitch_tiles
-from .models import DiffStatus, HistoryChange, ProjectInfo
+from .models import DiffStatus, ProjectInfo
 from .palette import PALETTE, AsyncImage, ColorsNotInPalette
 
 if TYPE_CHECKING:
@@ -171,25 +172,14 @@ class Project:
             current_data = get_flattened_data(current)
             await self.save_snapshot(current)
 
-        # Process diff: count, compare, update info, build log message
-        result = self.info.process_diff(current_data, target_data, prev_data)
-
-        # Create HistoryChange record
-        await HistoryChange.create(
-            project=self.info,
-            timestamp=result["timestamp"],
-            status=DiffStatus(result["status"]),
-            num_remaining=result["num_remaining"],
-            num_target=result["num_target"],
-            completion_percent=result["completion_percent"],
-            progress_pixels=result["progress_pixels"],
-            regress_pixels=result["regress_pixels"],
-        )
+        # Process diff: count, compare, update info, build log message, create history record
+        change = metadata.process_diff(self.info, current_data, target_data, prev_data)
+        await change.save()
 
         # Update tile metadata if a specific tile changed
-        if changed_tile is not None and result["status"] == DiffStatus.IN_PROGRESS:
+        if changed_tile is not None and change.status == DiffStatus.IN_PROGRESS:
             self._update_single_tile_metadata(changed_tile)
-        elif result["status"] == DiffStatus.IN_PROGRESS:
+        elif change.status == DiffStatus.IN_PROGRESS:
             self._update_tile_metadata()
 
         # Log and save
@@ -198,7 +188,7 @@ class Project:
 
     async def run_nochange(self) -> None:
         self.info.last_check = round(time.time())
-        self.info.prune_old_tile_updates()  # regular cleanup task
+        metadata.prune_old_tile_updates(self.info)  # regular cleanup task
         await self.info.save()
 
     def _update_single_tile_metadata(self, tile: Tile) -> None:
@@ -210,11 +200,11 @@ class Project:
 
             last_update = self.info.tile_last_update.get(tile_str, 0)
             if mtime > last_update:
-                self.info.update_tile(tile, mtime)
+                metadata.update_tile(self.info, tile, mtime)
 
     def _update_tile_metadata(self) -> None:
         """Update tile modification times from cached tile files."""
-        self.info.prune_old_tile_updates()
+        metadata.prune_old_tile_updates(self.info)
 
         for tile in self.rect.tiles:
             tile_path = get_config().tiles_dir / f"tile-{tile}.png"
@@ -224,7 +214,7 @@ class Project:
 
                 last_update = self.info.tile_last_update.get(tile_str, 0)
                 if mtime > last_update:
-                    self.info.update_tile(tile, mtime)
+                    metadata.update_tile(self.info, tile, mtime)
 
     def _has_missing_tiles(self) -> bool:
         """Check if any tiles required by this project are missing from cache."""

@@ -13,7 +13,7 @@ from pathlib import Path
 from loguru import logger
 
 from .config import get_config
-from .db import close_db, init_db
+from .db import database
 from .ingest import TileChecker
 from .projects import Project
 
@@ -87,9 +87,8 @@ async def _async_main():
     logger.debug(f"pixel-hawk-home: {cfg.home}")
     logger.debug(f"Logging to file: {log_file}")
     logger.info(f"Place project PNG files in: {cfg.projects_dir}")
-    # Initialize database
-    await init_db()
-    try:
+    # Initialize database and run main loop
+    async with database():
         # set up main loop
         worker = Main()
         await worker.start()
@@ -111,8 +110,6 @@ async def _async_main():
             except (KeyboardInterrupt, asyncio.CancelledError):
                 logger.info("Exiting due to user interrupt.")
                 return
-    finally:
-        await close_db()
 
 
 def main():

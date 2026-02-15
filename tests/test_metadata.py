@@ -2,6 +2,7 @@
 
 import time
 
+from pixel_hawk import metadata
 from pixel_hawk.geometry import Point, Rectangle, Size, Tile
 from pixel_hawk.models import ProjectInfo
 
@@ -125,7 +126,7 @@ async def test_prune_old_tile_updates():
     ]
 
     info.last_check = now
-    info.prune_old_tile_updates()
+    metadata.prune_old_tile_updates(info)
 
     assert len(info.tile_updates_24h) == 2
     assert ["recent_tile", recent_time] in info.tile_updates_24h
@@ -140,7 +141,7 @@ async def test_prune_empty_list():
     info.tile_updates_24h = []
 
     info.last_check = round(time.time())
-    info.prune_old_tile_updates()
+    metadata.prune_old_tile_updates(info)
 
     assert info.tile_updates_24h == []
 
@@ -155,7 +156,7 @@ async def test_prune_all_old():
     ]
 
     info.last_check = round(time.time())
-    info.prune_old_tile_updates()
+    metadata.prune_old_tile_updates(info)
 
     assert info.tile_updates_24h == []
 
@@ -166,7 +167,7 @@ async def test_update_tile():
     tile = Tile(1, 2)
     timestamp = 12345
 
-    info.update_tile(tile, timestamp)
+    metadata.update_tile(info,tile, timestamp)
 
     assert info.tile_last_update["1_2"] == timestamp
     assert ["1_2", timestamp] in info.tile_updates_24h
@@ -177,11 +178,11 @@ async def test_update_tile_multiple_times():
     info = await ProjectInfo.create(name="update_multi")
     tile = Tile(5, 10)
 
-    info.update_tile(tile, 1000)
+    metadata.update_tile(info,tile, 1000)
     assert info.tile_last_update["5_10"] == 1000
     assert len(info.tile_updates_24h) == 1
 
-    info.update_tile(tile, 2000)
+    metadata.update_tile(info,tile, 2000)
     assert info.tile_last_update["5_10"] == 2000
     assert len(info.tile_updates_24h) == 2
     assert ["5_10", 1000] in info.tile_updates_24h
@@ -194,9 +195,9 @@ async def test_update_tile_duplicate_prevention():
     tile = Tile(3, 7)
     timestamp = 5000
 
-    info.update_tile(tile, timestamp)
-    info.update_tile(tile, timestamp)
-    info.update_tile(tile, timestamp)
+    metadata.update_tile(info,tile, timestamp)
+    metadata.update_tile(info,tile, timestamp)
+    metadata.update_tile(info,tile, timestamp)
 
     assert info.tile_last_update["3_7"] == timestamp
     assert len(info.tile_updates_24h) == 1
@@ -214,7 +215,7 @@ async def test_update_multiple_tiles():
     ]
 
     for tile, timestamp in tiles_and_times:
-        info.update_tile(tile, timestamp)
+        metadata.update_tile(info,tile, timestamp)
 
     assert len(info.tile_last_update) == 3
     assert info.tile_last_update["1_2"] == 1000
@@ -233,18 +234,18 @@ async def test_tile_tracking_integrated():
     now = round(time.time())
 
     old_time = now - 100000
-    info.update_tile(Tile(1, 1), old_time)
-    info.update_tile(Tile(2, 2), old_time + 1000)
+    metadata.update_tile(info,Tile(1, 1), old_time)
+    metadata.update_tile(info,Tile(2, 2), old_time + 1000)
 
     recent_time = now - 1000
-    info.update_tile(Tile(3, 3), recent_time)
-    info.update_tile(Tile(4, 4), now)
+    metadata.update_tile(info,Tile(3, 3), recent_time)
+    metadata.update_tile(info,Tile(4, 4), now)
 
     assert len(info.tile_last_update) == 4
     assert len(info.tile_updates_24h) == 4
 
     info.last_check = now
-    info.prune_old_tile_updates()
+    metadata.prune_old_tile_updates(info)
 
     assert len(info.tile_updates_24h) == 2
     assert ["3_3", recent_time] in info.tile_updates_24h
@@ -275,28 +276,28 @@ async def test_count_remaining_pixels():
     """Test counting remaining pixels from diff bytes."""
     info = await ProjectInfo.create(name="count_rem")
 
-    assert info.count_remaining_pixels(bytes([0, 0, 0, 0])) == 0
-    assert info.count_remaining_pixels(bytes([0, 1, 0, 2, 0, 3])) == 3
-    assert info.count_remaining_pixels(bytes([1, 2, 3, 4])) == 4
+    assert metadata.count_remaining_pixels(info,bytes([0, 0, 0, 0])) == 0
+    assert metadata.count_remaining_pixels(info,bytes([0, 1, 0, 2, 0, 3])) == 3
+    assert metadata.count_remaining_pixels(info,bytes([1, 2, 3, 4])) == 4
 
 
 async def test_count_target_pixels():
     """Test counting target pixels with division-by-zero protection."""
     info = await ProjectInfo.create(name="count_tgt")
 
-    assert info.count_target_pixels(bytes([0, 1, 2, 3])) == 3
-    assert info.count_target_pixels(bytes([1, 1, 1, 1])) == 4
-    assert info.count_target_pixels(bytes([0, 0, 0, 0])) == 1
+    assert metadata.count_target_pixels(info,bytes([0, 1, 2, 3])) == 3
+    assert metadata.count_target_pixels(info,bytes([1, 1, 1, 1])) == 4
+    assert metadata.count_target_pixels(info,bytes([0, 0, 0, 0])) == 1
 
 
 async def test_calculate_completion_percent():
     """Test completion percentage calculation."""
     info = await ProjectInfo.create(name="calc_pct")
 
-    assert info.calculate_completion_percent(50, 100) == 50.0
-    assert info.calculate_completion_percent(0, 100) == 100.0
-    assert info.calculate_completion_percent(100, 100) == 0.0
-    assert info.calculate_completion_percent(1, 100) == 99.0
+    assert metadata.calculate_completion_percent(info,50, 100) == 50.0
+    assert metadata.calculate_completion_percent(info,0, 100) == 100.0
+    assert metadata.calculate_completion_percent(info,100, 100) == 0.0
+    assert metadata.calculate_completion_percent(info,1, 100) == 99.0
 
 
 async def test_compare_snapshots_progress():
@@ -307,7 +308,7 @@ async def test_compare_snapshots_progress():
     prev = bytes([0, 1, 0, 0])
     current = bytes([0, 1, 2, 0])
 
-    progress, regress = info.compare_snapshots(current, prev, target)
+    progress, regress = metadata.compare_snapshots(info,current, prev, target)
 
     assert progress == 1
     assert regress == 0
@@ -321,7 +322,7 @@ async def test_compare_snapshots_regress():
     prev = bytes([0, 1, 2, 0])
     current = bytes([0, 1, 0, 0])
 
-    progress, regress = info.compare_snapshots(current, prev, target)
+    progress, regress = metadata.compare_snapshots(info,current, prev, target)
 
     assert progress == 0
     assert regress == 1
@@ -335,7 +336,7 @@ async def test_compare_snapshots_mixed():
     prev = bytes([0, 1, 0, 0, 0])
     current = bytes([0, 1, 2, 0, 0])
 
-    progress, regress = info.compare_snapshots(current, prev, target)
+    progress, regress = metadata.compare_snapshots(info,current, prev, target)
 
     assert progress == 1
     assert regress == 0
@@ -349,7 +350,7 @@ async def test_compare_snapshots_no_change():
     prev = bytes([0, 1, 0, 0])
     current = bytes([0, 1, 0, 0])
 
-    progress, regress = info.compare_snapshots(current, prev, target)
+    progress, regress = metadata.compare_snapshots(info,current, prev, target)
 
     assert progress == 0
     assert regress == 0
@@ -363,7 +364,7 @@ async def test_compare_snapshots_skips_transparent():
     prev = bytes([5, 1, 5, 0])
     current = bytes([9, 1, 9, 2])
 
-    progress, regress = info.compare_snapshots(current, prev, target)
+    progress, regress = metadata.compare_snapshots(info,current, prev, target)
 
     assert progress == 1
     assert regress == 0
@@ -373,12 +374,12 @@ async def test_update_completion_new_record():
     """Test updating max completion when improved."""
     info = await ProjectInfo.create(name="comp_new")
 
-    info.update_completion(100, 50.0, 1000)
+    metadata.update_completion(info,100, 50.0, 1000)
     assert info.max_completion_pixels == 100
     assert info.max_completion_percent == 50.0
     assert info.max_completion_time == 1000
 
-    info.update_completion(50, 75.0, 2000)
+    metadata.update_completion(info,50, 75.0, 2000)
     assert info.max_completion_pixels == 50
     assert info.max_completion_percent == 75.0
     assert info.max_completion_time == 2000
@@ -388,9 +389,9 @@ async def test_update_completion_no_improvement():
     """Test that completion doesn't downgrade."""
     info = await ProjectInfo.create(name="comp_noimpr")
 
-    info.update_completion(50, 75.0, 1000)
+    metadata.update_completion(info,50, 75.0, 1000)
 
-    info.update_completion(100, 50.0, 2000)
+    metadata.update_completion(info,100, 50.0, 2000)
     assert info.max_completion_pixels == 50
     assert info.max_completion_percent == 75.0
     assert info.max_completion_time == 1000
@@ -400,11 +401,11 @@ async def test_update_regress_new_record():
     """Test updating largest regress event."""
     info = await ProjectInfo.create(name="reg_new")
 
-    info.update_regress(10, 1000)
+    metadata.update_regress(info,10, 1000)
     assert info.largest_regress_pixels == 10
     assert info.largest_regress_time == 1000
 
-    info.update_regress(20, 2000)
+    metadata.update_regress(info,20, 2000)
     assert info.largest_regress_pixels == 20
     assert info.largest_regress_time == 2000
 
@@ -413,8 +414,8 @@ async def test_update_regress_not_larger():
     """Test that smaller regress doesn't update record."""
     info = await ProjectInfo.create(name="reg_smaller")
 
-    info.update_regress(20, 1000)
-    info.update_regress(5, 2000)
+    metadata.update_regress(info,20, 1000)
+    metadata.update_regress(info,5, 2000)
 
     assert info.largest_regress_pixels == 20
     assert info.largest_regress_time == 1000
@@ -424,7 +425,7 @@ async def test_update_rate_new_window():
     """Test rate calculation starting new window."""
     info = await ProjectInfo.create(name="rate_new")
 
-    info.update_rate(10, 2, 1000)
+    metadata.update_rate(info,10, 2, 1000)
 
     assert info.recent_rate_window_start == 1000
     assert info.recent_rate_pixels_per_hour == 0.0
@@ -435,7 +436,7 @@ async def test_update_rate_with_elapsed_time():
     info = await ProjectInfo.create(name="rate_elapsed")
 
     info.recent_rate_window_start = 1000
-    info.update_rate(10, 2, 1000 + 3600)
+    metadata.update_rate(info,10, 2, 1000 + 3600)
 
     assert info.recent_rate_pixels_per_hour == 8.0
 
@@ -447,7 +448,7 @@ async def test_update_rate_window_reset():
     info.recent_rate_window_start = 1000
     info.recent_rate_pixels_per_hour = 100.0
 
-    info.update_rate(5, 0, 1000 + 86401)
+    metadata.update_rate(info,5, 0, 1000 + 86401)
 
     assert info.recent_rate_window_start == 1000 + 86401
     assert info.recent_rate_pixels_per_hour == 0.0
@@ -458,7 +459,7 @@ async def test_update_rate_negative_net_change():
     info = await ProjectInfo.create(name="rate_neg")
 
     info.recent_rate_window_start = 1000
-    info.update_rate(2, 10, 1000 + 3600)
+    metadata.update_rate(info,2, 10, 1000 + 3600)
 
     assert info.recent_rate_pixels_per_hour == -8.0
 

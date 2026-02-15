@@ -1,7 +1,8 @@
 """Tortoise ORM models for pixel-hawk persistence.
 
-ProjectInfo: Active Record for project metadata (renamed from ProjectMetadata).
-HistoryChange: Per-diff event log (expanded from DiffResult).
+ProjectInfo: Pure Tortoise ORM model for project metadata.
+HistoryChange: Per-diff event log recording pixel changes.
+DiffStatus: Enum for project diff states.
 """
 
 import time
@@ -10,8 +11,7 @@ from enum import StrEnum, auto
 from tortoise import fields
 from tortoise.models import Model
 
-from .geometry import Rectangle
-from .metadata import ProjectInfoMixin
+from .geometry import Point, Rectangle, Size
 
 
 class DiffStatus(StrEnum):
@@ -22,8 +22,8 @@ class DiffStatus(StrEnum):
     COMPLETE = auto()
 
 
-class ProjectInfo(ProjectInfoMixin, Model):
-    """Persistent metadata for a project. Active Record pattern."""
+class ProjectInfo(Model):
+    """Persistent metadata for a project. Pure Tortoise ORM model."""
 
     # Primary key: project name (filename without extension)
     name = fields.CharField(max_length=255, primary_key=True)
@@ -66,6 +66,10 @@ class ProjectInfo(ProjectInfoMixin, Model):
     # Last log message
     last_log_message = fields.TextField(default="")
 
+    @property
+    def rectangle(self) -> Rectangle:
+        return Rectangle.from_point_size(Point(self.x, self.y), Size(self.width, self.height))
+
     @classmethod
     async def from_rect(cls, rect: Rectangle, name: str) -> ProjectInfo:
         """Create and save a new ProjectInfo from project rectangle."""
@@ -88,7 +92,7 @@ class ProjectInfo(ProjectInfoMixin, Model):
             return existing
         return await cls.from_rect(rect, name)
 
-    class Meta:
+    class Meta(Model.Meta):
         table = "project_info"
 
 
@@ -111,6 +115,6 @@ class HistoryChange(Model):
     progress_pixels = fields.IntField(default=0)
     regress_pixels = fields.IntField(default=0)
 
-    class Meta:
+    class Meta(Model.Meta):
         table = "history_change"
         ordering = ["-timestamp"]

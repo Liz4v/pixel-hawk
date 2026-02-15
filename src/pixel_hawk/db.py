@@ -1,8 +1,10 @@
 """Database initialization and Tortoise ORM configuration.
 
 Owns the TORTOISE_ORM config dict used by both the application and Aerich.
-Provides init_db() for application startup and close_db() for shutdown.
+Provides database() async context manager for application lifecycle.
 """
+
+from contextlib import asynccontextmanager
 
 from tortoise import Tortoise
 
@@ -28,12 +30,21 @@ TORTOISE_ORM = {
 }
 
 
-async def init_db(db_path: str | None = None) -> None:
-    """Initialize Tortoise ORM and generate schemas if needed."""
+@asynccontextmanager
+async def database(db_path: str | None = None):
+    """Async context manager for database lifecycle.
+
+    Initializes Tortoise ORM, generates schemas if needed, and ensures
+    clean shutdown on exit.
+
+    Usage:
+        async with database():
+            # ... use Tortoise models ...
+        # Database connections automatically closed
+    """
     await Tortoise.init(config=tortoise_config(db_path))
     await Tortoise.generate_schemas(safe=True)
-
-
-async def close_db() -> None:
-    """Close all Tortoise ORM connections."""
-    await Tortoise.close_connections()
+    try:
+        yield
+    finally:
+        await Tortoise.close_connections()
