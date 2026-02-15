@@ -35,7 +35,7 @@ class Config:
 
     @property
     def metadata_dir(self) -> Path:
-        """Directory for project metadata YAML files."""
+        """Directory for legacy YAML metadata files (used during migration to SQLite)."""
         return self.home / "metadata"
 
     @property
@@ -55,7 +55,7 @@ class Config:
 
     @property
     def data_dir(self) -> Path:
-        """Directory for future bot data and state."""
+        """Directory for SQLite database and bot data."""
         return self.home / "data"
 
 

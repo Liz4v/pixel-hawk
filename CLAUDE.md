@@ -7,7 +7,7 @@ pixel-hawk is a change tracker for WPlace paint projects. It polls WPlace tile i
 - **Requires:** Python >= 3.14 (see `pyproject.toml`)
 - **Console script:** `pixel-hawk = "pixel_hawk.main:main"`
 - **Main package:** `src/pixel_hawk`
-- **Key dependencies:** `loguru`, `pillow`, `httpx`, `ruamel.yaml`
+- **Key dependencies:** `loguru`, `pillow`, `httpx`, `tortoise-orm` (SQLite via `aiosqlite`), `ruamel.yaml` (legacy migration)
 - **Linting:** `ruff` configured with `line-length = 120`
 
 ## Where to look for further context
@@ -38,12 +38,12 @@ uv run pixel-hawk
 - Default pixel-hawk-home: `./pixel-hawk-data` (current working directory)
 - Configurable via CLI flag `--pixel-hawk-home` or environment variable `PIXEL_HAWK_HOME`
 - All data lives under pixel-hawk-home with organized subdirectories:
-  - `projects/` — project PNG files
+  - `projects/{person_id}/` — project PNG files organized by person ID (coordinate-only filenames: `{tx}_{ty}_{px}_{py}.png`)
   - `tiles/` — cached tiles from WPlace
-  - `snapshots/` — canvas state snapshots
-  - `metadata/` — project completion tracking (YAML)
+  - `snapshots/{person_id}/` — canvas state snapshots, same structure as projects (coordinate-only filenames)
+  - `metadata/` — legacy YAML metadata files (migrated to SQLite on first load)
   - `logs/` — application logs
-  - `data/` — future bot data and state
+  - `data/` — SQLite database (`pixel-hawk.db`) with Person, ProjectInfo, and HistoryChange tables
 - **Design rationale:** The default `./pixel-hawk-data` location allows running pixel-hawk from the project root during development, keeping all data files easily accessible for inspection from IDE and AI agents. This simplifies debugging, testing, and data analysis without requiring path configuration.
 - Access configuration via `get_config()` from `config.py`
 - CONFIG singleton is lazily initialized on first access
@@ -51,27 +51,34 @@ uv run pixel-hawk
 
 ## How it works (high level)
 
+- **Multi-user, database-first architecture**: The application loads projects from SQLite at startup (no filesystem polling). Multiple users can track the same or different coordinates. Projects are keyed by (owner_id, name) with unique constraint.
 - The application is fully async, built on `asyncio`. The entry point (`main()`) calls `asyncio.run()` on the async main loop. Blocking I/O (PIL image operations, filesystem access) is offloaded via `asyncio.to_thread`.
-- The application runs in a unified ~97 second polling loop (60φ = 30(1+√5), chosen to avoid resonance with WPlace's internal timers) that checks both tiles and project files.
+- The application runs in a unified ~97 second polling loop (60φ = 30(1+√5), chosen to avoid resonance with WPlace's internal timers) that checks tiles.
 - Tile polling uses intelligent temperature-based queue system: `QueueSystem` (in `queues.py`) maintains burning and temperature queues with Zipf distribution sizing. Tiles are selected round-robin across queues, with least-recently-checked tile selected from each queue.
 - `TileChecker` (in `ingest.py`) manages tile monitoring: creates and owns an `httpx.AsyncClient`, selects tiles via `QueueSystem`, calls `has_tile_changed()` to fetch from WPlace backend, and triggers project diffs when changes are detected.
 - `has_tile_changed()` (in `ingest.py`) requests tiles from the WPlace tile backend using `httpx` and updates a cached paletted PNG if there are changes.
-- `Project` (in `projects.py`) discovers project PNGs placed in the configured `projects_dir`. Filenames must include 4 coordinates in format `*_<tx>_<ty>_<px>_<py>.png` (tile x, tile y, pixel x 0-999, pixel y 0-999) and must use the project's palette. Invalid files (missing coordinates, bad palette) are moved to `rejected_dir`.
+- `Person` (in `models.py`) represents users with auto-increment ID. Tracks `watched_tiles_count` (unique tiles across all active projects, updated on startup).
+- `ProjectState` enum (in `models.py`) defines project states: ACTIVE (monitored), PASSIVE (loaded but not monitored), INACTIVE (not loaded).
+- `ProjectInfo` (in `models.py`) is a pure Tortoise ORM model with owner FK (Person), name (stored in DB), and state. Tracks completion history, progress/regress statistics, and rates. Persists to SQLite in `data/pixel-hawk.db`. The `filename` property returns coordinate-only format: `{tx}_{ty}_{px}_{py}.png`.
+- `HistoryChange` (in `models.py`) records every diff event per project with pixel counts, completion percentage, and progress/regress deltas.
+- Business logic for ProjectInfo lives in `metadata.py` as standalone functions (functional service layer). Functions take `ProjectInfo` as first parameter and mutate fields in place. Log messages include owner name for multi-user attribution.
+- `Project` (in `projects.py`) is loaded from database via `Project.from_info(info)` classmethod. Filenames are coordinate-only: `{tx}_{ty}_{px}_{py}.png` (tile x, tile y, pixel x 0-999, pixel y 0-999). Files must use the project's palette. Invalid files cause from_info() to return None with warning logged.
 - `PALETTE` (in `palette.py`) enforces and converts images to the project palette (first color treated as transparent). Provides `AsyncImage[T]` for deferred async I/O, and `aopen_file`/`aopen_bytes` methods for async image loading.
-- `ProjectMetadata` (in `metadata.py`) tracks completion history, progress/regress statistics, and rates. Persists to YAML files in `metadata_dir` (separate from project files).
-- `Main` (in `main.py`) uses two-phase initialization: sync `__init__` followed by `async start()` to load projects. Runs the polling loop: `TileChecker.check_next_tile()` handles tile selection and checking, `check_projects()` scans for new/modified/deleted project files. On tile changes it diffs updated tiles with project images and logs progress.
+- `Main` (in `main.py`) uses two-phase initialization: sync `__init__` followed by `async start()` to load projects from database. Database lifecycle managed via `async with database():` context manager. Queries ProjectInfo table for active/passive projects, calls `Project.from_info()` for each, updates watched_tiles_count for all persons, and builds tile index. Runs the polling loop: `TileChecker.check_next_tile()` handles tile selection and checking. On tile changes it diffs updated tiles with project images and logs progress with owner attribution.
 - Queue system tracks tile metadata (last checked, last modified) and repositions tiles surgically when modification times change. When a tile moves to a hotter queue, coldest tiles cascade down through intervening queues to maintain Zipf distribution sizes.
 
 ## File/Module map (where to look)
 
 - `src/pixel_hawk/__init__.py` — empty package marker (just comment + docstring)
 - `src/pixel_hawk/config.py` — `Config` dataclass, `load_config()`, `get_config()`, CONFIG singleton
-- `src/pixel_hawk/main.py` — application entry, unified polling loop, project load/forget logic
+- `src/pixel_hawk/db.py` — database async context manager (`database()`), Tortoise ORM config, Aerich integration
+- `src/pixel_hawk/models.py` — `Person` (user model with watched_tiles_count), `ProjectState` enum (active/passive/inactive), `ProjectInfo` (pure Tortoise model with owner FK), `HistoryChange` (diff event log), `DiffStatus` enum
+- `src/pixel_hawk/main.py` — application entry, unified polling loop, database-first project loading, DB context manager usage, watched tiles tracking
 - `src/pixel_hawk/geometry.py` — `Tile`, `Point`, `Size`, `Rectangle` helpers (tile math)
 - `src/pixel_hawk/ingest.py` — `TileChecker` (tile monitoring orchestration, owns `httpx.AsyncClient`), `has_tile_changed()` (async tile download), `stitch_tiles()` (async canvas assembly)
 - `src/pixel_hawk/palette.py` — palette enforcement + `PALETTE` singleton + `AsyncImage[T]` (deferred async I/O handle)
-- `src/pixel_hawk/projects.py` — `Project` model (async diffs, snapshots, project discovery)
-- `src/pixel_hawk/metadata.py` — `ProjectMetadata` (completion tracking, statistics, YAML persistence)
+- `src/pixel_hawk/projects.py` — `Project` model (async diffs, snapshots, database-first loading via from_info(), YAML migration)
+- `src/pixel_hawk/metadata.py` — functional service layer for ProjectInfo business logic (pixel counting, snapshot comparison, rate tracking, owner-attributed logging)
 - `src/pixel_hawk/queues.py` — `QueueSystem`, temperature-based tile queues with Zipf distribution, tile metadata tracking
 
 ## Architecture conventions
@@ -104,7 +111,8 @@ This project embraces core principles from PEP 20 ("The Zen of Python"):
   - `AsyncImage[T]` wraps a blocking callable, runs it in a thread on first access, and supports both `async with` (auto-closes) and `await handle()` (caller closes) patterns.
   - For functions returning PIL images, use `with await async_fn() as im:` (the sync context manager on the async result).
 - Time and date: prefer `round(time.time())` for timestamps to get integer seconds, which simplifies metadata and logging. Avoid using raw `time.time()` as well as `datetime` to keep things simple and consistent.
-- Project state: Projects are discovered from the filesystem on each polling cycle and kept in memory during runtime (metadata only).
+- Project state: Projects are loaded from database at startup and kept in memory during runtime. `ProjectInfo` persists to SQLite via Tortoise ORM (`await info.save()`). `Project.info` (not `.metadata`) holds the `ProjectInfo` instance. Business logic uses functional service layer: `metadata.process_diff(info, ...)` instead of `info.process_diff(...)`. The projects dict is keyed by `ProjectInfo.id` (integer), not by Path.
+- Multi-user workflow: Each Person has an auto-increment ID. ProjectInfo has an owner FK to Person. Directory structure is `projects/{person_id}/{filename}` where filename is coordinate-only. Names are stored in the database only. Watched tiles are tracked per person with overlap deduplication.
 - Error handling: prefer non-fatal logging (warnings/debug) and avoid raising unexpected exceptions in the polling loop.
 - Defensive programming: Use assertions for "shouldn't happen" cases that indicate logic errors. These should be tested to ensure they catch bugs during development. Example: `assert condition, "clear error message"` for invariants that must hold.
 - File size management:
@@ -128,7 +136,7 @@ This project embraces core principles from PEP 20 ("The Zen of Python"):
 ## Running and debugging
 
 - To debug tile fetching behavior, call `await has_tile_changed(tile, client)` with a `Tile` object and an `httpx.AsyncClient` in an async script and observe `get_config().tiles_dir` for generated `tile-*.png` files.
-- To debug project parsing, drop a correctly named PNG into `get_config().projects_dir` and watch the log output from `Main`.
+- To debug project loading: Create a Person and ProjectInfo record in the database, place the PNG file in `projects/{person_id}/{tx}_{ty}_{px}_{py}.png`, and watch the log output from `Main.start()`. Use `Project.from_info(info)` to test individual project loading.
 
 ## Code change guidelines
 

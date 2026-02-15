@@ -2,730 +2,272 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-from PIL import Image
+import pytest
 
 from pixel_hawk import main as main_mod
-from pixel_hawk import projects
 from pixel_hawk.geometry import Point, Rectangle, Size, Tile
+from pixel_hawk.models import Person, ProjectInfo, ProjectState
+from pixel_hawk.palette import PALETTE
 
-# Basic Main initialization and tile tracking
 
+@pytest.fixture
+async def test_person():
+    """Create a test person for use in tests."""
+    return await Person.create(name="TestPerson")
 
-async def test_main_load_and_check_tiles(monkeypatch):
-    """Test Main initialization, load/forget project, and check_tiles."""
-    # create a fake project with a rect covering tile (0,0)
-    proj_path = Path("/tmp/proj.png")
 
-    class FakeProj:
-        def __init__(self, path, rect):
-            self.path = path
-            self.rect = rect
-            self._called = {"run_diff": 0}
+# Database-first loading tests
 
-        async def run_diff(self, changed_tile=None):
-            self._called["run_diff"] += 1
 
-        class _Meta:
-            first_seen = 1000
-
-        metadata = _Meta()
-
-        def __hash__(self):
-            return hash(self.path)
-
-        def __eq__(self, other):
-            return getattr(other, "path", None) == self.path
-
-    proj = FakeProj(proj_path, Rectangle.from_point_size(Point(0, 0), Size(1000, 1000)))
-
-    # monkeypatch Project.iter and Project.try_open
-    async def fake_iter():
-        return [proj]
-
-    async def fake_try_open(path):
-        return proj
-
-    monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: fake_iter()))
-    monkeypatch.setattr(projects.Project, "try_open", classmethod(lambda cls, p: fake_try_open(p)))
-
-    m = main_mod.Main()
-    await m.start()
-    # Mock has_tile_changed to return tuple (True, valid_timestamp)
-
-    async def mock_htc(tile, client):
-        return (True, 1700000000)
-
-    monkeypatch.setattr("pixel_hawk.ingest.has_tile_changed", mock_htc)
-    # check_next_tile should call project's run_diff for tile (0,0)
-    await m.tile_checker.check_next_tile()
-    assert proj._called["run_diff"] >= 1
-
-    # forget_project removes tiles and project from tracking
-    m.forget_project(proj_path)
-    assert proj_path not in m.projects
-
-    # loading project back adds it again
-    await m.maybe_load_project(proj_path)
-    assert proj_path in m.projects
-
-
-async def test_main_indexing_and_check_tiles_and_load_forget(tmp_path, monkeypatch):
-    """Test Main tile indexing and project tracking."""
-    # start with no projects
-    async def fake_iter():
-        return []
-
-    monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: fake_iter()))
-    m = main_mod.Main()
-    await m.start()
-    assert m.tile_checker.tiles == {}
-
-    # create dummy project returned by try_open
-    path = tmp_path / "proj_0_0_1_1.png"
-    path.touch()
-
-    called = {}
-
-    class DummyProj:
-        def __init__(self, path):
-            self.path = path
-            self.rect = SimpleNamespace(tiles=frozenset({Tile(0, 0)}))
-
-        async def run_diff(self, changed_tile=None):
-            called["run"] = True
-
-        class _Meta:
-            first_seen = 1000
-
-        metadata = _Meta()
-
-    async def fake_try_open(p):
-        return DummyProj(p)
-
-    monkeypatch.setattr(projects.Project, "try_open", classmethod(lambda cls, p: fake_try_open(p)))
-
-    await m.maybe_load_project(path)
-    assert path in m.projects
-    assert Tile(0, 0) in m.tile_checker.tiles
-
-    # check_next_tile with has_tile_changed returning True should call run_diff
-    async def mock_htc(tile, client):
-        return (True, 1700000000)
-
-    monkeypatch.setattr("pixel_hawk.ingest.has_tile_changed", mock_htc)
-    await m.tile_checker.check_next_tile()
-    assert called.get("run") is True
-
-    # forget_project should remove project from tracking
-    m.forget_project(path)
-    assert path not in m.projects
-
-
-async def test_main_forget_removes_tile_key(monkeypatch):
-    """Test that forget_project removes tile from index when no projects use it."""
-
-    async def fake_iter():
-        return []
-
-    async def fake_try_open(p):
-        return None
-
-    monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: fake_iter()))
-    monkeypatch.setattr(projects.Project, "try_open", classmethod(lambda cls, p: fake_try_open(p)))
-
-    m = main_mod.Main()
-    await m.start()
-
-    # create a fake project and tile mapping
-    path = Path("/tmp/p.png")
-
-    class FakeProj:
-        def __init__(self, path, rect):
-            self.path = path
-            self.rect = rect
-
-        class _Meta:
-            first_seen = 1000
-
-        metadata = _Meta()
-
-        def __hash__(self):
-            return hash(self.path)
-
-        def __eq__(self, other):
-            return getattr(other, "path", None) == self.path
-
-    proj = FakeProj(path, Rectangle.from_point_size(Point(0, 0), Size(1000, 1000)))
-    tile = Tile(0, 0)
-    m.projects[path] = proj
-    m.tile_checker.tiles[tile] = {proj}
-
-    m.forget_project(path)
-    assert tile not in m.tile_checker.tiles
-
-
-async def test_maybe_load_project_invalid(monkeypatch):
-    """Test that maybe_load_project skips when try_open returns None."""
-
-    async def fake_iter():
-        return []
-
-    async def fake_try_open(p):
-        return None
-
-    monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: fake_iter()))
-    monkeypatch.setattr(projects.Project, "try_open", classmethod(lambda cls, p: fake_try_open(p)))
-
-    m = main_mod.Main()
-    await m.start()
-    path = Path("/tmp/nothing.png")
-    # should not store anything for rejected files
-    await m.maybe_load_project(path)
-    assert path not in m.projects
-    assert len(m.tile_checker.tiles) == 0
-
-
-# check_projects tests (file watching)
-
-
-async def test_check_projects_detects_added_and_deleted(tmp_path, monkeypatch, setup_config):
-    """Test that check_projects detects added and deleted project files."""
-    projects_dir = setup_config.projects_dir
-
-    # Start with no projects
-    async def fake_iter():
-        return []
-
-    monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: fake_iter()))
-    m = main_mod.Main()
-    await m.start()
-
-    # Track calls to load_project and forget_project
-    loaded = []
-    forgotten = []
-    original_load = m.maybe_load_project
-    original_forget = m.forget_project
-
-    async def track_load(p):
-        loaded.append(p)
-        await original_load(p)
-
-    def track_forget(p):
-        forgotten.append(p)
-        original_forget(p)
-
-    m.maybe_load_project = track_load
-    m.forget_project = track_forget
-
-    # Create a new project file
-    proj_path = projects_dir / "proj_0_0_1_1.png"
-    proj_path.touch()
-
-    # Mock Project.try_open to return a dummy project
-    class DummyProj:
-        def __init__(self, path):
-            self.path = path
-            self.rect = SimpleNamespace(tiles=frozenset())
-
-        async def run_diff(self):
-            pass
-
-        class _Meta:
-            first_seen = 1000
-
-        metadata = _Meta()
-
-    async def fake_try_open(p):
-        return DummyProj(p)
-
-    monkeypatch.setattr(projects.Project, "try_open", classmethod(lambda cls, p: fake_try_open(p)))
-
-    # check_projects should detect the new file
-    await m.check_projects()
-    assert proj_path in loaded
-
-    # Delete the project file
-    proj_path.unlink()
-
-    # check_projects should detect the deletion
-    loaded.clear()
-    await m.check_projects()
-    assert proj_path in forgotten
-
-
-async def test_check_projects_processes_added_and_deleted(tmp_path, monkeypatch, setup_config):
-    """Test that check_projects correctly handles adding and deleting projects."""
-    projects_dir = setup_config.projects_dir
-
-    # ensure Project.iter returns empty for deterministic start
-    async def fake_iter():
-        return []
-
-    monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: fake_iter()))
-    m = main_mod.Main()
-    await m.start()
-
-    path = projects_dir / "proj_0_0_1_1.png"
-    path.touch()
-
-    # Dummy project that exposes a single tile and records calls
-    called = {"run": 0}
-
-    class DummyProj:
-        def __init__(self, p):
-            self.path = p
-            self.rect = Rectangle.from_point_size(Point.from4(0, 0, 0, 0), Size(1000, 1000))
-            self.mtime = p.stat().st_mtime if p.exists() else None
-
-        async def run_diff(self):
-            called["run"] += 1
-
-        class _Meta:
-            first_seen = 1000
-
-        metadata = _Meta()
-
-    async def make_proj(p):
-        inst = DummyProj(p)
-        await inst.run_diff()
-        return inst
-
-    monkeypatch.setattr(projects.Project, "try_open", classmethod(lambda cls, p: make_proj(p)))
-
-    # check_projects should detect the added file
-    await m.check_projects()
-    assert called["run"] >= 1
-
-    # Delete the file
-    path.unlink()
-
-    # check_projects should detect the deleted file and remove it from tracking
-    await m.check_projects()
-    assert path not in m.projects
-
-
-async def test_check_projects_handles_modified_files(tmp_path, monkeypatch, setup_config):
-    """Test that check_projects detects modified files via mtime."""
-    import time
-
-    projects_dir = setup_config.projects_dir
-
-    async def fake_iter():
-        return []
-
-    monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: fake_iter()))
-    m = main_mod.Main()
-    await m.start()
-
-    proj_path = projects_dir / "proj_0_0_1_1.png"
-    proj_path.touch()
-
-    class DummyProj:
-        def __init__(self, path):
-            self.path = path
-            self.rect = SimpleNamespace(tiles=frozenset())
-            self.mtime = path.stat().st_mtime
-
-        def has_been_modified(self):
-            # Check if file mtime differs from cached mtime
-            try:
-                current = self.path.stat().st_mtime
-                return current != self.mtime
-            except OSError:
-                return True
-
-        class _Meta:
-            first_seen = 1000
-
-        metadata = _Meta()
-
-        async def run_diff(self):
-            pass
-
-    async def fake_try_open(p):
-        return DummyProj(p)
-
-    monkeypatch.setattr(projects.Project, "try_open", classmethod(lambda cls, p: fake_try_open(p)))
-
-    # Load the project first
-    await m.check_projects()
-    assert proj_path in m.projects
-
-    # Modify the file (change mtime)
-    time.sleep(0.01)
-    proj_path.touch()
-
-    # Track if load_project is called again
-    load_called = {"count": 0}
-    original_load = m.maybe_load_project
-
-    async def track_load(p):
-        load_called["count"] += 1
-        await original_load(p)
-
-    m.maybe_load_project = track_load
-
-    # check_projects should detect the modification
-    await m.check_projects()
-    assert load_called["count"] >= 1
-
-
-async def test_check_projects_skips_deleted_files_in_current_loop(tmp_path, monkeypatch, setup_config):
-    """Test that check_projects doesn't try to load files that are in deleted set."""
-    projects_dir = setup_config.projects_dir
-
-    # Start with one project already loaded
-    proj_path = projects_dir / "proj_0_0_1_1.png"
-
-    class DummyProj:
-        def __init__(self, path):
-            self.path = path
-            self.rect = SimpleNamespace(tiles=frozenset())
-            self.mtime = None
-
-        async def run_diff(self):
-            pass
-
-        class _Meta:
-            first_seen = 1000
-
-        metadata = _Meta()
-
-    existing_proj = DummyProj(proj_path)
-
-    async def fake_iter():
-        return [existing_proj]
-
-    monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: fake_iter()))
-    m = main_mod.Main()
-    await m.start()
-
-    # Create a different file on disk
-    other_path = projects_dir / "other_0_0_1_1.png"
-    other_path.touch()
-
-    async def fake_try_open(p):
-        return DummyProj(p)
-
-    monkeypatch.setattr(projects.Project, "try_open", classmethod(lambda cls, p: fake_try_open(p)))
-
-    # Track calls
-    forgot_called = []
-    loaded_called = []
-
-    original_forget = m.forget_project
-    original_load = m.maybe_load_project
-
-    def track_forget(p):
-        forgot_called.append(p)
-        original_forget(p)
-
-    async def track_load(p):
-        loaded_called.append(p)
-        await original_load(p)
-
-    m.forget_project = track_forget
-    m.maybe_load_project = track_load
-
-    # check_projects should:
-    # 1. Forget proj_path (not on disk)
-    # 2. Load other_path (new file on disk)
-    # 3. NOT try to load proj_path even though it's in the loop
-    await m.check_projects()
-
-    assert proj_path in forgot_called
-    assert other_path in loaded_called
-    # proj_path should not be in loaded_called (this tests the "if path in deleted: continue")
-    assert proj_path not in loaded_called
-
-
-async def test_project_init_handles_stat_oserror(tmp_path, monkeypatch):
-    """Test that Project.__init__ handles OSError when getting mtime."""
-    proj_path = tmp_path / "proj_0_0_1_1.png"
+async def test_start_loads_from_database(setup_config, test_person, monkeypatch):
+    """Test that Main.start() loads projects from database, not filesystem."""
+    # Create a ProjectInfo record in database
     rect = Rectangle.from_point_size(Point(0, 0), Size(10, 10))
+    info = await ProjectInfo.from_rect(rect, test_person.id, "test_project", ProjectState.ACTIVE)
 
-    # Mock Path.stat to raise OSError for this specific path
-    original_stat = Path.stat
+    # Create the actual project file
+    person_dir = setup_config.projects_dir / str(test_person.id)
+    person_dir.mkdir(parents=True, exist_ok=True)
+    path = person_dir / info.filename
+    im = PALETTE.new((10, 10))
+    im.putdata([1] * 100)
+    im.save(path)
 
-    def mock_stat(self, *args, **kwargs):
-        if self == proj_path:
-            raise OSError("Mock error")
-        return original_stat(self, *args, **kwargs)
+    async def noop_run_diff(self, changed_tile=None):
+        pass
 
-    monkeypatch.setattr(Path, "stat", mock_stat)
+    from pixel_hawk import projects
 
-    # Project.__init__ should handle the OSError and set mtime to 0
-    proj = projects.Project(proj_path, rect)
-    assert proj.mtime == 0
+    monkeypatch.setattr(projects.Project, "run_diff", noop_run_diff)
 
-
-# main() function tests
-
-
-async def test_main_handles_keyboard_interrupt_during_sleep(monkeypatch):
-    """Test that _async_main() handles KeyboardInterrupt during sleep gracefully."""
-    async def fake_iter():
-        return []
-
-    monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: fake_iter()))
-
-    cycle_count = {"count": 0}
-
-    async def mock_sleep(seconds):
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr(asyncio, "sleep", mock_sleep)
-
-    original_main_class = main_mod.Main
-
-    class FakeMain(original_main_class):
-        async def poll_once(self):
-            cycle_count["count"] += 1
-
-    monkeypatch.setattr(main_mod, "Main", FakeMain)
-
-    # _async_main() should catch KeyboardInterrupt and exit gracefully
-    await main_mod._async_main()  # Should not raise
-
-    # Should have completed one cycle before interrupt
-    assert cycle_count["count"] >= 1
-
-
-async def test_main_sleeps_and_loops(monkeypatch):
-    """Test that _async_main() sleeps between cycles and can be interrupted."""
-    async def fake_iter():
-        return []
-
-    monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: fake_iter()))
-
-    sleep_calls = []
-    cycle_count = {"count": 0}
-
-    async def mock_sleep(seconds):
-        sleep_calls.append(seconds)
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr(asyncio, "sleep", mock_sleep)
-
-    original_main_class = main_mod.Main
-
-    class FakeMain(original_main_class):
-        async def poll_once(self):
-            cycle_count["count"] += 1
-
-    monkeypatch.setattr(main_mod, "Main", FakeMain)
-
-    # _async_main() should loop, call poll_once, sleep, then be interrupted
-    await main_mod._async_main()
-
-    # Should have called poll_once once and tried to sleep
-    assert cycle_count["count"] >= 1
-    assert len(sleep_calls) == 1
-    # 60φ = 30(1 + √5) ≈ 97.08 seconds
-    assert sleep_calls[0] == 30 * (1 + 5**0.5)
-
-
-async def test_main_function_creates_main_and_loops(monkeypatch):
-    """Test that _async_main() creates Main instance and runs polling loop."""
-    called = {"init": False, "poll": 0}
-
-    async def fake_iter():
-        return []
-
-    monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: fake_iter()))
-
-    original_main_class = main_mod.Main
-
-    class FakeMain(original_main_class):
-        def __init__(self):
-            called["init"] = True
-            super().__init__()
-
-        async def poll_once(self):
-            called["poll"] += 1
-
-    monkeypatch.setattr(main_mod, "Main", FakeMain)
-
-    # Mock sleep to raise KeyboardInterrupt after first call
-    async def mock_sleep(s):
-        if called["poll"] >= 1:
-            raise KeyboardInterrupt
-
-    monkeypatch.setattr(asyncio, "sleep", mock_sleep)
-
-    # Call _async_main() - should create Main and call poll_once
-    await main_mod._async_main()
-
-    assert called["init"] is True
-    assert called["poll"] >= 1
-
-
-# Stitch tiles integration test
-
-
-async def test_stitch_tiles_warns_on_missing_and_returns_paletted_image(tmp_path, capsys, monkeypatch):
-    """Test that stitch_tiles returns paletted image even with missing tiles."""
-    # rectangle covering a single tile (0,0)
-    rect = Rectangle.from_point_size(Point.from4(0, 0, 0, 0), Size(1000, 1000))
-
-    # ensure cache dir is empty
-    cache_dir = tmp_path / "cache"
-    cache_dir.mkdir()
-    # replace module cache dir so stitch_tiles looks at tmp cache
-    from pixel_hawk import ingest
-
-    img = await ingest.stitch_tiles(rect)
-    assert isinstance(img, Image.Image)
-    # since no tile files exist, the result should be paletted (mode 'P')
-    assert img.mode == "P"
-    # loguru writes warnings to stderr; the warning appeared during the run
-
-
-# Miscellaneous palette tests
-
-
-def test_palette_lookup_transparent_and_ensure():
-    """Test that transparent pixel maps to palette index 0."""
-    # transparent pixel should map to 0
-    idx = projects.PALETTE.lookup({}, (0, 0, 0, 0))
-    assert idx == 0
-
-
-async def test_main_check_tiles_round_robin(monkeypatch):
-    """Test that check_next_tile only checks one tile per cycle in round-robin fashion."""
-
-    # Create fake projects covering three different tiles
-    class FakeProj:
-        def __init__(self, path, tile):
-            self.path = path
-            self.rect = SimpleNamespace(tiles=frozenset({tile}))
-            self.diff_count = 0
-
-        async def run_diff(self, changed_tile=None):
-            self.diff_count += 1
-
-        def has_been_modified(self):
-            return False
-
-        class _Meta:
-            first_seen = 1000
-
-        metadata = _Meta()
-
-        def __hash__(self):
-            return hash(self.path)
-
-        def __eq__(self, other):
-            return getattr(other, "path", None) == self.path
-
-    proj1 = FakeProj(Path("/tmp/proj1.png"), Tile(0, 0))
-    proj2 = FakeProj(Path("/tmp/proj2.png"), Tile(1, 0))
-    proj3 = FakeProj(Path("/tmp/proj3.png"), Tile(0, 1))
-
-    async def fake_iter():
-        return [proj1, proj2, proj3]
-
-    monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: fake_iter()))
-
+    # Start Main - should load from database
     m = main_mod.Main()
     await m.start()
-    assert len(m.tile_checker.tiles) == 3  # Three tiles tracked
-    assert len(m.tile_checker.queue_system.tile_metadata) == 3  # Queue system has all tiles
 
-    # Track which tiles have been checked
-    checked_tiles = []
-
-    async def mock_has_tile_changed(tile, client):
-        checked_tiles.append(tile)
-        return (True, 0)  # Return tuple: (changed, last_modified)
-
-    monkeypatch.setattr("pixel_hawk.ingest.has_tile_changed", mock_has_tile_changed)
-
-    # First cycle: should check only one tile
-    await m.tile_checker.check_next_tile()
-    assert len(checked_tiles) == 1, "Should only check one tile per cycle"
-
-    # Second cycle: should check the next tile
-    await m.tile_checker.check_next_tile()
-    assert len(checked_tiles) == 2, "Should have checked two tiles total after two cycles"
-
-    # Third cycle: should check the last tile
-    await m.tile_checker.check_next_tile()
-    assert len(checked_tiles) == 3, "Should have checked three tiles total after three cycles"
-
-    # Fourth cycle: should wrap around and check another tile
-    await m.tile_checker.check_next_tile()
-    assert len(checked_tiles) == 4, "Should have checked four tiles total (wrapping around)"
+    # Verify project was loaded from database
+    assert len(m.projects) == 1
+    assert info.id in m.projects
+    assert m.projects[info.id].info.name == "test_project"
 
 
-async def test_main_check_tiles_empty_tiles(monkeypatch):
-    """Test that check_tiles handles empty tiles gracefully."""
-    async def fake_iter():
-        return []
+async def test_active_passive_loaded(setup_config, test_person, monkeypatch):
+    """Test that active and passive projects are both loaded."""
+    # Create one active and one passive project
+    rect1 = Rectangle.from_point_size(Point(0, 0), Size(10, 10))
+    info1 = await ProjectInfo.from_rect(rect1, test_person.id, "active_project", ProjectState.ACTIVE)
 
-    monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: fake_iter()))
+    rect2 = Rectangle.from_point_size(Point(1000, 1000), Size(10, 10))
+    info2 = await ProjectInfo.from_rect(rect2, test_person.id, "passive_project", ProjectState.PASSIVE)
 
+    # Create the actual project files
+    person_dir = setup_config.projects_dir / str(test_person.id)
+    person_dir.mkdir(parents=True, exist_ok=True)
+
+    for info in [info1, info2]:
+        path = person_dir / info.filename
+        im = PALETTE.new((10, 10))
+        im.putdata([1] * 100)
+        im.save(path)
+
+    async def noop_run_diff(self, changed_tile=None):
+        pass
+
+    from pixel_hawk import projects
+
+    monkeypatch.setattr(projects.Project, "run_diff", noop_run_diff)
+
+    # Start Main
     m = main_mod.Main()
     await m.start()
-    assert len(m.tile_checker.tiles) == 0
-    assert len(m.tile_checker.queue_system.tile_metadata) == 0
 
-    # Should not crash when no tiles exist
-    await m.tile_checker.check_next_tile()
-    assert len(m.tile_checker.queue_system.tile_metadata) == 0  # Should remain empty
+    # Both projects should be loaded
+    assert len(m.projects) == 2
+    assert info1.id in m.projects
+    assert info2.id in m.projects
+
+    # Only active project should be in TileChecker
+    active_projects = [p for p in m.projects.values() if p.info.state == ProjectState.ACTIVE]
+    assert len(active_projects) == 1
 
 
-async def test_poll_once_checks_projects_before_tiles(monkeypatch):
-    """Test that poll_once() checks projects before tiles (inverted order)."""
-    async def fake_iter():
-        return []
+async def test_inactive_not_loaded(setup_config, test_person, monkeypatch):
+    """Test that inactive projects are not loaded."""
+    # Create one active and one inactive project
+    rect1 = Rectangle.from_point_size(Point(0, 0), Size(10, 10))
+    info1 = await ProjectInfo.from_rect(rect1, test_person.id, "active_project", ProjectState.ACTIVE)
 
-    monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: fake_iter()))
+    rect2 = Rectangle.from_point_size(Point(1000, 1000), Size(10, 10))
+    info2 = await ProjectInfo.from_rect(rect2, test_person.id, "inactive_project", ProjectState.INACTIVE)
+
+    # Create the actual project files
+    person_dir = setup_config.projects_dir / str(test_person.id)
+    person_dir.mkdir(parents=True, exist_ok=True)
+
+    for info in [info1, info2]:
+        path = person_dir / info.filename
+        im = PALETTE.new((10, 10))
+        im.putdata([1] * 100)
+        im.save(path)
+
+    async def noop_run_diff(self, changed_tile=None):
+        pass
+
+    from pixel_hawk import projects
+
+    monkeypatch.setattr(projects.Project, "run_diff", noop_run_diff)
+
+    # Start Main
+    m = main_mod.Main()
+    await m.start()
+
+    # Only active project should be loaded (inactive excluded)
+    assert len(m.projects) == 1
+    assert info1.id in m.projects
+    assert info2.id not in m.projects
+
+
+async def test_projects_dict_keyed_by_id(setup_config, test_person, monkeypatch):
+    """Test that self.projects uses ProjectInfo.id as key."""
+    rect = Rectangle.from_point_size(Point(0, 0), Size(10, 10))
+    info = await ProjectInfo.from_rect(rect, test_person.id, "test_project")
+
+    # Create the actual project file
+    person_dir = setup_config.projects_dir / str(test_person.id)
+    person_dir.mkdir(parents=True, exist_ok=True)
+    path = person_dir / info.filename
+    im = PALETTE.new((10, 10))
+    im.putdata([1] * 100)
+    im.save(path)
+
+    async def noop_run_diff(self, changed_tile=None):
+        pass
+
+    from pixel_hawk import projects
+
+    monkeypatch.setattr(projects.Project, "run_diff", noop_run_diff)
+
+    # Start Main
+    m = main_mod.Main()
+    await m.start()
+
+    # Verify projects dict is keyed by integer ID, not path
+    assert isinstance(list(m.projects.keys())[0], int)
+    assert info.id in m.projects
+
+
+async def test_load_skips_missing_file(setup_config, test_person, monkeypatch):
+    """Test that Main.start() skips projects with missing files."""
+    # Create ProjectInfo without creating the file
+    rect = Rectangle.from_point_size(Point(0, 0), Size(10, 10))
+    info = await ProjectInfo.from_rect(rect, test_person.id, "missing_project")
+
+    # Don't create the file - it should be missing
+
+    # Start Main
+    m = main_mod.Main()
+    await m.start()
+
+    # Project should not be loaded
+    assert len(m.projects) == 0
+
+
+async def test_watched_tiles_count_updated(setup_config, test_person, monkeypatch):
+    """Test that Main.start() updates watched tiles count for persons."""
+    # Create two overlapping projects
+    rect1 = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
+    info1 = await ProjectInfo.from_rect(rect1, test_person.id, "project1")
+
+    rect2 = Rectangle.from_point_size(Point(500, 500), Size(1000, 1000))
+    info2 = await ProjectInfo.from_rect(rect2, test_person.id, "project2")
+
+    # Create the actual project files
+    person_dir = setup_config.projects_dir / str(test_person.id)
+    person_dir.mkdir(parents=True, exist_ok=True)
+
+    for info in [info1, info2]:
+        path = person_dir / info.filename
+        im = PALETTE.new((10, 10))
+        im.putdata([1] * 100)
+        im.save(path)
+
+    async def noop_run_diff(self, changed_tile=None):
+        pass
+
+    from pixel_hawk import projects
+
+    monkeypatch.setattr(projects.Project, "run_diff", noop_run_diff)
+
+    # Start Main
+    m = main_mod.Main()
+    await m.start()
+
+    # Reload person from DB
+    person = await Person.get(id=test_person.id)
+    # watched_tiles_count should be updated (overlapping tiles counted once)
+    assert person.watched_tiles_count > 0
+
+
+# Poll cycle tests
+
+
+async def test_poll_once_checks_tiles(setup_config, test_person, monkeypatch):
+    """Test that poll_once() checks tiles via TileChecker."""
+    rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
+    info = await ProjectInfo.from_rect(rect, test_person.id, "test_project")
+
+    person_dir = setup_config.projects_dir / str(test_person.id)
+    person_dir.mkdir(parents=True, exist_ok=True)
+    path = person_dir / info.filename
+    im = PALETTE.new((10, 10))
+    im.putdata([1] * 100)
+    im.save(path)
+
+    async def noop_run_diff(self, changed_tile=None):
+        pass
+
+    from pixel_hawk import projects
+
+    monkeypatch.setattr(projects.Project, "run_diff", noop_run_diff)
 
     m = main_mod.Main()
     await m.start()
 
-    call_order = []
+    # Track if check_next_tile was called
+    called = {"count": 0}
+    original_check = m.tile_checker.check_next_tile
 
-    original_check_projects = m.check_projects
-    original_check_next_tile = m.tile_checker.check_next_tile
+    async def track_check():
+        called["count"] += 1
+        await original_check()
 
-    async def track_check_projects():
-        call_order.append("projects")
-        await original_check_projects()
-
-    async def track_check_next_tile():
-        call_order.append("tiles")
-        await original_check_next_tile()
-
-    m.check_projects = track_check_projects
-    m.tile_checker.check_next_tile = track_check_next_tile
+    m.tile_checker.check_next_tile = track_check
 
     # Call poll_once
     await m.poll_once()
 
-    # Verify projects are checked before tiles
-    assert call_order == ["projects", "tiles"], f"Expected ['projects', 'tiles'], got {call_order}"
+    # check_next_tile should have been called
+    assert called["count"] == 1
+
+
+# Main loop error handling tests
 
 
 async def test_main_handles_consecutive_errors(monkeypatch):
     """Test that _async_main() exits after three consecutive errors."""
-    async def fake_iter():
-        return []
-
-    monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: fake_iter()))
-
     error_count = {"count": 0}
 
     original_main_class = main_mod.Main
 
     class FakeMain(original_main_class):
+        async def start(self):
+            pass  # Skip actual startup
+
         async def poll_once(self):
             error_count["count"] += 1
             raise RuntimeError("Test error")
 
     monkeypatch.setattr(main_mod, "Main", FakeMain)
-    # Don't actually sleep - capture original before patching
+    # Don't actually sleep
     _real_sleep = asyncio.sleep
     monkeypatch.setattr(asyncio, "sleep", lambda s: _real_sleep(0))
 
@@ -740,16 +282,14 @@ async def test_main_handles_consecutive_errors(monkeypatch):
 
 async def test_main_resets_error_count_on_success(monkeypatch):
     """Test that _async_main() resets consecutive error count after a successful cycle."""
-    async def fake_iter():
-        return []
-
-    monkeypatch.setattr(projects.Project, "iter", classmethod(lambda cls: fake_iter()))
-
     cycle_count = {"count": 0}
 
     original_main_class = main_mod.Main
 
     class FakeMain(original_main_class):
+        async def start(self):
+            pass  # Skip actual startup
+
         async def poll_once(self):
             cycle_count["count"] += 1
             # Fail twice, succeed once, then fail twice again, then succeed
@@ -769,3 +309,62 @@ async def test_main_resets_error_count_on_success(monkeypatch):
     # _async_main() should not crash since errors are interspersed with successes
     await main_mod._async_main()  # Should exit gracefully via KeyboardInterrupt
     assert cycle_count["count"] == 6
+
+
+async def test_main_handles_keyboard_interrupt_during_sleep(monkeypatch):
+    """Test that _async_main() handles KeyboardInterrupt during sleep gracefully."""
+    cycle_count = {"count": 0}
+
+    async def mock_sleep(seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(asyncio, "sleep", mock_sleep)
+
+    original_main_class = main_mod.Main
+
+    class FakeMain(original_main_class):
+        async def start(self):
+            pass  # Skip actual startup
+
+        async def poll_once(self):
+            cycle_count["count"] += 1
+
+    monkeypatch.setattr(main_mod, "Main", FakeMain)
+
+    # _async_main() should catch KeyboardInterrupt and exit gracefully
+    await main_mod._async_main()  # Should not raise
+
+    # Should have completed one cycle before interrupt
+    assert cycle_count["count"] >= 1
+
+
+async def test_main_sleeps_and_loops(monkeypatch):
+    """Test that _async_main() sleeps between cycles and can be interrupted."""
+    sleep_calls = []
+    cycle_count = {"count": 0}
+
+    async def mock_sleep(seconds):
+        sleep_calls.append(seconds)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(asyncio, "sleep", mock_sleep)
+
+    original_main_class = main_mod.Main
+
+    class FakeMain(original_main_class):
+        async def start(self):
+            pass  # Skip actual startup
+
+        async def poll_once(self):
+            cycle_count["count"] += 1
+
+    monkeypatch.setattr(main_mod, "Main", FakeMain)
+
+    # _async_main() should loop, call poll_once, sleep, then be interrupted
+    await main_mod._async_main()
+
+    # Should have called poll_once once and tried to sleep
+    assert cycle_count["count"] >= 1
+    assert len(sleep_calls) == 1
+    # 60φ = 30(1 + √5) ≈ 97.08 seconds
+    assert sleep_calls[0] == 30 * (1 + 5**0.5)

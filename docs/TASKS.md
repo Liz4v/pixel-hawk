@@ -2,14 +2,6 @@
 
 ## Backlog
 
-### Migrate data to SQLite
-
-**Status:** Backlog
-**Priority:** High
-
-**Description:**
-Data is currently in YAML disk files. Migrate to SQLite, ORM-mapped using Tortoise ORM. Include support for future schema migrations. Rename `ProjectMetadata` to `ProjectInfo` and use it as an Active Record. Expand `DiffResult` to `HistoryChange` and create a new table with that information to track history changes.
-
 ### Discord Bot for project tracking and notifications
 
 **Status:** Backlog
@@ -50,6 +42,10 @@ Add memory profiling to identify and optimize memory usage for deployment on mem
 ## Completed
 
 > **Note:** Keep completed task descriptions to a single concise paragraph summarizing what was done.
+
+### ✅ Migrate data to SQLite (2026-02-15)
+
+Migrated persistence from YAML files to SQLite via Tortoise ORM with Aerich schema migrations. Renamed `ProjectMetadata` to `ProjectInfo` (pure Tortoise model) and `Project.metadata` to `Project.info`. Refactored to functional service layer with business logic in standalone functions (`metadata.py`) instead of Active Record/mixin pattern for better type safety and cleaner architecture. Created `HistoryChange` table recording every diff event with pixel counts, completion percentage, and progress/regress deltas. Added `db.py` module with async context manager for database lifecycle. Implemented one-time YAML migration: existing `.metadata.yaml` files are imported into SQLite on first load and renamed to `.yaml.migrated`. All 187 tests passing with 96.61% coverage.
 
 ### ✅ Detect project regression / griefing (2026-02-12)
 

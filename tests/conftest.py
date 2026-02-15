@@ -3,6 +3,7 @@ from loguru import logger
 
 import pixel_hawk.config
 from pixel_hawk.config import Config
+from pixel_hawk.db import database
 
 
 @pytest.fixture(autouse=True)
@@ -27,6 +28,13 @@ def setup_config(tmp_path, monkeypatch):
 
     # Cleanup: Reset CONFIG after test
     pixel_hawk.config.CONFIG = None
+
+
+@pytest.fixture(autouse=True)
+async def setup_db():
+    """Initialize in-memory SQLite for each test and tear down after."""
+    async with database(db_path=":memory:"):
+        yield
 
 
 @pytest.fixture(autouse=True)

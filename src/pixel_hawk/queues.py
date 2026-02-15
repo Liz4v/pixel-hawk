@@ -171,7 +171,7 @@ class TileQueue:
         def tile_priority(tile_meta: TileMetadata) -> int:
             """Returns min_first_seen for sorting."""
             projects = tile_to_projects.get(tile_meta.tile, set())
-            min_first_seen = min((p.metadata.first_seen for p in projects), default=1 << 58)
+            min_first_seen = min((p.info.first_seen for p in projects), default=1 << 58)
             return min_first_seen
 
         oldest = min(self.tiles, key=tile_priority)

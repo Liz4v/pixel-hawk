@@ -157,7 +157,7 @@ Configurable directory structure managed by `config.py`. Default pixel-hawk-home
 YAML file saved alongside each project as `<project_name>.yaml` containing all metadata and statistics.
 
 ### Snapshot File
-PNG file saved alongside each project as `<project_name>.snapshot.png` containing the previous canvas state.
+PNG file saved in `snapshots/{person_id}/{tx}_{ty}_{px}_{py}.png` containing the previous canvas state. Uses the same directory structure and filename format as projects.
 
 ## Technical Terms
 

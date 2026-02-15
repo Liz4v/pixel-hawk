@@ -38,7 +38,9 @@ async def test_has_tile_changed_http_error(tmp_path):
 
 
 async def test_has_tile_changed_bad_image(tmp_path):
-    client = MockClient(httpx.Response(200, content=b"not an image", headers={"Last-Modified": "Wed, 15 Nov 2023 12:45:26 GMT"}))
+    client = MockClient(
+        httpx.Response(200, content=b"not an image", headers={"Last-Modified": "Wed, 15 Nov 2023 12:45:26 GMT"})
+    )
     changed, last_modified = await has_tile_changed(Tile(0, 0), client)
     assert not changed
     assert last_modified == 0

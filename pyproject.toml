@@ -12,6 +12,7 @@ dependencies = [
     "pillow>=12.0.0",
     "httpx>=0.28.0",
     "ruamel-yaml>=0.19.1",
+    "tortoise-orm>=0.25.0",
 ]
 
 [project.scripts]
@@ -30,6 +31,7 @@ dev = [
     "pytest-asyncio>=1.0.0",
     "pytest-cov>=7.0.0",
     "ty>=0.0.17",
+    "aerich[toml]>=0.8.0",
 ]
 
 [tool.pytest.ini_options]
@@ -45,3 +47,8 @@ data_file = ".pytest_cache/.coverage"
 rules = { all = "error" }
 src = { exclude = ["tests"] }
 environment = { root = ["./src"] }
+
+[tool.aerich]
+tortoise_orm = "pixel_hawk.db.TORTOISE_ORM"
+location = "./src/pixel_hawk/migrations"
+src_folder = "./."

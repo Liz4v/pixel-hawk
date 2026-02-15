@@ -1,9 +1,7 @@
 """Tests for configuration management."""
 
-import os
 from pathlib import Path
 
-import pytest
 
 import pixel_hawk.config
 from pixel_hawk.config import Config, get_config, load_config

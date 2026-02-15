@@ -1003,24 +1003,21 @@ def test_burning_queue_prioritizes_by_project_first_seen(tmp_path, monkeypatch):
     proj1 = SimpleNamespace(
         path=tmp_path / "proj1.png",
         rect=Rectangle(0, 0, 1000, 1000),  # Contains tile1
-        metadata=SimpleNamespace(first_seen=1000),
-
+        info=SimpleNamespace(first_seen=1000),
     )
 
     # Project 2 (middle): first_seen = 2000
     proj2 = SimpleNamespace(
         path=tmp_path / "proj2.png",
         rect=Rectangle(1000, 0, 1000, 1000),  # Contains tile2
-        metadata=SimpleNamespace(first_seen=2000),
-
+        info=SimpleNamespace(first_seen=2000),
     )
 
     # Project 3 (newest): first_seen = 3000
     proj3 = SimpleNamespace(
         path=tmp_path / "proj3.png",
         rect=Rectangle(2000, 0, 1000, 1000),  # Contains tile3
-        metadata=SimpleNamespace(first_seen=3000),
-
+        info=SimpleNamespace(first_seen=3000),
     )
 
     # Create tile-to-projects mapping
@@ -1057,7 +1054,7 @@ def test_burning_queue_handles_project_with_early_first_seen(tmp_path, monkeypat
     class FakeProject:
         def __init__(self):
             self.rect = Rectangle(0, 0, 1000, 1000)
-            self.metadata = FakeMetadata()
+            self.info = FakeMetadata()
 
     proj = FakeProject()
 
@@ -1088,15 +1085,13 @@ def test_burning_queue_handles_shared_tiles(tmp_path, monkeypatch):
     old_proj = SimpleNamespace(
         path=tmp_path / "old.png",
         rect=Rectangle(0, 0, 2000, 1000),  # Contains both tiles
-        metadata=SimpleNamespace(first_seen=1000),
-
+        info=SimpleNamespace(first_seen=1000),
     )
 
     new_proj = SimpleNamespace(
         path=tmp_path / "new.png",
         rect=Rectangle(1000, 0, 1000, 1000),  # Contains only tile2
-        metadata=SimpleNamespace(first_seen=3000),
-
+        info=SimpleNamespace(first_seen=3000),
     )
 
     tile_to_projects = {
@@ -1134,8 +1129,7 @@ def test_temperature_queue_selection_unchanged(tmp_path, monkeypatch, setup_conf
     proj = SimpleNamespace(
         path=tmp_path / "proj.png",
         rect=Rectangle(0, 0, 10000, 1000),
-        metadata=SimpleNamespace(first_seen=1000),
-
+        info=SimpleNamespace(first_seen=1000),
     )
 
     tile_to_projects = {tile: [proj] for tile in tiles}
