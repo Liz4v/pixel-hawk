@@ -278,28 +278,6 @@ async def test_numeric_fields_precision():
 # Pixel counting tests
 
 
-async def test_count_remaining_pixels():
-    """Test counting remaining pixels from diff bytes."""
-    assert metadata.count_remaining_pixels(bytes([0, 0, 0, 0])) == 0
-    assert metadata.count_remaining_pixels(bytes([0, 1, 0, 2, 0, 3])) == 3
-    assert metadata.count_remaining_pixels(bytes([1, 2, 3, 4])) == 4
-
-
-async def test_count_target_pixels():
-    """Test counting target pixels with division-by-zero protection."""
-    assert metadata.count_target_pixels(bytes([0, 1, 2, 3])) == 3
-    assert metadata.count_target_pixels(bytes([1, 1, 1, 1])) == 4
-    assert metadata.count_target_pixels(bytes([0, 0, 0, 0])) == 1
-
-
-async def test_calculate_completion_percent():
-    """Test completion percentage calculation."""
-    assert metadata.calculate_completion_percent(50, 100) == 50.0
-    assert metadata.calculate_completion_percent(0, 100) == 100.0
-    assert metadata.calculate_completion_percent(100, 100) == 0.0
-    assert metadata.calculate_completion_percent(1, 100) == 99.0
-
-
 async def test_compare_snapshots_progress():
     """Test snapshot comparison detecting progress."""
     target = bytes([0, 1, 2, 0])

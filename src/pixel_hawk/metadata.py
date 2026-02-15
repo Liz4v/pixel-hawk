@@ -9,12 +9,13 @@ process_diff() creates and returns a HistoryChange object for the caller to pers
 
 import time
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from .geometry import Tile
+from .models import DiffStatus, HistoryChange
 
 if TYPE_CHECKING:
-    from .models import HistoryChange, ProjectInfo
+    from .models import ProjectInfo
 
 
 def prune_old_tile_updates(info: ProjectInfo) -> None:
@@ -31,22 +32,6 @@ def update_tile(info: ProjectInfo, tile: Tile, timestamp: int) -> None:
     entry = [tile_str, timestamp]
     if entry not in info.tile_updates_24h:
         info.tile_updates_24h.append(entry)
-
-
-def count_remaining_pixels(remaining_bytes: Any) -> int:
-    """Count non-zero pixels in remaining diff bytes."""
-    return sum(1 for v in remaining_bytes if v)
-
-
-def count_target_pixels(target_bytes: Any) -> int:
-    """Count non-zero pixels in target image bytes."""
-    count = sum(1 for v in target_bytes if v)
-    return count or 1  # Return 1 to avoid division by zero
-
-
-def calculate_completion_percent(num_remaining: int, num_target: int) -> float:
-    """Calculate completion percentage from remaining and target pixel counts."""
-    return 100.0 - (num_remaining * 100.0 / num_target)
 
 
 def compare_snapshots(current_data: bytes, prev_data: bytes, target_data: bytes) -> tuple[int, int]:
@@ -107,13 +92,11 @@ def process_diff(info: ProjectInfo, current_data: bytes, target_data: bytes, pre
     Returns:
         HistoryChange object (not yet saved to DB - caller must await change.save()).
     """
-    from .models import DiffStatus, HistoryChange
-
     # Update last check timestamp
     info.last_check = timestamp = round(time.time())
 
     # Count target pixels
-    num_target = count_target_pixels(target_data)
+    num_target = sum(1 for v in target_data if v) or 1  # avoid division by zero
 
     # Compare current vs target to find remaining pixels
     remaining = bytes(0 if target == current else target for current, target in zip(current_data, target_data))
@@ -133,8 +116,8 @@ def process_diff(info: ProjectInfo, current_data: bytes, target_data: bytes, pre
         )
 
     # Count remaining pixels and calculate completion
-    num_remaining = count_remaining_pixels(remaining)
-    percent_complete = calculate_completion_percent(num_remaining, num_target)
+    num_remaining = sum(1 for v in remaining if v)
+    percent_complete = 100.0 - (num_remaining * 100.0 / num_target)
 
     # Compare with previous snapshot to detect progress/regress
     progress_pixels = 0
