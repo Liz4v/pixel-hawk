@@ -79,7 +79,7 @@ All pixel-hawk data lives in a unified directory structure under `pixel-hawk-hom
 
 ## Development
 
-The project uses `ruff` for linting (line-length = 120), `mypy` for type checking, and `pytest` for testing with 95% coverage threshold.
+The project uses `ruff` for linting (line-length = 120), `ty` for type checking, and `pytest` for testing with 95% coverage threshold.
 
 Run tests:
 ```powershell
@@ -88,7 +88,7 @@ uv run pytest
 
 Run type checking:
 ```powershell
-uv run mypy
+uv run ty check
 ```
 
 ## See Also

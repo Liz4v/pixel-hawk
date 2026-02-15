@@ -115,8 +115,8 @@ This project embraces core principles from PEP 20 ("The Zen of Python"):
 ## Developer workflow & checks
 
 - Linting: run `ruff` (project defines `line-length = 120`).
-- Type checking: run `mypy` (configured in `pyproject.toml` under `[tool.mypy]`).
-  - Run type checks: `uv run mypy`
+- Type checking: run `ty check` (configured in `pyproject.toml` under `[tool.ty]`).
+  - Run type checks: `uv run ty check`
 - Formatting: no explicit formatter in repo; follow current style and ruff suggestions.
 - Tests: unit tests live under `tests/`. We use `pytest` with `pytest-asyncio` and `pytest-cov` for coverage.
   - `asyncio_mode = "auto"` is configured in `pyproject.toml` — all `async def` test functions are auto-detected, no `@pytest.mark.asyncio` decorator needed.

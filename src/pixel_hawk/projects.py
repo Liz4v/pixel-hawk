@@ -162,6 +162,7 @@ class Project:
 
     def load_snapshot_if_exists(self) -> AsyncImage:
         """Return an AsyncImage that loads the previous snapshot, or yields None if absent."""
+
         def _load() -> Image.Image | None:
             if not self.snapshot_path.exists():
                 return None
