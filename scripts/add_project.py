@@ -9,7 +9,6 @@ Usage:
 """
 
 import asyncio
-from pathlib import Path
 
 from pixel_hawk.config import get_config
 from pixel_hawk.db import database
@@ -124,13 +123,13 @@ async def main():
         print("\n" + "=" * 60)
         print("Next steps:")
         print("=" * 60)
-        print(f"1. Create your project image using the WPlace palette")
-        print(f"   (First color = transparent)")
-        print(f"\n2. Create directory (if needed):")
+        print("1. Create your project image using the WPlace palette")
+        print("   (First color = transparent)")
+        print("\n2. Create directory (if needed):")
         print(f"   {person_dir}")
-        print(f"\n3. Save your PNG file to:")
+        print("\n3. Save your PNG file to:")
         print(f"   {file_path}")
-        print(f"\n4. Restart pixel-hawk to load the project")
+        print("\n4. Restart pixel-hawk to load the project")
         print("=" * 60)
 
 

@@ -10,7 +10,7 @@ from pixel_hawk.db import database
 def setup_config(tmp_path, monkeypatch):
     """Set up test CONFIG before each test using tmp_path."""
     # Create Config with test-specific tmp_path
-    config = Config(home=tmp_path / "pixel-hawk-data")
+    config = Config(home=tmp_path / "nest")
 
     # Set module-level CONFIG
     pixel_hawk.config.CONFIG = config

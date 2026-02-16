@@ -29,32 +29,32 @@ class TestConfig:
 class TestLoadConfig:
     """Tests for load_config function."""
 
-    def test_default_pixel_hawk_home(self, monkeypatch):
-        """Test that default pixel-hawk-home is ./pixel-hawk-data (converted to absolute)."""
+    def test_default_hawk_nest(self, monkeypatch):
+        """Test that default nest is ./nest (converted to absolute)."""
         # Clear environment variable if it exists
-        monkeypatch.delenv("PIXEL_HAWK_HOME", raising=False)
+        monkeypatch.delenv("HAWK_NEST", raising=False)
 
         config = load_config(args=[])
 
-        # Should be ./pixel-hawk-data resolved to absolute path
-        expected = Path("./pixel-hawk-data").resolve()
+        # Should be ./nest resolved to absolute path
+        expected = Path("./nest").resolve()
         assert config.home == expected
 
     def test_cli_flag_precedence(self, tmp_path, monkeypatch):
-        """Test that --pixel-hawk-home CLI flag takes precedence over env var."""
+        """Test that --nest CLI flag takes precedence over env var."""
         cli_path = tmp_path / "cli-home"
         env_path = tmp_path / "env-home"
 
-        monkeypatch.setenv("PIXEL_HAWK_HOME", str(env_path))
+        monkeypatch.setenv("HAWK_NEST", str(env_path))
 
-        config = load_config(args=["--pixel-hawk-home", str(cli_path)])
+        config = load_config(args=["--nest", str(cli_path)])
 
         assert config.home == cli_path.resolve()
 
     def test_env_var_precedence(self, tmp_path, monkeypatch):
-        """Test that PIXEL_HAWK_HOME env var takes precedence over default."""
+        """Test that HAWK_NEST env var takes precedence over default."""
         env_path = tmp_path / "env-home"
-        monkeypatch.setenv("PIXEL_HAWK_HOME", str(env_path))
+        monkeypatch.setenv("HAWK_NEST", str(env_path))
 
         config = load_config(args=[])
 
@@ -65,7 +65,7 @@ class TestLoadConfig:
         # Change to tmp_path as working directory
         monkeypatch.chdir(tmp_path)
 
-        config = load_config(args=["--pixel-hawk-home", "my-data"])
+        config = load_config(args=["--nest", "my-data"])
 
         expected = (tmp_path / "my-data").resolve()
         assert config.home == expected
@@ -74,7 +74,7 @@ class TestLoadConfig:
     def test_env_var_with_relative_path(self, tmp_path, monkeypatch):
         """Test that env var converts relative paths to absolute."""
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setenv("PIXEL_HAWK_HOME", "my-env-data")
+        monkeypatch.setenv("HAWK_NEST", "my-env-data")
 
         config = load_config(args=[])
 
@@ -83,31 +83,31 @@ class TestLoadConfig:
         assert config.home.is_absolute()
 
     def test_cli_flag_missing_value(self, monkeypatch):
-        """Test that --pixel-hawk-home without value falls back to env or default."""
-        monkeypatch.delenv("PIXEL_HAWK_HOME", raising=False)
+        """Test that --nest without value falls back to env or default."""
+        monkeypatch.delenv("HAWK_NEST", raising=False)
 
-        # --pixel-hawk-home at end of args with no value
-        config = load_config(args=["--pixel-hawk-home"])
+        # --nest at end of args with no value
+        config = load_config(args=["--nest"])
 
         # Should fall back to default since no value provided
-        expected = Path("./pixel-hawk-data").resolve()
+        expected = Path("./nest").resolve()
         assert config.home == expected
 
     def test_cli_flag_with_other_args(self, tmp_path, monkeypatch):
-        """Test that --pixel-hawk-home works correctly with other args present."""
+        """Test that --nest works correctly with other args present."""
         cli_path = tmp_path / "cli-home"
 
-        config = load_config(args=["--other-flag", "--pixel-hawk-home", str(cli_path), "--another"])
+        config = load_config(args=["--other-flag", "--nest", str(cli_path), "--another"])
 
         assert config.home == cli_path.resolve()
 
     def test_no_args_no_env(self, monkeypatch):
         """Test default behavior when no args or env var."""
-        monkeypatch.delenv("PIXEL_HAWK_HOME", raising=False)
+        monkeypatch.delenv("HAWK_NEST", raising=False)
 
         config = load_config(args=[])
 
-        expected = Path("./pixel-hawk-data").resolve()
+        expected = Path("./nest").resolve()
         assert config.home == expected
 
 

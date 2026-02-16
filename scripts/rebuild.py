@@ -19,7 +19,6 @@ Usage:
 """
 
 import asyncio
-import time
 
 from pixel_hawk.config import load_config
 from pixel_hawk.db import database
@@ -136,7 +135,7 @@ async def rebuild() -> None:
 
         # --- Summary ---
         print()
-        print(f"Rebuild complete:")
+        print("Rebuild complete:")
         print(f"  Persons:       {persons_created} created, {len(person_dirs)} total")
         print(f"  Projects:      {projects_created} created, {len(all_projects)} total")
         total_tiles = await TileInfo.all().count()

@@ -86,7 +86,7 @@ async def _async_main():
     logger.add(log_file, rotation="10 MB", retention="7 days", level="DEBUG", format=log_fmt)
     logger.info("============================================================================================")
     logger.info("pixel-hawk - WPlace paint project change tracker")
-    logger.debug(f"pixel-hawk-home: {cfg.home}")
+    logger.debug(f"nest: {cfg.home}")
     logger.debug(f"Logging to file: {log_file}")
     logger.info(f"Place project PNG files in: {cfg.projects_dir}")
     # Initialize database and run main loop

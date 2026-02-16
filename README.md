@@ -20,8 +20,8 @@ pixel-hawk supports multiple users tracking the same or different coordinates:
 - **Person table** tracks users with auto-increment IDs
 - **ProjectInfo table** stores project metadata with owner foreign key
 - **Unique constraint** on (owner_id, name) prevents duplicate names per user
-- **Watched tiles tracking** counts unique tiles across all active projects per person
-- **State management** (active/passive/inactive) for future quota enforcement
+- **Watched tiles tracking** counts unique tiles and active projects per person via `update_totals()`
+- **State management** (ACTIVE/PASSIVE/INACTIVE IntEnum) for quota enforcement
 
 ### Queue system
 
@@ -61,25 +61,25 @@ uv run aerich init-db
 Run the watcher:
 
 ```powershell
-uv run pixel-hawk
+uv run hawk
 ```
 
-By default, pixel-hawk uses `./pixel-hawk-data` in your current working directory. You can customize this:
+By default, pixel-hawk uses `./nest` in your current working directory. You can customize this:
 
 ```powershell
-# Use custom directory
-uv run pixel-hawk --pixel-hawk-home /path/to/pixel-hawk-data
+# Use custom home directory
+uv run hawk --nest /path/to/nest
 
 # Or set environment variable
-$env:PIXEL_HAWK_HOME = "C:\path\to\pixel-hawk-data"
-uv run pixel-hawk
+$env:HAWK_NEST = "C:\path\to\nest"
+uv run hawk
 ```
 
-**Precedence:** CLI flag `--pixel-hawk-home` > environment variable `PIXEL_HAWK_HOME` > default `./pixel-hawk-data`
+**Precedence:** CLI flag `--nest` > environment variable `HAWK_NEST` > default `./nest`
 
 ### Setting up projects (Database-first workflow)
 
-**IMPORTANT:** pixel-hawk no longer auto-discovers projects from the filesystem. Projects must be created in the database first.
+**IMPORTANT:** pixel-hawk does not auto-discover projects from the filesystem. Projects must be created in the database first.
 
 #### Quick setup with helper script
 
@@ -129,7 +129,7 @@ print(f"Create file at: projects/{person.id}/{info.filename}")
 #### Step 3: Create and place the PNG file
 
 1. Create your project image using the WPlace palette (first color is treated as transparent)
-2. Save it at: `<pixel-hawk-home>/projects/{person_id}/{tx}_{ty}_{px}_{py}.png`
+2. Save it at: `<nest>/projects/{person_id}/{tx}_{ty}_{px}_{py}.png`
    - Filename is **coordinates only** (no project name prefix)
    - Example: `projects/1/0_0_500_500.png` for person_id=1
 3. The watcher will load it from the database on next startup
@@ -142,45 +142,68 @@ print(f"Create file at: projects/{person.id}/{info.filename}")
 
 ### Where data lives
 
-All pixel-hawk data lives in a unified directory structure under `pixel-hawk-home` (default: `./pixel-hawk-data`):
+All pixel-hawk data lives in a unified directory structure under `nest` (default: `./nest`):
 
 - **`projects/{person_id}/`** — Project PNG files organized by person ID
   - Example: `projects/1/0_0_500_500.png` for person_id=1
   - Filenames are coordinates only: `{tx}_{ty}_{px}_{py}.png`
-- **`data/pixel-hawk.db`** — SQLite database (Person, ProjectInfo, HistoryChange tables)
+- **`data/pixel-hawk.db`** — SQLite database (Person, ProjectInfo, HistoryChange, TileInfo, TileProject tables)
 - **`tiles/`** — Cached tiles from WPlace backend
 - **`snapshots/{person_id}/`** — Canvas state snapshots organized by person (same structure as projects)
-- **`metadata/`** — Legacy YAML files (migrated to SQLite on first load)
 - **`logs/`** — Application logs (`pixel-hawk.log` with 10 MB rotation and 7-day retention)
 
-**Development workflow:** The default `./pixel-hawk-data` location is designed to work seamlessly when running pixel-hawk from the project root directory during development. This keeps all data files easily accessible for inspection from your IDE and AI agents, making debugging and analysis straightforward.
+**Development workflow:** The default `./nest` location is designed to work seamlessly when running pixel-hawk from the project root directory during development. This keeps all data files easily accessible for inspection from your IDE and AI agents, making debugging and analysis straightforward.
 
-**Production deployment:** For production use, set `--pixel-hawk-home` explicitly.
+**Production deployment:** For production use, set `--nest` explicitly.
 
 ## Database schema
 
-### Person table
+### Person table (`person`)
 - `id`: Auto-increment primary key
 - `name`: Unique user name
-- `watched_tiles_count`: Cached count of unique tiles watched (updated on startup)
+- `watched_tiles_count`: Cached count of unique tiles watched
+- `active_projects_count`: Cached count of active projects
+- Both counts updated via `update_totals()` on startup
 
-### ProjectInfo table
+### ProjectInfo table (`project`)
 - `id`: Auto-increment primary key
 - `owner_id`: Foreign key to Person
 - `name`: Human-readable project name
-- `state`: active/passive/inactive
+- `state`: ACTIVE (0) / PASSIVE (10) / INACTIVE (20) IntEnum
 - `x, y, width, height`: Bounding rectangle
 - `filename`: Property that returns `{tx}_{ty}_{px}_{py}.png`
 - Unique constraint on `(owner_id, name)`
 - Progress/regress tracking, completion stats, rate calculations
 
-### HistoryChange table
+### HistoryChange table (`history_change`)
 - Tracks every diff event per project
+- `status`: DiffStatus IntEnum — NOT_STARTED (0) / IN_PROGRESS (10) / COMPLETE (20)
 - Records pixel counts, completion percentage, progress/regress deltas
 
-## Migration from YAML metadata
+### TileInfo table (`tile`)
+- `id`: Encoded from coordinates as `x * 10000 + y` (manually set, not auto-increment)
+- `x, y`: Tile coordinates
+- `heat`: Queue assignment (999 = burning, 1-998 = temperature index, 0 = not queued)
+- `last_checked`: When tile was last fetched (epoch seconds)
+- `last_update`: Parsed from Last-Modified header (epoch seconds)
+- `etag`: Raw ETag header for conditional requests
+- Composite index on `(heat, last_checked)` for LRU selection
 
-Legacy YAML metadata files (`.metadata.yaml`) are automatically migrated to SQLite on first load. The YAML file is renamed to `.yaml.migrated` after successful migration.
+### TileProject table (`tile_project`)
+- Junction table for many-to-many tile-project relationships
+- `tile_id`: Foreign key to TileInfo
+- `project_id`: Foreign key to ProjectInfo
+- Unique constraint on `(tile_id, project_id)`
+
+## Rebuilding the database
+
+If the SQLite database is lost or corrupted, you can rebuild it from filesystem artifacts:
+
+```powershell
+uv run python scripts/rebuild.py
+```
+
+This reconstructs Person, ProjectInfo, TileInfo, and TileProject records by scanning the `projects/` and `tiles/` directories. The script is idempotent — safe to re-run on an existing database. Person and project names will use placeholders; historical data (HistoryChange records, rate tracking) is permanently lost.
 
 ## Development
 

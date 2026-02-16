@@ -142,13 +142,13 @@ The worst griefing incident recorded for a project (most pixels lost in a single
 ## File Structure & Paths
 
 ### Configuration (CONFIG)
-Configurable directory structure managed by `config.py`. Default pixel-hawk-home is `./pixel-hawk-data` (configurable via `--pixel-hawk-home` or `PIXEL_HAWK_HOME` env var).
+Configurable directory structure managed by `config.py`. Default nest is `./nest` (configurable via `--nest` or `HAWK_NEST` env var).
 
 ### Projects Directory
-`<pixel-hawk-home>/projects/` — where users place their project PNG files.
+`<nest>/projects/` — where users place their project PNG files.
 
 ### Tiles Cache
-`<pixel-hawk-home>/tiles/` — where cached tiles are stored.
+`<nest>/tiles/` — where cached tiles are stored.
 
 ### User Log Path
 `<user_log_path>/pixel-hawk.log` — where application logs are written.

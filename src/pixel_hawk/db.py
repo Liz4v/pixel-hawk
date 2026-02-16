@@ -28,7 +28,7 @@ def tortoise_config(db_path: str | None = None) -> dict:
 
 # Static config for Aerich CLI (uses relative path as fallback)
 TORTOISE_ORM = {
-    "connections": {"default": "sqlite://pixel-hawk-data/data/pixel-hawk.db"},
+    "connections": {"default": "sqlite://nest/data/pixel-hawk.db"},
     "apps": {"models": {"models": MODELS, "default_connection": "default"}},
 }
 

@@ -8,4 +8,4 @@ wheels/
 .venv/
 .vscode/
 .*cache/
-pixel-hawk-data/
+nest/

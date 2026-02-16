@@ -3,8 +3,8 @@
 Provides Config dataclass with unified directory structure and load_config()
 function to parse CLI arguments, environment variables, and defaults.
 
-Default pixel-hawk-home is ./pixel-hawk-data (relative to current working directory).
-Can be overridden with --pixel-hawk-home CLI flag or PIXEL_HAWK_HOME environment variable.
+Default nest is ./nest (relative to current working directory).
+Can be overridden with --nest CLI flag or HAWK_NEST environment variable.
 Precedence: CLI flag > env var > default
 """
 
@@ -57,7 +57,7 @@ class Config:
 def load_config(args: list[str] | None = None) -> Config:
     """Load configuration from CLI args, environment, or defaults.
 
-    Precedence: CLI flag > env var > default (./pixel-hawk-data)
+    Precedence: CLI flag > env var > default (./nest)
 
     Args:
         args: Command line arguments (defaults to sys.argv[1:])
@@ -68,22 +68,22 @@ def load_config(args: list[str] | None = None) -> Config:
     if args is None:
         args = sys.argv[1:]
 
-    # Check CLI argument: --pixel-hawk-home /path/to/pixel-hawk-data
+    # Check CLI argument: --nest /path/to/nest
     home_path: Path | None = None
     for i, arg in enumerate(args):
-        if arg == "--pixel-hawk-home" and i + 1 < len(args):
+        if arg == "--nest" and i + 1 < len(args):
             home_path = Path(args[i + 1])
             break
 
-    # Check environment variable: PIXEL_HAWK_HOME
+    # Check environment variable: HAWK_NEST
     if home_path is None:
-        env_home = os.environ.get("PIXEL_HAWK_HOME")
+        env_home = os.environ.get("HAWK_NEST")
         if env_home:
             home_path = Path(env_home)
 
-    # Fall back to default: ./pixel-hawk-data
+    # Fall back to default: ./nest
     if home_path is None:
-        home_path = Path("./pixel-hawk-data")
+        home_path = Path("./nest")
 
     # Convert to absolute path
     home_path = home_path.resolve()
