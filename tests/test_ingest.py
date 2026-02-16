@@ -317,14 +317,13 @@ async def test_check_next_tile_unchanged_calls_run_nochange(setup_config):
     checker = TileChecker([proj])
     await _create_tile_info(0, 0, last_update=1700052326, last_checked=100)
 
-    # Set num_queues so round-robin includes temp queue 1
-    checker.queue_system.num_queues = 1
+    # Initialize queue system from DB so it discovers the temp queue
+    await checker.start()
 
     # Mock client to return 304
     checker.client = MockClient(httpx.Response(304))
 
-    # First call hits burning (empty), second hits temp queue 1
-    await checker.check_next_tile()
+    # Burning queue is empty; select_next_tile skips it and finds temp queue 1
     await checker.check_next_tile()
     proj.run_nochange.assert_called_once()
     proj.run_diff.assert_not_called()

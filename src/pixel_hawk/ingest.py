@@ -136,10 +136,14 @@ class TileChecker:
             for tile in proj.rect.tiles:
                 self.tiles.setdefault(tile, set()).add(proj)
 
-        # Create QueueSystem (no initialization needed, queries DB on demand)
+        # Create QueueSystem (start() must be called to load state from DB)
         self.queue_system = QueueSystem()
 
         logger.info(f"Indexed {len(self.tiles)} tiles.")
+
+    async def start(self) -> None:
+        """Load queue state from database. Call after DB is ready."""
+        await self.queue_system.start()
 
     async def check_next_tile(self) -> None:
         """Check one tile for changes using queue-based selection and update affected projects."""
@@ -148,8 +152,8 @@ class TileChecker:
 
         # Select next tile from database via QueueSystem
         tile = await self.queue_system.select_next_tile()
-        logger.debug(f"About to check tile: {tile}")
         if not tile:
+            logger.warning("No next tile returned by the queue system. No active projects?")
             return
 
         # Fetch TileInfo (required for conditional request headers)

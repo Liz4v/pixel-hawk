@@ -113,37 +113,42 @@ class QueueSystem:
     def __init__(self):
         """Initialize queue system with database-backed selection."""
         self.current_queue_index = 0  # Round-robin position across queues
-        self.num_queues = 0  # Will be set during Zipf calculation
+        self.num_queues = 0  # Set by start() from existing DB state, updated by _rebuild_zipf_distribution
+
+    async def start(self) -> None:
+        """Load num_queues from existing database state. Call after DB is ready."""
+        await self._rebuild_zipf_distribution()
 
     async def select_next_tile(self) -> Tile | None:
         """Select next tile to check using round-robin across temperature queues.
 
         Queries database directly for least recently checked tile in current queue.
+        Skips empty queues, trying all queues before giving up.
 
         Returns:
-            Tile object to check, or None if no tiles available
+            Tile object to check, or None if all queues are empty
         """
 
         # Determine current queue temperature (999 for burning, or 1 to num_queues)
         # Round-robin cycles through: burning (999), temp 1, temp 2, ..., temp N
         queue_temperatures = [999] + list(range(1, self.num_queues + 1))
-        current_temp = queue_temperatures[self.current_queue_index % len(queue_temperatures)]
+        total_queues = len(queue_temperatures)
 
-        # Query database for least recently checked tile in this temperature queue
-        tile_info = await TileInfo.filter(queue_temperature=current_temp).order_by("last_checked").first()
+        # Try each queue starting from current position; skip empty queues
+        for _ in range(total_queues):
+            current_temp = queue_temperatures[self.current_queue_index % total_queues]
 
-        if not tile_info:
-            # Queue is empty, skip to next
+            # Query database for least recently checked tile in this temperature queue
+            tile_info = await TileInfo.filter(queue_temperature=current_temp).order_by("last_checked").first()
+
+            # Advance round-robin index for next call
             self.current_queue_index += 1
-            return None
 
-        # Convert TileInfo to Tile object
-        tile = Tile(x=tile_info.tile_x, y=tile_info.tile_y)
+            if tile_info:
+                # Convert TileInfo to Tile object
+                return Tile(x=tile_info.tile_x, y=tile_info.tile_y)
 
-        # Advance round-robin index for next call
-        self.current_queue_index += 1
-
-        return tile
+        return None
 
     async def update_tile_after_check(self, tile: Tile, new_last_update: int, http_etag: str) -> None:
         """Update tile in database after checking.

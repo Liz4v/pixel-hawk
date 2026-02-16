@@ -79,6 +79,28 @@ def test_queue_system_initialization():
     assert qs.num_queues == 0
 
 
+# --- start ---
+
+
+async def test_start_empty_database():
+    """start() with no tiles sets num_queues to 0."""
+    qs = QueueSystem()
+    await qs.start()
+    assert qs.num_queues == 0
+
+
+async def test_start_loads_num_queues_from_db():
+    """start() loads num_queues from existing temperature tiles in DB."""
+    now = round(time.time())
+    for i in range(10):
+        await _create_tile(i, 0, queue_temperature=1, last_checked=now, last_update=now - i * 100)
+
+    qs = QueueSystem()
+    assert qs.num_queues == 0
+    await qs.start()
+    assert qs.num_queues >= 1
+
+
 # --- select_next_tile ---
 
 
@@ -106,13 +128,10 @@ async def test_select_next_tile_temperature_only():
     await _create_tile(3, 4, queue_temperature=1, last_checked=50, last_update=50)
 
     qs = QueueSystem()
-    qs.num_queues = 1
+    await qs.start()
 
-    # First call goes to burning (999) which is empty, advances index
+    # Burning queue is empty; skips to temp queue automatically
     tile = await qs.select_next_tile()
-    # Second call (automatic advance after empty) - now try temp queue 1
-    if tile is None:
-        tile = await qs.select_next_tile()
 
     assert tile is not None
     # Should pick least recently checked (last_checked=50 => Tile(3,4))
@@ -127,12 +146,10 @@ async def test_select_next_tile_least_recently_checked():
     await _create_tile(2, 0, queue_temperature=1, last_checked=now - 2000, last_update=now)  # oldest
 
     qs = QueueSystem()
-    qs.num_queues = 1
+    await qs.start()
 
-    # Skip burning queue (empty)
+    # Burning queue is empty; skips to temp queue automatically
     tile = await qs.select_next_tile()
-    if tile is None:
-        tile = await qs.select_next_tile()
 
     assert tile == Tile(2, 0)
 
@@ -147,7 +164,7 @@ async def test_select_next_tile_round_robin():
     await _create_tile(2, 0, queue_temperature=2, last_checked=now - 200, last_update=now)
 
     qs = QueueSystem()
-    qs.num_queues = 2
+    await qs.start()
 
     # Collect tiles across several selections
     selected = []
@@ -162,7 +179,7 @@ async def test_select_next_tile_round_robin():
 
 
 async def test_select_next_tile_skips_empty_queue():
-    """When current queue is empty, advances index and returns None."""
+    """When all queues are empty, tries each queue and returns None."""
     qs = QueueSystem()
     qs.num_queues = 2
 
@@ -170,7 +187,8 @@ async def test_select_next_tile_skips_empty_queue():
     initial_index = qs.current_queue_index
     result = await qs.select_next_tile()
     assert result is None
-    assert qs.current_queue_index == initial_index + 1
+    # Should have advanced past all 3 queues (burning + 2 temp)
+    assert qs.current_queue_index == initial_index + 3
 
 
 # --- update_tile_after_check ---
@@ -181,7 +199,7 @@ async def test_update_tile_after_check_timestamps():
     await _create_tile(5, 5, queue_temperature=1, last_checked=100, last_update=50)
 
     qs = QueueSystem()
-    qs.num_queues = 1
+    await qs.start()
 
     new_update = round(time.time())
     await qs.update_tile_after_check(Tile(5, 5), new_update, "etag-abc")
@@ -199,7 +217,7 @@ async def test_update_tile_after_check_burning_graduates():
     await _create_tile(1, 0, queue_temperature=1, last_checked=100, last_update=50)
 
     qs = QueueSystem()
-    qs.num_queues = 1
+    await qs.start()
 
     now = round(time.time())
     await qs.update_tile_after_check(Tile(0, 0), now, "")
@@ -214,16 +232,17 @@ async def test_update_tile_after_check_burning_graduates():
 async def test_update_tile_after_check_non_burning_no_rebuild():
     """Checking a non-burning tile updates timestamps but doesn't rebuild Zipf."""
     now = round(time.time())
-    await _create_tile(0, 0, queue_temperature=2, last_checked=now - 500, last_update=now - 1000)
+    await _create_tile(0, 0, queue_temperature=1, last_checked=now - 500, last_update=now - 1000)
 
     qs = QueueSystem()
-    qs.num_queues = 3
+    await qs.start()
+    assert qs.num_queues == 1
 
     await qs.update_tile_after_check(Tile(0, 0), now, "etag-1")
 
     # Temperature should remain unchanged (no rebuild for non-burning)
     tile_info = await TileInfo.get(id=TileInfo.tile_id(0, 0))
-    assert tile_info.queue_temperature == 2
+    assert tile_info.queue_temperature == 1
     assert tile_info.last_checked > now - 500
 
 
@@ -433,7 +452,7 @@ async def test_no_starvation_with_large_burning_queue():
         await _create_tile(i, 10, queue_temperature=999, last_checked=0, last_update=0)
 
     qs = QueueSystem()
-    qs.num_queues = 1
+    await qs.start()
 
     burning_selected = 0
     temp_selected = 0

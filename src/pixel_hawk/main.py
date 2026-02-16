@@ -58,6 +58,7 @@ class Main:
         # Initialize tile checker with only ACTIVE projects (simple sync init, no DB loading needed)
         active_projects = [p for p in projects_list if p.info.state == ProjectState.ACTIVE]
         self.tile_checker = TileChecker(active_projects)
+        await self.tile_checker.start()
         logger.info(
             f"Monitoring {len(active_projects)} active projects ({len(projects_list) - len(active_projects)} passive)."
         )
