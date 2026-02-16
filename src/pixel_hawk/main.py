@@ -17,8 +17,7 @@ from loguru import logger
 from .config import get_config
 from .db import database
 from .ingest import TileChecker
-from .models import Person, ProjectInfo, ProjectState
-from .projects import Project
+from .models import Person
 
 # Polling cycle period: 60φ = 30(1 + √5) ≈ 97.08 seconds
 # Chosen to be maximally dissonant with 27s and 30s periods
@@ -28,43 +27,14 @@ POLLING_CYCLE_SECONDS = 30 * (1 + 5**0.5)
 class Main:
     def __init__(self):
         """Initialize the main application (sync setup only). Call start() to load projects."""
-        self.projects: dict[int, Project] = {}  # Keyed by ProjectInfo.id
-        self.tile_checker: TileChecker | None = None
+        self.tile_checker = TileChecker()
 
     async def start(self) -> None:
-        """Load projects from database and initialize tile checker."""
-        # Query all ProjectInfo records (active + passive, exclude inactive)
-        infos = (
-            await ProjectInfo.filter(state__in=[ProjectState.ACTIVE, ProjectState.PASSIVE])
-            .prefetch_related("owner")
-            .all()
-        )
-
-        # Load projects from database
-        projects_list = []
-        for info in infos:
-            project = await Project.from_info(info)
-            if project is None:
-                logger.warning(f"{info.owner.name}/{info.name}: Skipping - file missing or invalid")
-                continue
-            projects_list.append(project)
-
-        self.projects = {p.info.id: p for p in projects_list}
-        logger.info(f"Loaded {len(self.projects)} projects from database.")
+        """Initialize tile checker and refresh calculated counts."""
+        # Initialize tile checker
+        await self.tile_checker.start()
 
         # Update watched tiles counts
-        await self._update_all_person_tile_counts()
-
-        # Initialize tile checker with only ACTIVE projects (simple sync init, no DB loading needed)
-        active_projects = [p for p in projects_list if p.info.state == ProjectState.ACTIVE]
-        self.tile_checker = TileChecker(active_projects)
-        await self.tile_checker.start()
-        logger.info(
-            f"Monitoring {len(active_projects)} active projects ({len(projects_list) - len(active_projects)} passive)."
-        )
-
-    async def _update_all_person_tile_counts(self) -> None:
-        """Update watched tiles count for all persons."""
         persons = await Person.all()
         for person in persons:
             await person.update_totals()
@@ -73,7 +43,6 @@ class Main:
 
     async def poll_once(self) -> None:
         """Run a cycle of the main polling loop."""
-        assert self.tile_checker is not None, "Must call start() before poll_once()"
         await self.tile_checker.check_next_tile()
 
 

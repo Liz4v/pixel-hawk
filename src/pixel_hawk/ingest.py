@@ -14,35 +14,17 @@ least-recently-checked tile within each queue.
 import asyncio
 import time
 from email.utils import formatdate, parsedate_to_datetime
-from typing import TYPE_CHECKING, Iterable
 
 import httpx
 from humanize import naturaldelta
 from loguru import logger
-from PIL import Image, UnidentifiedImageError
+from PIL import UnidentifiedImageError
 
 from .config import get_config
-from .geometry import Rectangle, Size, Tile
-from .models import TileInfo
+from .models import ProjectInfo, ProjectState, TileInfo
 from .palette import PALETTE, ColorsNotInPalette
+from .projects import Project
 from .queues import QueueSystem
-
-if TYPE_CHECKING:
-    from .projects import Project
-
-
-async def stitch_tiles(rect: Rectangle) -> Image.Image:
-    """Stitches tiles from cache together, exactly covering the given rectangle."""
-    image = PALETTE.new(rect.size)
-    for tile in rect.tiles:
-        cache_path = get_config().tiles_dir / f"tile-{tile}.png"
-        if not cache_path.exists():
-            logger.debug(f"{tile}: Tile missing from cache, leaving transparent")
-            continue
-        async with PALETTE.aopen_file(cache_path) as tile_image:
-            offset = tile.to_point() - rect.point
-            image.paste(tile_image, Rectangle.from_point_size(offset, Size(1000, 1000)))
-    return image
 
 
 class TileChecker:
@@ -55,30 +37,30 @@ class TileChecker:
     Creates and owns an httpx.AsyncClient for tile fetching.
     """
 
-    def __init__(self, projects: Iterable[Project]):
-        """Initialize with projects to monitor. Creates an httpx.AsyncClient for tile fetching."""
+    def __init__(self):
+        """Initialize tile checker. Creates an httpx.AsyncClient for tile fetching."""
         self.client = httpx.AsyncClient(timeout=5)
-
-        # Build tile→projects index (for diff operations)
-        self.tiles: dict[Tile, set[Project]] = {}
-        for proj in projects:
-            for tile in proj.rect.tiles:
-                self.tiles.setdefault(tile, set()).add(proj)
-
-        # Create QueueSystem (start() must be called to load state from DB)
         self.queue_system = QueueSystem()
-
-        logger.info(f"Indexed {len(self.tiles)} tiles.")
 
     async def start(self) -> None:
         """Load queue state from database. Call after DB is ready."""
         await self.queue_system.start()
 
+    async def _get_projects_for_tile(self, tile_info: TileInfo) -> list[Project]:
+        """Query database for projects affected by a tile, returning Project objects."""
+        infos = await ProjectInfo.filter(
+            project_tiles__tile_id=tile_info.id,
+            state__in=[ProjectState.ACTIVE, ProjectState.PASSIVE],
+        ).prefetch_related("owner")
+
+        projects = []
+        for info in infos:
+            path = get_config().projects_dir / str(info.owner.id) / info.filename
+            projects.append(Project(path, info.rectangle, info))
+        return projects
+
     async def check_next_tile(self) -> None:
         """Check one tile for changes using queue-based selection and update affected projects."""
-        if not self.tiles:
-            return  # No tiles to check
-
         # Select next tile from database via QueueSystem
         tile_info = await self.queue_system.select_next_tile()
         if not tile_info:
@@ -91,15 +73,15 @@ class TileChecker:
         # Persist tile_info updates and handle burning→temperature graduation
         await self.queue_system.update_tile_after_check(tile_info)
 
-        # Diff against affected projects
-        tile = tile_info.tile
+        # Query affected projects from database
+        projects = await self._get_projects_for_tile(tile_info)
         if changed:
-            for proj in self.tiles.get(tile) or ():
-                await proj.run_diff(changed_tile=tile)
+            for proj in projects:
+                await proj.run_diff(changed_tile=tile_info.tile)
         else:
             untouched = tile_info.last_checked - tile_info.last_update
-            logger.debug(f"Tile {tile}: Unchanged for {untouched}s ({naturaldelta(untouched)})")
-            for proj in self.tiles.get(tile) or ():
+            logger.debug(f"Tile {tile_info.tile}: Unchanged for {untouched}s ({naturaldelta(untouched)})")
+            for proj in projects:
                 await proj.run_nochange()
 
     async def has_tile_changed(self, tile_info: TileInfo) -> bool:

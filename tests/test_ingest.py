@@ -1,13 +1,13 @@
 """Tests for tile fetching, caching, and conditional requests."""
 
 import io
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
-from pixel_hawk.geometry import Point, Rectangle, Size, Tile
-from pixel_hawk.ingest import TileChecker, stitch_tiles
-from pixel_hawk.models import TileInfo
+from pixel_hawk.geometry import Tile
+from pixel_hawk.ingest import TileChecker
+from pixel_hawk.models import Person, ProjectInfo, ProjectState, TileInfo, TileProject
 from pixel_hawk.palette import PALETTE
 
 
@@ -54,8 +54,8 @@ async def _create_tile_info(x: int, y: int, *, last_update: int = 0, etag: str =
 
 
 def _checker_with_client(client: MockClient) -> TileChecker:
-    """Create a TileChecker with no projects and inject a mock client."""
-    checker = TileChecker([])
+    """Create a TileChecker and inject a mock client."""
+    checker = TileChecker()
     checker.client = client
     return checker
 
@@ -212,136 +212,130 @@ async def test_has_tile_changed_no_conditional_headers_when_fresh():
     await checker.close()
 
 
-# --- stitch_tiles ---
-
-
-async def test_stitch_tiles_missing_tile_logs_and_skips(setup_config):
-    """Missing cache tiles are skipped with transparent pixels."""
-    # Only create one of two needed tiles
-    png_a = _paletted_png_bytes((1000, 1000), [1] * (1000 * 1000))
-    (setup_config.tiles_dir / "tile-0_0.png").write_bytes(png_a)
-
-    rect = Rectangle.from_point_size(Point(0, 0), Size(2000, 1000))
-    stitched = await stitch_tiles(rect)
-    assert stitched.size == rect.size
-
-
-async def test_stitch_tiles_pastes_cached_tiles(setup_config):
-    png_a = _paletted_png_bytes((1000, 1000), [1] * (1000 * 1000))
-    png_b = _paletted_png_bytes((1000, 1000), [2] * (1000 * 1000))
-    (setup_config.tiles_dir / "tile-0_0.png").write_bytes(png_a)
-    (setup_config.tiles_dir / "tile-1_0.png").write_bytes(png_b)
-
-    rect = Rectangle.from_point_size(Point(0, 0), Size(2000, 1000))
-    stitched = await stitch_tiles(rect)
-    assert stitched.size == rect.size
-    data = stitched.get_flattened_data()
-    assert any(p for p in data)
-
-
 # --- TileChecker ---
 
 
-class MockProject:
-    """Hashable mock Project for TileChecker tests."""
+async def _create_project_with_tile(x: int, y: int, *, state: ProjectState = ProjectState.ACTIVE) -> ProjectInfo:
+    """Create a Person, ProjectInfo, and TileProject linking to a tile at (x, y).
 
-    def __init__(self, rect: Rectangle):
-        self.rect = rect
-        self.run_diff = AsyncMock()
-        self.run_nochange = AsyncMock()
-
-
-async def test_tile_checker_init_indexes_tiles():
-    """TileChecker builds tile→projects index from projects."""
-    rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))  # 1 tile: (0,0)
-    proj = MockProject(rect)
-
-    checker = TileChecker([proj])
-    assert Tile(0, 0) in checker.tiles
-    assert proj in checker.tiles[Tile(0, 0)]
-    await checker.close()
-
-
-async def test_tile_checker_init_multiple_projects_same_tile():
-    """Multiple projects sharing a tile are both indexed."""
-    rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
-    proj1 = MockProject(rect)
-    proj2 = MockProject(rect)
-
-    checker = TileChecker([proj1, proj2])
-    assert len(checker.tiles[Tile(0, 0)]) == 2
-    await checker.close()
+    Also creates the TileInfo if it doesn't exist yet.
+    """
+    person = await Person.create(name=f"tester-{x}-{y}")
+    info = await ProjectInfo.create(
+        owner=person,
+        name=f"project-{x}-{y}",
+        state=state,
+        x=x * 1000,
+        y=y * 1000,
+        width=1000,
+        height=1000,
+        first_seen=1000,
+    )
+    tile_id = TileInfo.tile_id(x, y)
+    tile_info, _ = await TileInfo.get_or_create(
+        id=tile_id,
+        defaults={"x": x, "y": y, "heat": 999, "last_checked": 0, "last_update": 0},
+    )
+    await TileProject.create(tile=tile_info, project=info)
+    return info
 
 
 async def test_check_next_tile_no_tiles():
-    """check_next_tile returns immediately when no tiles are indexed."""
-    checker = TileChecker([])
+    """check_next_tile returns immediately when no tiles in queue."""
+    checker = TileChecker()
     await checker.check_next_tile()  # Should not raise
     await checker.close()
 
 
 async def test_check_next_tile_no_tile_selected():
-    """check_next_tile returns when QueueSystem has no tiles to select."""
-    rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
-    proj = MockProject(rect)
-
-    checker = TileChecker([proj])
+    """check_next_tile logs warning when QueueSystem has no tiles to select."""
+    checker = TileChecker()
     # No TileInfo in DB, so select_next_tile returns None
     await checker.check_next_tile()
-    proj.run_diff.assert_not_called()
-    proj.run_nochange.assert_not_called()
     await checker.close()
 
 
 async def test_check_next_tile_changed_calls_run_diff(setup_config):
     """When tile has changed, run_diff is called on affected projects."""
-    rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
-    proj = MockProject(rect)
+    await _create_project_with_tile(0, 0)
 
-    checker = TileChecker([proj])
-    await _create_tile_info(0, 0)
-
-    # Mock client to return a changed tile
+    checker = TileChecker()
     png = _paletted_png_bytes()
     checker.client = MockClient(
         httpx.Response(200, content=png, headers={"Last-Modified": "Wed, 15 Nov 2023 12:45:26 GMT"})
     )
 
-    await checker.check_next_tile()
-    proj.run_diff.assert_called_once()
-    proj.run_nochange.assert_not_called()
+    mock_run_diff = AsyncMock()
+    with patch("pixel_hawk.projects.Project.run_diff", mock_run_diff):
+        await checker.check_next_tile()
+
+    mock_run_diff.assert_called_once_with(changed_tile=Tile(0, 0))
     await checker.close()
 
 
 async def test_check_next_tile_unchanged_calls_run_nochange(setup_config):
     """When tile is unchanged (304), run_nochange is called on affected projects."""
-    rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
-    proj = MockProject(rect)
+    await _create_project_with_tile(0, 0)
+    # Move tile out of burning queue so it's selectable as a temp tile
+    tile_info = await TileInfo.get(id=TileInfo.tile_id(0, 0))
+    tile_info.last_update = 1700052326
+    tile_info.last_checked = 100
+    tile_info.heat = 1
+    await tile_info.save()
 
-    checker = TileChecker([proj])
-    await _create_tile_info(0, 0, last_update=1700052326, last_checked=100)
-
-    # Initialize queue system from DB so it discovers the temp queue
+    checker = TileChecker()
     await checker.start()
-
-    # Mock client to return 304
     checker.client = MockClient(httpx.Response(304))
 
-    # Burning queue is empty; select_next_tile skips it and finds temp queue 1
-    await checker.check_next_tile()
-    proj.run_nochange.assert_called_once()
-    proj.run_diff.assert_not_called()
+    mock_run_nochange = AsyncMock()
+    with patch("pixel_hawk.projects.Project.run_nochange", mock_run_nochange):
+        await checker.check_next_tile()
+
+    mock_run_nochange.assert_called_once()
+    await checker.close()
+
+
+async def test_check_next_tile_skips_inactive_projects(setup_config):
+    """Inactive projects are not diffed even if linked to a changed tile."""
+    await _create_project_with_tile(0, 0, state=ProjectState.INACTIVE)
+
+    checker = TileChecker()
+    png = _paletted_png_bytes()
+    checker.client = MockClient(
+        httpx.Response(200, content=png, headers={"Last-Modified": "Wed, 15 Nov 2023 12:45:26 GMT"})
+    )
+
+    mock_run_diff = AsyncMock()
+    with patch("pixel_hawk.projects.Project.run_diff", mock_run_diff):
+        await checker.check_next_tile()
+
+    mock_run_diff.assert_not_called()
+    await checker.close()
+
+
+async def test_check_next_tile_includes_passive_projects(setup_config):
+    """Passive projects are diffed when their tile changes."""
+    await _create_project_with_tile(0, 0, state=ProjectState.PASSIVE)
+
+    checker = TileChecker()
+    png = _paletted_png_bytes()
+    checker.client = MockClient(
+        httpx.Response(200, content=png, headers={"Last-Modified": "Wed, 15 Nov 2023 12:45:26 GMT"})
+    )
+
+    mock_run_diff = AsyncMock()
+    with patch("pixel_hawk.projects.Project.run_diff", mock_run_diff):
+        await checker.check_next_tile()
+
+    mock_run_diff.assert_called_once_with(changed_tile=Tile(0, 0))
     await checker.close()
 
 
 async def test_check_next_tile_updates_database(setup_config):
     """check_next_tile updates TileInfo in database after checking."""
-    rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
-    proj = MockProject(rect)
+    await _create_project_with_tile(0, 0)
 
-    checker = TileChecker([proj])
-    await _create_tile_info(0, 0)
-
+    checker = TileChecker()
     png = _paletted_png_bytes()
     checker.client = MockClient(
         httpx.Response(
@@ -354,7 +348,8 @@ async def test_check_next_tile_updates_database(setup_config):
         )
     )
 
-    await checker.check_next_tile()
+    with patch("pixel_hawk.projects.Project.run_diff", AsyncMock()):
+        await checker.check_next_tile()
 
     # Verify TileInfo was updated
     tile_info = await TileInfo.get(id=TileInfo.tile_id(0, 0))
@@ -366,6 +361,6 @@ async def test_check_next_tile_updates_database(setup_config):
 
 async def test_tile_checker_close():
     """close() shuts down the httpx client."""
-    checker = TileChecker([])
+    checker = TileChecker()
     await checker.close()
     assert checker.client.is_closed

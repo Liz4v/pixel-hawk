@@ -1,13 +1,10 @@
 import asyncio
-from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 from pixel_hawk import main as main_mod
-from pixel_hawk.geometry import Point, Rectangle, Size, Tile
-from pixel_hawk.models import Person, ProjectInfo, ProjectState
-from pixel_hawk.palette import PALETTE
+from pixel_hawk.geometry import Point, Rectangle, Size
+from pixel_hawk.models import Person, ProjectInfo
 
 
 @pytest.fixture
@@ -19,185 +16,16 @@ async def test_person():
 # Database-first loading tests
 
 
-async def test_start_loads_from_database(setup_config, test_person, monkeypatch):
-    """Test that Main.start() loads projects from database, not filesystem."""
-    # Create a ProjectInfo record in database
-    rect = Rectangle.from_point_size(Point(0, 0), Size(10, 10))
-    info = await ProjectInfo.from_rect(rect, test_person.id, "test_project", ProjectState.ACTIVE)
-
-    # Create the actual project file
-    person_dir = setup_config.projects_dir / str(test_person.id)
-    person_dir.mkdir(parents=True, exist_ok=True)
-    path = person_dir / info.filename
-    im = PALETTE.new((10, 10))
-    im.putdata([1] * 100)
-    im.save(path)
-
-    async def noop_run_diff(self, changed_tile=None):
-        pass
-
-    from pixel_hawk import projects
-
-    monkeypatch.setattr(projects.Project, "run_diff", noop_run_diff)
-
-    # Start Main - should load from database
-    m = main_mod.Main()
-    await m.start()
-
-    # Verify project was loaded from database
-    assert len(m.projects) == 1
-    assert info.id in m.projects
-    assert m.projects[info.id].info.name == "test_project"
-
-
-async def test_active_passive_loaded(setup_config, test_person, monkeypatch):
-    """Test that active and passive projects are both loaded."""
-    # Create one active and one passive project
-    rect1 = Rectangle.from_point_size(Point(0, 0), Size(10, 10))
-    info1 = await ProjectInfo.from_rect(rect1, test_person.id, "active_project", ProjectState.ACTIVE)
-
-    rect2 = Rectangle.from_point_size(Point(1000, 1000), Size(10, 10))
-    info2 = await ProjectInfo.from_rect(rect2, test_person.id, "passive_project", ProjectState.PASSIVE)
-
-    # Create the actual project files
-    person_dir = setup_config.projects_dir / str(test_person.id)
-    person_dir.mkdir(parents=True, exist_ok=True)
-
-    for info in [info1, info2]:
-        path = person_dir / info.filename
-        im = PALETTE.new((10, 10))
-        im.putdata([1] * 100)
-        im.save(path)
-
-    async def noop_run_diff(self, changed_tile=None):
-        pass
-
-    from pixel_hawk import projects
-
-    monkeypatch.setattr(projects.Project, "run_diff", noop_run_diff)
-
-    # Start Main
-    m = main_mod.Main()
-    await m.start()
-
-    # Both projects should be loaded
-    assert len(m.projects) == 2
-    assert info1.id in m.projects
-    assert info2.id in m.projects
-
-    # Only active project should be in TileChecker
-    active_projects = [p for p in m.projects.values() if p.info.state == ProjectState.ACTIVE]
-    assert len(active_projects) == 1
-
-
-async def test_inactive_not_loaded(setup_config, test_person, monkeypatch):
-    """Test that inactive projects are not loaded."""
-    # Create one active and one inactive project
-    rect1 = Rectangle.from_point_size(Point(0, 0), Size(10, 10))
-    info1 = await ProjectInfo.from_rect(rect1, test_person.id, "active_project", ProjectState.ACTIVE)
-
-    rect2 = Rectangle.from_point_size(Point(1000, 1000), Size(10, 10))
-    info2 = await ProjectInfo.from_rect(rect2, test_person.id, "inactive_project", ProjectState.INACTIVE)
-
-    # Create the actual project files
-    person_dir = setup_config.projects_dir / str(test_person.id)
-    person_dir.mkdir(parents=True, exist_ok=True)
-
-    for info in [info1, info2]:
-        path = person_dir / info.filename
-        im = PALETTE.new((10, 10))
-        im.putdata([1] * 100)
-        im.save(path)
-
-    async def noop_run_diff(self, changed_tile=None):
-        pass
-
-    from pixel_hawk import projects
-
-    monkeypatch.setattr(projects.Project, "run_diff", noop_run_diff)
-
-    # Start Main
-    m = main_mod.Main()
-    await m.start()
-
-    # Only active project should be loaded (inactive excluded)
-    assert len(m.projects) == 1
-    assert info1.id in m.projects
-    assert info2.id not in m.projects
-
-
-async def test_projects_dict_keyed_by_id(setup_config, test_person, monkeypatch):
-    """Test that self.projects uses ProjectInfo.id as key."""
-    rect = Rectangle.from_point_size(Point(0, 0), Size(10, 10))
-    info = await ProjectInfo.from_rect(rect, test_person.id, "test_project")
-
-    # Create the actual project file
-    person_dir = setup_config.projects_dir / str(test_person.id)
-    person_dir.mkdir(parents=True, exist_ok=True)
-    path = person_dir / info.filename
-    im = PALETTE.new((10, 10))
-    im.putdata([1] * 100)
-    im.save(path)
-
-    async def noop_run_diff(self, changed_tile=None):
-        pass
-
-    from pixel_hawk import projects
-
-    monkeypatch.setattr(projects.Project, "run_diff", noop_run_diff)
-
-    # Start Main
-    m = main_mod.Main()
-    await m.start()
-
-    # Verify projects dict is keyed by integer ID, not path
-    assert isinstance(list(m.projects.keys())[0], int)
-    assert info.id in m.projects
-
-
-async def test_load_skips_missing_file(setup_config, test_person, monkeypatch):
-    """Test that Main.start() skips projects with missing files."""
-    # Create ProjectInfo without creating the file
-    rect = Rectangle.from_point_size(Point(0, 0), Size(10, 10))
-    info = await ProjectInfo.from_rect(rect, test_person.id, "missing_project")
-
-    # Don't create the file - it should be missing
-
-    # Start Main
-    m = main_mod.Main()
-    await m.start()
-
-    # Project should not be loaded
-    assert len(m.projects) == 0
-
-
-async def test_watched_tiles_count_updated(setup_config, test_person, monkeypatch):
+async def test_watched_tiles_count_updated(setup_config, test_person):
     """Test that Main.start() updates watched tiles count for persons."""
-    # Create two overlapping projects
+    # Create two overlapping active projects (only DB records needed)
     rect1 = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
-    info1 = await ProjectInfo.from_rect(rect1, test_person.id, "project1")
+    await ProjectInfo.from_rect(rect1, test_person.id, "project1")
 
     rect2 = Rectangle.from_point_size(Point(500, 500), Size(1000, 1000))
-    info2 = await ProjectInfo.from_rect(rect2, test_person.id, "project2")
+    await ProjectInfo.from_rect(rect2, test_person.id, "project2")
 
-    # Create the actual project files
-    person_dir = setup_config.projects_dir / str(test_person.id)
-    person_dir.mkdir(parents=True, exist_ok=True)
-
-    for info in [info1, info2]:
-        path = person_dir / info.filename
-        im = PALETTE.new((10, 10))
-        im.putdata([1] * 100)
-        im.save(path)
-
-    async def noop_run_diff(self, changed_tile=None):
-        pass
-
-    from pixel_hawk import projects
-
-    monkeypatch.setattr(projects.Project, "run_diff", noop_run_diff)
-
-    # Start Main
+    # Start Main (no project files needed - start() only updates person totals)
     m = main_mod.Main()
     await m.start()
 
@@ -210,25 +38,8 @@ async def test_watched_tiles_count_updated(setup_config, test_person, monkeypatc
 # Poll cycle tests
 
 
-async def test_poll_once_checks_tiles(setup_config, test_person, monkeypatch):
+async def test_poll_once_checks_tiles(setup_config):
     """Test that poll_once() checks tiles via TileChecker."""
-    rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
-    info = await ProjectInfo.from_rect(rect, test_person.id, "test_project")
-
-    person_dir = setup_config.projects_dir / str(test_person.id)
-    person_dir.mkdir(parents=True, exist_ok=True)
-    path = person_dir / info.filename
-    im = PALETTE.new((10, 10))
-    im.putdata([1] * 100)
-    im.save(path)
-
-    async def noop_run_diff(self, changed_tile=None):
-        pass
-
-    from pixel_hawk import projects
-
-    monkeypatch.setattr(projects.Project, "run_diff", noop_run_diff)
-
     m = main_mod.Main()
     await m.start()
 

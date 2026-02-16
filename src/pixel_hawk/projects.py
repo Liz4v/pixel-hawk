@@ -25,7 +25,6 @@ from loguru import logger
 from . import metadata
 from .config import get_config
 from .geometry import Rectangle, Size, Tile
-from .ingest import stitch_tiles
 from .models import DiffStatus, ProjectInfo
 from .palette import PALETTE, AsyncImage, ColorsNotInPalette
 
@@ -208,3 +207,18 @@ def get_flattened_data(image: Image.Image) -> bytes:
     target_flattened = image.get_flattened_data()
     assert target_flattened is not None, "Image must have data"
     return bytes(target_flattened)  # type: ignore[arg-type]
+
+
+async def stitch_tiles(rect: Rectangle) -> Image.Image:
+    """Stitches tiles from cache together, exactly covering the given rectangle."""
+    image = PALETTE.new(rect.size)
+    base_path = get_config().tiles_dir
+    for tile in rect.tiles:
+        cache_path = base_path / f"tile-{tile}.png"
+        if not cache_path.exists():
+            logger.debug(f"{tile}: Tile missing from cache, leaving transparent")
+            continue
+        async with PALETTE.aopen_file(cache_path) as tile_image:
+            offset = tile.to_point() - rect.point
+            image.paste(tile_image, Rectangle.from_point_size(offset, Size(1000, 1000)))
+    return image

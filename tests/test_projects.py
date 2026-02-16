@@ -1,3 +1,4 @@
+import io
 import os
 
 import pytest
@@ -5,7 +6,7 @@ from PIL import Image
 
 from pixel_hawk import projects
 from pixel_hawk.geometry import Point, Rectangle, Size, Tile
-from pixel_hawk.models import HistoryChange, Person, ProjectInfo, ProjectState
+from pixel_hawk.models import HistoryChange, Person, ProjectInfo
 from pixel_hawk.palette import PALETTE, AsyncImage
 
 
@@ -726,3 +727,36 @@ async def test_run_diff_sets_has_missing_tiles(tmp_path, monkeypatch, setup_conf
 
     await proj.run_diff()
     assert proj.info.has_missing_tiles is False
+
+
+# --- stitch_tiles ---
+def _paletted_png_bytes(size=(1, 1), data=(0,)):
+    im = PALETTE.new(size)
+    im.putdata(list(data))
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+async def test_stitch_tiles_missing_tile_logs_and_skips(setup_config):
+    """Missing cache tiles are skipped with transparent pixels."""
+    # Only create one of two needed tiles
+    png_a = _paletted_png_bytes((1000, 1000), [1] * (1000 * 1000))
+    (setup_config.tiles_dir / "tile-0_0.png").write_bytes(png_a)
+
+    rect = Rectangle.from_point_size(Point(0, 0), Size(2000, 1000))
+    stitched = await projects.stitch_tiles(rect)
+    assert stitched.size == rect.size
+
+
+async def test_stitch_tiles_pastes_cached_tiles(setup_config):
+    png_a = _paletted_png_bytes((1000, 1000), [1] * (1000 * 1000))
+    png_b = _paletted_png_bytes((1000, 1000), [2] * (1000 * 1000))
+    (setup_config.tiles_dir / "tile-0_0.png").write_bytes(png_a)
+    (setup_config.tiles_dir / "tile-1_0.png").write_bytes(png_b)
+
+    rect = Rectangle.from_point_size(Point(0, 0), Size(2000, 1000))
+    stitched = await projects.stitch_tiles(rect)
+    assert stitched.size == rect.size
+    data = stitched.get_flattened_data()
+    assert any(p for p in data)
