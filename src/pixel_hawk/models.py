@@ -10,7 +10,7 @@ TileProject: Junction table for many-to-many tile-project relationships.
 """
 
 import time
-from enum import StrEnum, auto
+from enum import IntEnum
 
 from tortoise import fields
 from tortoise.models import Model
@@ -18,20 +18,20 @@ from tortoise.models import Model
 from .geometry import Point, Rectangle, Size, Tile
 
 
-class DiffStatus(StrEnum):
+class DiffStatus(IntEnum):
     """Status of a project diff operation."""
 
-    NOT_STARTED = auto()
-    IN_PROGRESS = auto()
-    COMPLETE = auto()
+    NOT_STARTED = 0
+    IN_PROGRESS = 10
+    COMPLETE = 20
 
 
-class ProjectState(StrEnum):
+class ProjectState(IntEnum):
     """State of a project for quota and monitoring purposes."""
 
-    ACTIVE = "active"  # Watched, counts towards quota
-    PASSIVE = "passive"  # Checked if tile updates, doesn't count towards quota
-    INACTIVE = "inactive"  # Not checked, doesn't count towards quota
+    ACTIVE = 0  # Watched, counts towards quota
+    PASSIVE = 10  # Checked if tile updates, doesn't count towards quota
+    INACTIVE = 20  # Not checked, doesn't count towards quota
 
 
 class Person(Model):
@@ -77,7 +77,7 @@ class ProjectInfo(Model):
     name = fields.CharField(max_length=255, index=True)
 
     # Project state for quota control
-    state = fields.CharEnumField(ProjectState, default=ProjectState.ACTIVE, index=True)
+    state = fields.IntEnumField(ProjectState, default=ProjectState.ACTIVE, index=True)
 
     # Project bounds
     x = fields.IntField(default=0)
@@ -169,7 +169,7 @@ class HistoryChange(Model):
     timestamp = fields.IntField()
 
     # Status of this diff
-    status = fields.CharEnumField(DiffStatus)
+    status = fields.IntEnumField(DiffStatus)
 
     # Pixel counts at time of diff
     num_remaining = fields.IntField(default=0)

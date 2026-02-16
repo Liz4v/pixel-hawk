@@ -3,7 +3,7 @@
 import pytest
 
 from pixel_hawk.geometry import Point, Rectangle, Size
-from pixel_hawk.models import HistoryChange, Person, ProjectInfo, ProjectState
+from pixel_hawk.models import DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState
 from pixel_hawk.palette import PALETTE
 
 
@@ -94,7 +94,7 @@ async def test_history_change_fk_with_multiuser(person1, person2):
     change1 = await HistoryChange.create(
         project=info1,
         timestamp=1000,
-        status="complete",
+        status=DiffStatus.COMPLETE,
         num_remaining=0,
         num_target=100,
         completion_percent=100.0,
@@ -102,7 +102,7 @@ async def test_history_change_fk_with_multiuser(person1, person2):
     change2 = await HistoryChange.create(
         project=info2,
         timestamp=2000,
-        status="in_progress",
+        status=DiffStatus.IN_PROGRESS,
         num_remaining=50,
         num_target=100,
         completion_percent=50.0,

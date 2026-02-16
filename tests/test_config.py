@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 import pixel_hawk.config
 from pixel_hawk.config import Config, get_config, load_config
 
@@ -16,7 +15,6 @@ class TestConfig:
 
         assert config.projects_dir == tmp_path / "projects"
         assert config.snapshots_dir == tmp_path / "snapshots"
-        assert config.metadata_dir == tmp_path / "metadata"
         assert config.tiles_dir == tmp_path / "tiles"
         assert config.logs_dir == tmp_path / "logs"
         assert config.data_dir == tmp_path / "data"

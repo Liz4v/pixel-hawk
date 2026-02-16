@@ -21,13 +21,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from loguru import logger
-from ruamel.yaml import YAML
 
 from . import metadata
 from .config import get_config
 from .geometry import Rectangle, Size, Tile
 from .ingest import stitch_tiles
-from .models import DiffStatus, ProjectInfo, ProjectState
+from .models import DiffStatus, ProjectInfo
 from .palette import PALETTE, AsyncImage, ColorsNotInPalette
 
 if TYPE_CHECKING:
@@ -203,82 +202,6 @@ class Project:
             if not tile_path.exists():
                 return True
         return False
-
-
-async def _load_or_migrate_info(rect: Rectangle, owner_id: int, name: str) -> ProjectInfo:
-    """Load ProjectInfo from DB, migrate from YAML if needed, or create new."""
-    existing = await ProjectInfo.filter(owner_id=owner_id, name=name).first()
-    if existing:
-        return existing
-
-    # Check for legacy YAML metadata file (only for owner_id=1, Kiva)
-    if owner_id == 1:
-        yaml_path = get_config().metadata_dir / f"{name}.metadata.yaml"
-        if yaml_path.exists():
-            try:
-                info = await _migrate_from_yaml(yaml_path, owner_id, name)
-                logger.info(f"{name}: Migrated metadata from YAML to SQLite")
-                return info
-            except Exception as e:
-                logger.warning(f"{name}: Failed to migrate YAML metadata: {e}. Creating new.")
-
-    return await ProjectInfo.from_rect(rect, owner_id, name)
-
-
-async def _migrate_from_yaml(yaml_path: Path, owner_id: int, name: str) -> ProjectInfo:
-    """Read legacy YAML metadata and create a ProjectInfo record in the database."""
-    yaml_reader = YAML(typ="safe")
-
-    def _read():
-        with open(yaml_path, "r", encoding="utf-8") as f:
-            return yaml_reader.load(f)
-
-    data = await asyncio.to_thread(_read)
-
-    bounds = data.get("bounds", {})
-    timestamps = data.get("timestamps", {})
-    max_comp = data.get("max_completion", {})
-    totals = data.get("totals", {})
-    largest_reg = data.get("largest_regress", {})
-    rate = data.get("recent_rate", {})
-    tile_updates = data.get("tile_updates", {})
-    cache_state = data.get("cache_state", {})
-
-    # Convert tile_updates_24h from YAML format [{tile, timestamp}, ...] to list format [[tile, ts], ...]
-    raw_24h = tile_updates.get("recent_24h", [])
-    tile_updates_24h = [[item["tile"], item["timestamp"]] for item in raw_24h]
-
-    info = await ProjectInfo.create(
-        owner_id=owner_id,
-        name=name,
-        state=ProjectState.ACTIVE,  # Legacy projects default to active
-        x=bounds.get("x", 0),
-        y=bounds.get("y", 0),
-        width=bounds.get("width", 0),
-        height=bounds.get("height", 0),
-        first_seen=timestamps.get("first_seen", 0),
-        last_check=timestamps.get("last_check", 0),
-        last_snapshot=timestamps.get("last_snapshot", 0),
-        max_completion_pixels=max_comp.get("pixels_remaining", 0),
-        max_completion_percent=max_comp.get("percent_complete", 0.0),
-        max_completion_time=max_comp.get("achieved_at", 0),
-        total_progress=totals.get("progress_pixels", 0),
-        total_regress=totals.get("regress_pixels", 0),
-        largest_regress_pixels=largest_reg.get("pixels", 0),
-        largest_regress_time=largest_reg.get("timestamp", 0),
-        recent_rate_pixels_per_hour=rate.get("pixels_per_hour", 0.0),
-        recent_rate_window_start=rate.get("window_start", 0),
-        tile_last_update=tile_updates.get("last_update_by_tile", {}),
-        tile_updates_24h=tile_updates_24h,
-        has_missing_tiles=cache_state.get("has_missing_tiles", True),
-        last_log_message=data.get("last_log_message", ""),
-    )
-
-    # Rename YAML file to prevent re-processing
-    migrated_path = yaml_path.with_suffix(".yaml.migrated")
-    await asyncio.to_thread(yaml_path.rename, migrated_path)
-
-    return info
 
 
 def get_flattened_data(image: Image.Image) -> bytes:

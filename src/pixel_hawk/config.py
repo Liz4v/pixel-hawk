@@ -34,11 +34,6 @@ class Config:
         return self.home / "snapshots"
 
     @property
-    def metadata_dir(self) -> Path:
-        """Directory for legacy YAML metadata files (used during migration to SQLite)."""
-        return self.home / "metadata"
-
-    @property
     def tiles_dir(self) -> Path:
         """Directory for downloaded tile cache."""
         return self.home / "tiles"
@@ -98,7 +93,6 @@ def load_config(args: list[str] | None = None) -> Config:
     # Initialize all subdirectories
     cfg.projects_dir.mkdir(parents=True, exist_ok=True)
     cfg.snapshots_dir.mkdir(parents=True, exist_ok=True)
-    cfg.metadata_dir.mkdir(parents=True, exist_ok=True)
     cfg.tiles_dir.mkdir(parents=True, exist_ok=True)
     cfg.rejected_dir.mkdir(parents=True, exist_ok=True)
     cfg.logs_dir.mkdir(parents=True, exist_ok=True)

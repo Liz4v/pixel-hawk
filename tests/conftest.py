@@ -18,7 +18,6 @@ def setup_config(tmp_path, monkeypatch):
     # Create all subdirectories for tests
     config.projects_dir.mkdir(parents=True, exist_ok=True)
     config.snapshots_dir.mkdir(parents=True, exist_ok=True)
-    config.metadata_dir.mkdir(parents=True, exist_ok=True)
     config.tiles_dir.mkdir(parents=True, exist_ok=True)
     config.rejected_dir.mkdir(parents=True, exist_ok=True)
     config.logs_dir.mkdir(parents=True, exist_ok=True)
