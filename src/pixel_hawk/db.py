@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 from loguru import logger
 from tortoise import Tortoise
+from tortoise.exceptions import OperationalError
 
 from .config import get_config
 
@@ -46,10 +47,24 @@ async def database(db_path: str | None = None):
     """
     await Tortoise.init(config=tortoise_config(db_path))
     await Tortoise.generate_schemas(safe=True)
+    await _assert_db_writable()
     try:
         yield
     finally:
         await Tortoise.close_connections()
+
+
+async def _assert_db_writable() -> None:
+    """Write to the database to verify we own the SQLite lock.
+
+    Raises OperationalError ("database is locked") if another process holds it.
+    """
+    conn = Tortoise.get_connection("default")
+    try:
+        await conn.execute_query("PRAGMA user_version = 1")
+    except OperationalError:
+        logger.critical("Cannot acquire database write lock — is another pixel-hawk instance running?")
+        raise
 
 
 async def build_tile_project_relationships(projects: list) -> None:
