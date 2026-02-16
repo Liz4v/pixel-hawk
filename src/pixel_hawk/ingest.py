@@ -85,15 +85,14 @@ class TileChecker:
             logger.warning("No next tile returned by the queue system. No active projects?")
             return
 
-        tile = Tile(x=tile_info.tile_x, y=tile_info.tile_y)
-
-        # Check tile (mutates tile_info fields: last_checked, last_update, http_etag)
+        # Check tile (mutates tile_info fields: last_checked, last_update, etag)
         changed = await self.has_tile_changed(tile_info)
 
         # Persist tile_info updates and handle burning→temperature graduation
         await self.queue_system.update_tile_after_check(tile_info)
 
         # Diff against affected projects
+        tile = tile_info.tile
         if changed:
             for proj in self.tiles.get(tile) or ():
                 await proj.run_diff(changed_tile=tile)
@@ -107,7 +106,7 @@ class TileChecker:
         """Downloads the indicated tile from the server and updates the cache.
 
         Mutates tile_info fields directly: last_checked is always updated,
-        last_update and http_etag are updated on successful 200 responses.
+        last_update and etag are updated on successful 200 responses.
 
         Args:
             tile_info: TileInfo to check and update in place
@@ -115,7 +114,7 @@ class TileChecker:
         Returns:
             True if tile was modified, False if 304 Not Modified or error.
         """
-        tile = Tile(tile_info.tile_x, tile_info.tile_y)
+        tile = tile_info.tile
         url = f"https://backend.wplace.live/files/s0/tiles/{tile.x}/{tile.y}.png"
         cache_path = get_config().tiles_dir / f"tile-{tile}.png"
 
@@ -123,8 +122,8 @@ class TileChecker:
         request_headers = {}
         if tile_info.last_update > 0:
             request_headers["If-Modified-Since"] = formatdate(tile_info.last_update, usegmt=True)
-        if tile_info.http_etag:
-            request_headers["If-None-Match"] = tile_info.http_etag
+        if tile_info.etag:
+            request_headers["If-None-Match"] = tile_info.etag
 
         tile_info.last_checked = now = round(time.time())
         try:
@@ -141,7 +140,7 @@ class TileChecker:
             return False
 
         # Save response headers
-        tile_info.http_etag = response.headers.get("ETag", "")
+        tile_info.etag = response.headers.get("ETag", "")
         last_modified_str = response.headers.get("Last-Modified", "")
         if last_modified_str:
             try:

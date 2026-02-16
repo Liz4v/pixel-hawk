@@ -48,11 +48,11 @@ async def test_same_owner_duplicate_name_fails(person1):
     rect2 = Rectangle.from_point_size(Point(1000, 1000), Size(100, 100))
 
     # Create first project
-    info1 = await ProjectInfo.from_rect(rect1, person1.id, "duplicate_name")
+    await ProjectInfo.from_rect(rect1, person1.id, "duplicate_name")
 
     # Try to create second project with same name and owner
     try:
-        info2 = await ProjectInfo.from_rect(rect2, person1.id, "duplicate_name")
+        await ProjectInfo.from_rect(rect2, person1.id, "duplicate_name")
         # If we got here, the unique constraint didn't work
         assert False, "Expected unique constraint violation"
     except Exception as e:
@@ -127,17 +127,18 @@ async def test_watched_tiles_tracking(person1):
     rect1 = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
     rect2 = Rectangle.from_point_size(Point(1000, 0), Size(1000, 1000))
 
-    info1 = await ProjectInfo.from_rect(rect1, person1.id, "project1")
-    info2 = await ProjectInfo.from_rect(rect2, person1.id, "project2")
+    await ProjectInfo.from_rect(rect1, person1.id, "project1")
+    await ProjectInfo.from_rect(rect2, person1.id, "project2")
 
     # Update watched tiles count
-    await person1.update_watched_tiles_count()
+    await person1.update_totals()
 
     # Reload from DB
     person = await Person.get(id=person1.id)
 
     # Both projects cover 1 tile each = 2 tiles total
     assert person.watched_tiles_count == 2
+    assert person.active_projects_count == 2
 
 
 async def test_watched_tiles_overlapping_counted_once(person1):
@@ -146,21 +147,21 @@ async def test_watched_tiles_overlapping_counted_once(person1):
     rect1 = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
     rect2 = Rectangle.from_point_size(Point(500, 500), Size(1000, 1000))
 
-    info1 = await ProjectInfo.from_rect(rect1, person1.id, "project1")
-    info2 = await ProjectInfo.from_rect(rect2, person1.id, "project2")
+    await ProjectInfo.from_rect(rect1, person1.id, "project1")
+    await ProjectInfo.from_rect(rect2, person1.id, "project2")
 
     # Update watched tiles count
-    await person1.update_watched_tiles_count()
-
-    # Calculate expected tile count
-    tiles = await person1.calculate_watched_tiles()
+    await person1.update_totals()
 
     # Reload from DB
     person = await Person.get(id=person1.id)
 
     # Overlapping tiles should be counted only once
-    assert person.watched_tiles_count == len(tiles)
     assert person.watched_tiles_count > 0
+    # rect1 covers tile (0,0); rect2 spans (500,500)-(1500,1500) covering 4 tiles
+    # Union = 4 unique tiles, with tile (0,0) shared (deduplicated)
+    assert person.watched_tiles_count == 4
+    assert person.active_projects_count == 2
 
 
 async def test_state_affects_tile_count(person1):
@@ -173,16 +174,18 @@ async def test_state_affects_tile_count(person1):
     info2 = await ProjectInfo.from_rect(rect2, person1.id, "project2", ProjectState.ACTIVE)
 
     # Update tile count (both active)
-    await person1.update_watched_tiles_count()
+    await person1.update_totals()
     assert person1.watched_tiles_count == 2  # Both projects counted
+    assert person1.active_projects_count == 2  # Both projects counted
 
     # Change one to passive
     info2.state = ProjectState.PASSIVE
     await info2.save()
 
     # Update tile count (only active counted)
-    await person1.update_watched_tiles_count()
+    await person1.update_totals()
     assert person1.watched_tiles_count == 1  # Only project1 counted
+    assert person1.active_projects_count == 1  # Only project1 counted
 
     # Change both to inactive
     info1.state = ProjectState.INACTIVE
@@ -191,26 +194,27 @@ async def test_state_affects_tile_count(person1):
     await info2.save()
 
     # Update tile count (none counted)
-    await person1.update_watched_tiles_count()
+    await person1.update_totals()
     assert person1.watched_tiles_count == 0  # No projects counted
 
 
-async def test_only_active_projects_in_calculate_tiles(person1):
-    """Test that calculate_watched_tiles only includes active projects."""
+async def test_only_active_projects_in_update_totals(person1):
+    """Test that update_totals only includes active projects."""
     # Create projects in different states
     rect1 = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
     rect2 = Rectangle.from_point_size(Point(1000, 0), Size(1000, 1000))
     rect3 = Rectangle.from_point_size(Point(2000, 0), Size(1000, 1000))
 
-    info1 = await ProjectInfo.from_rect(rect1, person1.id, "active", ProjectState.ACTIVE)
-    info2 = await ProjectInfo.from_rect(rect2, person1.id, "passive", ProjectState.PASSIVE)
-    info3 = await ProjectInfo.from_rect(rect3, person1.id, "inactive", ProjectState.INACTIVE)
+    await ProjectInfo.from_rect(rect1, person1.id, "active", ProjectState.ACTIVE)
+    await ProjectInfo.from_rect(rect2, person1.id, "passive", ProjectState.PASSIVE)
+    await ProjectInfo.from_rect(rect3, person1.id, "inactive", ProjectState.INACTIVE)
 
-    # Calculate watched tiles
-    tiles = await person1.calculate_watched_tiles()
+    # Update totals
+    await person1.update_totals()
 
     # Only active project's tile should be counted
-    assert len(tiles) == 1
+    assert person1.watched_tiles_count == 1
+    assert person1.active_projects_count == 1
 
 
 # ProjectInfo state tests
@@ -254,18 +258,18 @@ async def test_multiple_owners_different_tiles(person1, person2):
     # Person 1 watches tiles 0,0 and 1,0
     rect1a = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
     rect1b = Rectangle.from_point_size(Point(1000, 0), Size(1000, 1000))
-    info1a = await ProjectInfo.from_rect(rect1a, person1.id, "project1a")
-    info1b = await ProjectInfo.from_rect(rect1b, person1.id, "project1b")
+    await ProjectInfo.from_rect(rect1a, person1.id, "project1a")
+    await ProjectInfo.from_rect(rect1b, person1.id, "project1b")
 
     # Person 2 watches tiles 2,0 and 3,0
     rect2a = Rectangle.from_point_size(Point(2000, 0), Size(1000, 1000))
     rect2b = Rectangle.from_point_size(Point(3000, 0), Size(1000, 1000))
-    info2a = await ProjectInfo.from_rect(rect2a, person2.id, "project2a")
-    info2b = await ProjectInfo.from_rect(rect2b, person2.id, "project2b")
+    await ProjectInfo.from_rect(rect2a, person2.id, "project2a")
+    await ProjectInfo.from_rect(rect2b, person2.id, "project2b")
 
     # Update tile counts
-    await person1.update_watched_tiles_count()
-    await person2.update_watched_tiles_count()
+    await person1.update_totals()
+    await person2.update_totals()
 
     # Each person should watch 2 tiles
     person1_reloaded = await Person.get(id=person1.id)
@@ -274,10 +278,6 @@ async def test_multiple_owners_different_tiles(person1, person2):
     assert person1_reloaded.watched_tiles_count == 2
     assert person2_reloaded.watched_tiles_count == 2
 
-    # Verify they're watching different tiles
-    tiles1 = await person1.calculate_watched_tiles()
-    tiles2 = await person2.calculate_watched_tiles()
-
-    assert len(tiles1) == 2
-    assert len(tiles2) == 2
-    assert tiles1.isdisjoint(tiles2)  # No overlap
+    # Verify they're watching different tiles (non-overlapping rects)
+    assert person1_reloaded.watched_tiles_count == 2
+    assert person2_reloaded.watched_tiles_count == 2

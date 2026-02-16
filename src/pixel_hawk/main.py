@@ -67,11 +67,9 @@ class Main:
         """Update watched tiles count for all persons."""
         persons = await Person.all()
         for person in persons:
-            await person.update_watched_tiles_count()
-            active_count = await person.projects.filter(state=ProjectState.ACTIVE).count()
-            logger.info(
-                f"{person.name}: Watching {person.watched_tiles_count} tiles across {active_count} active projects"
-            )
+            await person.update_totals()
+            tiles, projects = person.watched_tiles_count, person.active_projects_count
+            logger.info(f"{person.name}: Watching {tiles} tiles across {projects} active projects")
 
     async def poll_once(self) -> None:
         """Run a cycle of the main polling loop."""

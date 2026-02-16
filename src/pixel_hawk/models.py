@@ -40,26 +40,23 @@ class Person(Model):
     id = fields.IntField(primary_key=True)
     name = fields.CharField(max_length=255, unique=True)
 
-    # Cached count of unique watched tiles (updated when projects change)
-    # Only counts tiles from 'active' state projects
+    # Calculated properties
     watched_tiles_count = fields.IntField(default=0)
+    active_projects_count = fields.IntField(default=0)
 
     # Reverse relation (defined by ProjectInfo.owner FK with related_name="projects")
-    projects: fields.ReverseRelation["ProjectInfo"]
+    projects: fields.ReverseRelation[ProjectInfo]
 
-    async def calculate_watched_tiles(self) -> set[Tile]:
-        """Calculate unique tiles across all ACTIVE projects for this person."""
+    async def update_totals(self) -> None:
+        """Recalculate and save watched tiles and active projects count."""
         tiles = set()
+        self.active_projects_count = 0
         # Only count active projects towards quota
         projects = await self.projects.filter(state=ProjectState.ACTIVE).all()
         for project in projects:
+            self.active_projects_count += 1
             rect = project.rectangle
             tiles.update(rect.tiles)  # rect.tiles is a cached property (frozenset[Tile])
-        return tiles
-
-    async def update_watched_tiles_count(self) -> None:
-        """Recalculate and save watched tiles count."""
-        tiles = await self.calculate_watched_tiles()
         self.watched_tiles_count = len(tiles)
         await self.save()
 
@@ -120,6 +117,9 @@ class ProjectInfo(Model):
     # Last log message
     last_log_message = fields.TextField(default="")
 
+    # Incoming foreign keys
+    tiles: fields.ReverseRelation[TileProject]
+
     @property
     def rectangle(self) -> Rectangle:
         return Rectangle.from_point_size(Point(self.x, self.y), Size(self.width, self.height))
@@ -157,7 +157,7 @@ class ProjectInfo(Model):
         return await cls.from_rect(rect, owner_id, name)
 
     class Meta(Model.Meta):
-        table = "project_info"
+        table = "project"
         unique_together = (("owner_id", "name"),)  # Prevent duplicate names per person
 
 
@@ -192,31 +192,35 @@ class TileInfo(Model):
     id = fields.IntField(primary_key=True, generated=False)
 
     # Tile coordinates
-    tile_x = fields.IntField()
-    tile_y = fields.IntField()
+    x = fields.IntField()
+    y = fields.IntField()
 
     # Queue assignment (999 = burning queue, 1-998 = temperature index, 0 = not in any queue)
-    queue_temperature = fields.IntField(default=999)
+    heat = fields.IntField(default=999)
 
     # Timing metadata (IntField for integer epoch seconds, following project convention)
     last_checked = fields.IntField(default=0)  # When we last fetched this tile (0 = never checked)
     last_update = fields.IntField()  # Parsed from Last-Modified header, or current time if not provided
 
     # HTTP caching header (for conditional requests)
-    http_etag = fields.CharField(max_length=255, default="")  # Raw ETag header
+    etag = fields.CharField(max_length=255, default="")  # Raw ETag header
 
     # Reverse relation (defined by TileProject.tile FK with related_name="tile_projects")
-    tile_projects: fields.ReverseRelation["TileProject"]
+    projects: fields.ReverseRelation[TileProject]
 
     @staticmethod
     def tile_id(x: int, y: int) -> int:
         """Compute primary key from tile coordinates."""
         return x * 10000 + y
 
+    @property
+    def tile(self) -> Tile:
+        return Tile(self.x, self.y)
+
     class Meta(Model.Meta):
-        table = "tile_info"
+        table = "tile"
         indexes = [
-            ("queue_temperature", "last_checked"),  # Composite index for LRU selection within queues
+            ("heat", "last_checked"),  # Composite index for LRU selection within queues
         ]
 
 
