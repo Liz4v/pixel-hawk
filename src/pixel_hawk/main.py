@@ -25,6 +25,39 @@ class Main:
     def __init__(self):
         """Initialize the main application (sync setup only). Call start() to load projects."""
         self.tile_checker = TileChecker()
+        cfg = get_config()
+        # Set up logging
+        log_file = cfg.logs_dir / "pixel-hawk.log"
+        log_fmt = "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
+        logger.add(log_file, rotation="10 MB", retention="7 days", level="DEBUG", format=log_fmt)
+        logger.info("============================================================================================")
+        logger.info("pixel-hawk - WPlace paint project change tracker")
+        logger.debug(f"nest: {cfg.home}")
+        logger.debug(f"Logging to file: {log_file}")
+
+    async def main(self):
+        """Async entry point for pixel-hawk."""
+        # Initialize database and run main loop
+        async with database():
+            await self.start()
+            consecutive_errors = 0
+            logger.info(f"Starting polling loop ({POLLING_CYCLE_SECONDS:.1f}s cycle, 60φ = 30(1+√5))...")
+            while True:
+                try:
+                    await self.poll_once()
+                    consecutive_errors = 0  # Reset on success
+                except Exception as e:
+                    consecutive_errors += 1
+                    logger.error(f"Error during polling cycle: {e} (consecutive errors: {consecutive_errors})")
+                    if consecutive_errors >= 3:
+                        logger.critical("Three consecutive errors encountered. Exiting.")
+                        raise
+                logger.debug(f"Cycle complete, sleeping for {POLLING_CYCLE_SECONDS:.1f} seconds...")
+                try:
+                    await asyncio.sleep(POLLING_CYCLE_SECONDS)
+                except (KeyboardInterrupt, asyncio.CancelledError):
+                    logger.info("Exiting due to user interrupt.")
+                    return
 
     async def start(self) -> None:
         """Initialize tile checker and refresh calculated counts."""
@@ -43,46 +76,9 @@ class Main:
         await self.tile_checker.check_next_tile()
 
 
-async def _async_main():
-    """Async entry point for pixel-hawk."""
-    # Set up logging
-    cfg = get_config()
-    log_file = cfg.logs_dir / "pixel-hawk.log"
-    log_fmt = "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
-    logger.add(log_file, rotation="10 MB", retention="7 days", level="DEBUG", format=log_fmt)
-    logger.info("============================================================================================")
-    logger.info("pixel-hawk - WPlace paint project change tracker")
-    logger.debug(f"nest: {cfg.home}")
-    logger.debug(f"Logging to file: {log_file}")
-    logger.info(f"Place project PNG files in: {cfg.projects_dir}")
-    # Initialize database and run main loop
-    async with database():
-        # set up main loop
-        worker = Main()
-        await worker.start()
-        consecutive_errors = 0
-        logger.info(f"Starting polling loop ({POLLING_CYCLE_SECONDS:.1f}s cycle, 60φ = 30(1+√5))...")
-        while True:
-            try:
-                await worker.poll_once()
-                consecutive_errors = 0  # Reset on success
-            except Exception as e:
-                consecutive_errors += 1
-                logger.error(f"Error during polling cycle: {e} (consecutive errors: {consecutive_errors})")
-                if consecutive_errors >= 3:
-                    logger.critical("Three consecutive errors encountered. Exiting.")
-                    raise
-            logger.debug(f"Cycle complete, sleeping for {POLLING_CYCLE_SECONDS:.1f} seconds...")
-            try:
-                await asyncio.sleep(POLLING_CYCLE_SECONDS)
-            except (KeyboardInterrupt, asyncio.CancelledError):
-                logger.info("Exiting due to user interrupt.")
-                return
-
-
 def main():
     """Main entry point for pixel-hawk."""
-    asyncio.run(_async_main())
+    asyncio.run(Main().main())
 
 
 if __name__ == "__main__":

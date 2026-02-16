@@ -63,13 +63,11 @@ async def test_poll_once_checks_tiles(setup_config):
 # Main loop error handling tests
 
 
-async def test_main_handles_consecutive_errors(monkeypatch):
-    """Test that _async_main() exits after three consecutive errors."""
+async def test_main_handles_consecutive_errors(setup_config, monkeypatch):
+    """Test that Main.main() exits after three consecutive errors."""
     error_count = {"count": 0}
 
-    original_main_class = main_mod.Main
-
-    class FakeMain(original_main_class):
+    class FakeMain(main_mod.Main):
         async def start(self):
             pass  # Skip actual startup
 
@@ -77,27 +75,24 @@ async def test_main_handles_consecutive_errors(monkeypatch):
             error_count["count"] += 1
             raise RuntimeError("Test error")
 
-    monkeypatch.setattr(main_mod, "Main", FakeMain)
     # Don't actually sleep
     _real_sleep = asyncio.sleep
     monkeypatch.setattr(asyncio, "sleep", lambda s: _real_sleep(0))
 
-    # _async_main() should raise after 3 consecutive errors
+    # Main.main() should raise after 3 consecutive errors
     try:
-        await main_mod._async_main()
-        assert False, "Expected _async_main() to raise after 3 consecutive errors"
+        await FakeMain().main()
+        assert False, "Expected Main.main() to raise after 3 consecutive errors"
     except RuntimeError:
         # Expected - should have failed after 3 errors
         assert error_count["count"] == 3
 
 
-async def test_main_resets_error_count_on_success(monkeypatch):
-    """Test that _async_main() resets consecutive error count after a successful cycle."""
+async def test_main_resets_error_count_on_success(setup_config, monkeypatch):
+    """Test that Main.main() resets consecutive error count after a successful cycle."""
     cycle_count = {"count": 0}
 
-    original_main_class = main_mod.Main
-
-    class FakeMain(original_main_class):
+    class FakeMain(main_mod.Main):
         async def start(self):
             pass  # Skip actual startup
 
@@ -108,8 +103,6 @@ async def test_main_resets_error_count_on_success(monkeypatch):
                 raise RuntimeError("Test error")
             # On cycles 3 and 6, succeed
 
-    monkeypatch.setattr(main_mod, "Main", FakeMain)
-
     # Mock sleep to exit after 6 cycles
     async def mock_sleep(s):
         if cycle_count["count"] >= 6:
@@ -117,13 +110,13 @@ async def test_main_resets_error_count_on_success(monkeypatch):
 
     monkeypatch.setattr(asyncio, "sleep", mock_sleep)
 
-    # _async_main() should not crash since errors are interspersed with successes
-    await main_mod._async_main()  # Should exit gracefully via KeyboardInterrupt
+    # Main.main() should not crash since errors are interspersed with successes
+    await FakeMain().main()  # Should exit gracefully via KeyboardInterrupt
     assert cycle_count["count"] == 6
 
 
-async def test_main_handles_keyboard_interrupt_during_sleep(monkeypatch):
-    """Test that _async_main() handles KeyboardInterrupt during sleep gracefully."""
+async def test_main_handles_keyboard_interrupt_during_sleep(setup_config, monkeypatch):
+    """Test that Main.main() handles KeyboardInterrupt during sleep gracefully."""
     cycle_count = {"count": 0}
 
     async def mock_sleep(seconds):
@@ -131,26 +124,22 @@ async def test_main_handles_keyboard_interrupt_during_sleep(monkeypatch):
 
     monkeypatch.setattr(asyncio, "sleep", mock_sleep)
 
-    original_main_class = main_mod.Main
-
-    class FakeMain(original_main_class):
+    class FakeMain(main_mod.Main):
         async def start(self):
             pass  # Skip actual startup
 
         async def poll_once(self):
             cycle_count["count"] += 1
 
-    monkeypatch.setattr(main_mod, "Main", FakeMain)
-
-    # _async_main() should catch KeyboardInterrupt and exit gracefully
-    await main_mod._async_main()  # Should not raise
+    # Main.main() should catch KeyboardInterrupt and exit gracefully
+    await FakeMain().main()  # Should not raise
 
     # Should have completed one cycle before interrupt
     assert cycle_count["count"] >= 1
 
 
-async def test_main_sleeps_and_loops(monkeypatch):
-    """Test that _async_main() sleeps between cycles and can be interrupted."""
+async def test_main_sleeps_and_loops(setup_config, monkeypatch):
+    """Test that Main.main() sleeps between cycles and can be interrupted."""
     sleep_calls = []
     cycle_count = {"count": 0}
 
@@ -160,19 +149,15 @@ async def test_main_sleeps_and_loops(monkeypatch):
 
     monkeypatch.setattr(asyncio, "sleep", mock_sleep)
 
-    original_main_class = main_mod.Main
-
-    class FakeMain(original_main_class):
+    class FakeMain(main_mod.Main):
         async def start(self):
             pass  # Skip actual startup
 
         async def poll_once(self):
             cycle_count["count"] += 1
 
-    monkeypatch.setattr(main_mod, "Main", FakeMain)
-
-    # _async_main() should loop, call poll_once, sleep, then be interrupted
-    await main_mod._async_main()
+    # Main.main() should loop, call poll_once, sleep, then be interrupted
+    await FakeMain().main()
 
     # Should have called poll_once once and tried to sleep
     assert cycle_count["count"] >= 1
