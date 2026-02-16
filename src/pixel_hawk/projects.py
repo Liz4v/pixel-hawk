@@ -153,7 +153,8 @@ class Project:
 
         # Process diff: count, compare, update info, build log message, create history record
         change = metadata.process_diff(self.info, current_data, target_data, prev_data)
-        await change.save()
+        if change.progress_pixels or change.regress_pixels:
+            await change.save()
 
         # Update tile metadata if a specific tile changed
         if changed_tile is not None and change.status == DiffStatus.IN_PROGRESS:

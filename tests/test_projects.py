@@ -364,28 +364,138 @@ async def test_run_diff_with_info_tracking(tmp_path, monkeypatch, test_person):
 
 
 async def test_run_diff_creates_history_change(tmp_path, monkeypatch, test_person):
-    """Test that run_diff creates a HistoryChange record."""
+    """Test that run_diff creates a HistoryChange record when progress is detected."""
     path = tmp_path / "proj_0_0_0_0.png"
     path.touch()
     rect = Rectangle.from_point_size(Point(0, 0), Size(4, 4))
     proj = await _make_project(path, rect, test_person.id)
 
-    target = _paletted_image((4, 4), value=1)
-    current = _paletted_image((4, 4), value=1)
+    target = _paletted_image((4, 4), value=0)
+    target.putpixel((0, 0), 1)
+    target.putpixel((1, 1), 2)
 
-    monkeypatch.setattr(PALETTE, "aopen_file", lambda path_arg: FakeAsyncImage(target))
+    # First run: partial match, establishes snapshot (no progress yet since no prev)
+    current1 = _paletted_image((4, 4), value=0)
+    current1.putpixel((0, 0), 1)
+
+    original_open_file = PALETTE.open_file
+
+    def aopen_file_mock(path_arg):
+        if ".snapshot." in str(path_arg):
+            return AsyncImage(original_open_file, path_arg)
+        return FakeAsyncImage(target)
+
+    monkeypatch.setattr(PALETTE, "aopen_file", aopen_file_mock)
+
+    stitch_results = iter([current1])
+
+    async def fake_stitch(rect_arg):
+        return next(stitch_results)
+
+    monkeypatch.setattr(projects, "stitch_tiles", fake_stitch)
+
+    await proj.run_diff()
+
+    # Second run: progress detected (pixel (1,1) now matches target)
+    current2 = _paletted_image((4, 4), value=0)
+    current2.putpixel((0, 0), 1)
+    current2.putpixel((1, 1), 2)
+
+    stitch_results = iter([current2])
+    await proj.run_diff()
+
+    # Should have created a HistoryChange record (progress detected)
+    changes = await HistoryChange.filter(project=proj.info).all()
+    assert len(changes) >= 1
+    assert changes[0].num_target > 0
+
+
+async def test_run_diff_skips_history_change_without_progress_or_regress(tmp_path, monkeypatch, test_person):
+    """Test that HistoryChange is NOT saved when there are no progress or regress pixels."""
+    path = tmp_path / "proj_0_0_0_0.png"
+    path.touch()
+    rect = Rectangle.from_point_size(Point(0, 0), Size(4, 4))
+    proj = await _make_project(path, rect, test_person.id)
+
+    # Target has some non-transparent pixels; current partially matches (in-progress)
+    target = _paletted_image((4, 4), value=0)
+    target.putpixel((0, 0), 1)
+    target.putpixel((1, 1), 2)
+
+    current = _paletted_image((4, 4), value=0)
+    current.putpixel((0, 0), 1)  # one pixel correct
+
+    original_open_file = PALETTE.open_file
+
+    def aopen_file_mock(path_arg):
+        if ".snapshot." in str(path_arg):
+            return AsyncImage(original_open_file, path_arg)
+        return FakeAsyncImage(target)
+
+    monkeypatch.setattr(PALETTE, "aopen_file", aopen_file_mock)
 
     async def fake_stitch(rect_arg):
         return current
 
     monkeypatch.setattr(projects, "stitch_tiles", fake_stitch)
 
+    # First diff: no previous snapshot, so progress=0, regress=0 → no HistoryChange saved
+    await proj.run_diff()
+    changes = await HistoryChange.filter(project=proj.info).all()
+    assert len(changes) == 0
+
+    # Second diff: snapshot matches current exactly (no change) → still no HistoryChange
+    await proj.run_diff()
+    changes = await HistoryChange.filter(project=proj.info).all()
+    assert len(changes) == 0
+
+
+async def test_run_diff_saves_history_change_with_progress(tmp_path, monkeypatch, test_person):
+    """Test that HistoryChange IS saved when there are progress pixels."""
+    path = tmp_path / "proj_0_0_0_0.png"
+    path.touch()
+    rect = Rectangle.from_point_size(Point(0, 0), Size(4, 4))
+    proj = await _make_project(path, rect, test_person.id)
+
+    target = _paletted_image((4, 4), value=0)
+    target.putpixel((0, 0), 1)
+    target.putpixel((1, 1), 2)
+
+    # First run: partial match, no prev snapshot
+    current1 = _paletted_image((4, 4), value=0)
+    current1.putpixel((0, 0), 1)
+
+    original_open_file = PALETTE.open_file
+
+    def aopen_file_mock(path_arg):
+        if ".snapshot." in str(path_arg):
+            return AsyncImage(original_open_file, path_arg)
+        return FakeAsyncImage(target)
+
+    monkeypatch.setattr(PALETTE, "aopen_file", aopen_file_mock)
+
+    stitch_results = iter([current1])
+
+    async def fake_stitch(rect_arg):
+        return next(stitch_results)
+
+    monkeypatch.setattr(projects, "stitch_tiles", fake_stitch)
+
+    await proj.run_diff()
+    assert len(await HistoryChange.filter(project=proj.info).all()) == 0
+
+    # Second run: progress detected (pixel (1,1) now matches target)
+    current2 = _paletted_image((4, 4), value=0)
+    current2.putpixel((0, 0), 1)
+    current2.putpixel((1, 1), 2)
+
+    stitch_results = iter([current2])
     await proj.run_diff()
 
-    # Should have created at least one HistoryChange record
     changes = await HistoryChange.filter(project=proj.info).all()
-    assert len(changes) >= 1
-    assert changes[0].num_target > 0
+    assert len(changes) == 1
+    assert changes[0].progress_pixels == 1
+    assert changes[0].regress_pixels == 0
 
 
 async def test_run_diff_progress_and_regress_tracking(tmp_path, monkeypatch, test_person):

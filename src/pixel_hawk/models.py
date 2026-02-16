@@ -63,7 +63,7 @@ class Person(Model):
         self.watched_tiles_count = len(tiles)
         await self.save()
 
-    class Meta:
+    class Meta(Model.Meta):
         table = "person"
 
 
@@ -131,7 +131,9 @@ class ProjectInfo(Model):
         return f"{tx}_{ty}_{px}_{py}.png"
 
     @classmethod
-    async def from_rect(cls, rect: Rectangle, owner_id: int, name: str, state: ProjectState = ProjectState.ACTIVE) -> ProjectInfo:
+    async def from_rect(
+        cls, rect: Rectangle, owner_id: int, name: str, state: ProjectState = ProjectState.ACTIVE
+    ) -> ProjectInfo:
         """Create and save a new ProjectInfo from project rectangle."""
         now = round(time.time())
         return await cls.create(
