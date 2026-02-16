@@ -165,6 +165,11 @@ class QueueSystem:
         tile_info.last_checked = now
         tile_info.last_update = new_last_update
         tile_info.http_etag = http_etag
+
+        # Graduate from burning queue into temperature pool
+        if was_burning:
+            tile_info.queue_temperature = 1  # Temporary; rebuild will reassign
+
         await tile_info.save()
 
         # If tile graduated from burning queue, trigger Zipf rebuild
