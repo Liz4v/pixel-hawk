@@ -60,7 +60,7 @@ The process of a tile moving from the burning queue to a temperature queue after
 ## Polling & Timing
 
 ### Polling Cycle
-The main application loop that runs every ~97 seconds (60φ). Each cycle checks one tile for changes and scans for project file changes.
+The main application loop that runs every ~97 seconds (60φ). Each cycle checks one tile for changes and diffs affected projects discovered via database query.
 
 ### 60φ (Golden Ratio Period)
 The polling cycle period of 30(1 + √5) ≈ 97.08 seconds, chosen to be maximally dissonant with WPlace's pixel earning speeds (30s standard, 27s for accounts owning flags) to reduce the chance of being automatically flagged as a paint bot. Paint bots would resonate with these timing patterns.
@@ -88,13 +88,13 @@ Error raised when an image contains a color that is not part of the WPlace palet
 The process of downloading tiles from the WPlace backend, converting them to paletted PNGs, and caching them locally.
 
 ### Tile Change Detection
-Using HTTP conditional requests (If-Modified-Since) to detect when a tile has been modified on the server.
+Using HTTP conditional requests (If-Modified-Since and If-None-Match/ETag) to detect when a tile has been modified on the server.
 
 ### Tile Cache
 Local storage of downloaded tiles as paletted PNG files in the user cache directory. Files are named `tile-{x}_{y}.png`.
 
 ### Tile Stitching
-Assembling multiple cached tiles together to create a larger image covering a project's bounding rectangle. This process also includes cropping the excess pixels to match project size exactly.
+Assembling multiple cached tiles together to create a larger image covering a project's bounding rectangle. Tiles are pasted at computed offsets into a destination image of the exact project size, so pixels beyond the bounds are naturally excluded.
 
 ### Has Tile Changed
 Method on `TileChecker` that requests a tile from the WPlace backend and updates the local cache if changes are detected. Takes a `TileInfo` instance (mutated in place with updated timestamps and etag) and returns a boolean indicating whether the tile changed.
@@ -150,11 +150,11 @@ Configurable directory structure managed by `config.py`. Default nest is `./nest
 ### Tiles Cache
 `<nest>/tiles/` — where cached tiles are stored.
 
-### User Log Path
-`<user_log_path>/pixel-hawk.log` — where application logs are written.
+### Log Path
+`<nest>/logs/pixel-hawk.log` — where application logs are written.
 
 ### Metadata File
-`ProjectInfo` record in the SQLite database containing all metadata and statistics for a project. Previously stored as YAML files alongside projects; now persisted via Tortoise ORM.
+`ProjectInfo` record in the SQLite database containing all metadata and statistics for a project, persisted via Tortoise ORM.
 
 ### Snapshot File
 PNG file saved in `snapshots/{person_id}/{tx}_{ty}_{px}_{py}.png` containing the previous canvas state. Uses the same directory structure and filename format as projects.
@@ -179,8 +179,8 @@ HTTP header indicating when a tile was last modified on the server. Used for cac
 ### Least-Recently-Checked Tile
 Within a queue, the tile that hasn't been checked in the longest time. Used to ensure fair checking coverage.
 
-### Cascade Preservation
-When a tile moves to a hotter queue, coldest tiles from intervening queues move down to maintain Zipf distribution sizes.
+### Optimistic Redistribution
+When the queue iterator exhausts (one full cycle), all temperature tiles are re-ranked by last_update recency. Only tiles whose heat differs from the computed target are written to the database.
 
 ## Python Conventions
 

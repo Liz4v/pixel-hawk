@@ -13,7 +13,7 @@ import asyncio
 from pixel_hawk.config import get_config
 from pixel_hawk.db import database
 from pixel_hawk.geometry import Point, Rectangle, Size
-from pixel_hawk.models import Person, ProjectInfo, ProjectState
+from pixel_hawk.models import Person, ProjectInfo, ProjectState, TileInfo, TileProject
 
 
 async def list_persons() -> list[Person]:
@@ -94,19 +94,37 @@ async def create_project(person: Person) -> ProjectInfo:
 
     # Create ProjectInfo
     info = await ProjectInfo.from_rect(rect, person.id, name, state)
+
+    # Create TileInfo and TileProject records so the watcher can discover this project
+    tiles_created = 0
+    for tile in rect.tiles:
+        tile_id = TileInfo.tile_id(tile.x, tile.y)
+        await TileInfo.get_or_create(
+            id=tile_id,
+            defaults={"x": tile.x, "y": tile.y, "heat": 999, "last_checked": 0, "last_update": 0, "etag": ""},
+        )
+        _, created = await TileProject.get_or_create(tile_id=tile_id, project_id=info.id)
+        if created:
+            tiles_created += 1
+
+    # Update person totals
+    await person.update_totals()
+
     print(f"\n✓ Created project: {info.name}")
     print(f"  State: {info.state}")
     print(f"  Bounds: ({info.x}, {info.y}) {info.width}x{info.height}")
     print(f"  Filename: {info.filename}")
+    print(f"  Tiles linked: {tiles_created}")
 
     return info
 
 
 async def main():
     """Main entry point."""
-    print("=" * 60)
+    horizontal_line = "=" * 60
+    print(horizontal_line)
     print("pixel-hawk: Add Project Helper")
-    print("=" * 60)
+    print(horizontal_line)
 
     async with database():
         # Get or create person
@@ -120,17 +138,13 @@ async def main():
         person_dir = config.projects_dir / str(person.id)
         file_path = person_dir / info.filename
 
-        print("\n" + "=" * 60)
+        print(horizontal_line)
         print("Next steps:")
-        print("=" * 60)
         print("1. Create your project image using the WPlace palette")
-        print("   (First color = transparent)")
-        print("\n2. Create directory (if needed):")
-        print(f"   {person_dir}")
-        print("\n3. Save your PNG file to:")
-        print(f"   {file_path}")
-        print("\n4. Restart pixel-hawk to load the project")
-        print("=" * 60)
+        print(f"2. Create directory (if needed): {person_dir}")
+        print(f"3. Save your PNG file to: {file_path}")
+        print("4. The watcher will pick it up on the next tile check cycle")
+        print(horizontal_line)
 
 
 if __name__ == "__main__":

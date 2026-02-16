@@ -7,7 +7,7 @@ pixel-hawk is a change tracker for WPlace paint projects. It polls WPlace tile i
 - **Requires:** Python >= 3.14 (see `pyproject.toml`)
 - **Console script:** `hawk = "pixel_hawk.main:main"`
 - **Main package:** `src/pixel_hawk`
-- **Key dependencies:** `loguru`, `pillow`, `httpx`, `tortoise-orm` (SQLite via `aiosqlite`)
+- **Key dependencies:** `loguru`, `pillow`, `httpx`, `tortoise-orm` (SQLite via `aiosqlite`), `humanize`
 - **Linting:** `ruff` configured with `line-length = 120`
 
 ## Where to look for further context
@@ -64,7 +64,7 @@ uv run hawk
 - `Project` (in `projects.py`) is loaded from database via `Project.from_info(info)` classmethod. Filenames are coordinate-only: `{tx}_{ty}_{px}_{py}.png` (tile x, tile y, pixel x 0-999, pixel y 0-999). Files must use the project's palette. Invalid files cause from_info() to return None with warning logged.
 - `PALETTE` (in `palette.py`) enforces and converts images to the project palette (first color treated as transparent). Provides `AsyncImage[T]` for deferred async I/O, and `aopen_file`/`aopen_bytes` methods for async image loading.
 - `Main` (in `main.py`) uses two-phase initialization: sync `__init__` followed by `async start()` to initialize `TileChecker` and refresh person-level statistics. Database lifecycle managed via `async with database():` context manager. No in-memory project loading — project discovery happens on demand in `TileChecker._get_projects_for_tile()`. Runs the polling loop: `TileChecker.check_next_tile()` handles tile selection, checking, project querying, and diffing.
-- Queue system tracks tile metadata (last checked, last modified) and repositions tiles surgically when modification times change. When a tile moves to a hotter queue, coldest tiles cascade down through intervening queues to maintain Zipf distribution sizes.
+- Queue system tracks tile metadata (last checked, last modified). Redistribution runs automatically when the queue iterator exhausts (one full cycle), reassigning heat values based on last_update recency. Updates are optimistic: only tiles whose heat differs from the target are written.
 
 ## File/Module map (where to look)
 

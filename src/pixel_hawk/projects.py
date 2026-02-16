@@ -185,14 +185,7 @@ class Project:
         metadata.prune_old_tile_updates(self.info)
 
         for tile in self.rect.tiles:
-            tile_path = get_config().tiles_dir / f"tile-{tile}.png"
-            if tile_path.exists():
-                mtime = round(tile_path.stat().st_mtime)
-                tile_str = str(tile)
-
-                last_update = self.info.tile_last_update.get(tile_str, 0)
-                if mtime > last_update:
-                    metadata.update_tile(self.info, tile, mtime)
+            self._update_single_tile_metadata(tile)
 
     def _has_missing_tiles(self) -> bool:
         """Check if any tiles required by this project are missing from cache."""

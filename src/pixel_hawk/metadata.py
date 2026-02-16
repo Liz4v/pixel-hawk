@@ -8,7 +8,6 @@ process_diff() creates and returns a HistoryChange object for the caller to pers
 """
 
 import time
-from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from .geometry import Tile
@@ -154,9 +153,9 @@ def process_diff(info: ProjectInfo, current_data: bytes, target_data: bytes, pre
     update_rate(info, progress_pixels, regress_pixels, timestamp)
 
     # Build log message for in-progress project
-    time_to_go = timedelta(seconds=27) * num_remaining
-    days, hours = divmod(round(time_to_go.total_seconds() / 3600), 24)
-    when = (datetime.now() + time_to_go).strftime("%b %d %H:%M")
+    seconds_to_go = 27 * num_remaining
+    days, hours = divmod(round(seconds_to_go / 3600), 24)
+    when = time.strftime("%b %d %H:%M", time.localtime(time.time() + seconds_to_go))
 
     status_parts = [
         f"{info.owner.name}/{info.name}:",

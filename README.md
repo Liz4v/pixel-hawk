@@ -31,7 +31,7 @@ The watcher maintains multiple temperature-based queues:
   - Queue sizes follow Zipf distribution (harmonic series)
   - Recently modified tiles get checked more frequently
   - Tiles graduate from burning → temperature queues after first check
-  - Modified tiles surgically reposition to hotter queues with cascade preservation
+  - Periodic redistribution reassigns heat values based on last_update recency (optimistic writes)
 
 ## Requirements
 
@@ -132,7 +132,7 @@ print(f"Create file at: projects/{person.id}/{info.filename}")
 2. Save it at: `<nest>/projects/{person_id}/{tx}_{ty}_{px}_{py}.png`
    - Filename is **coordinates only** (no project name prefix)
    - Example: `projects/1/0_0_500_500.png` for person_id=1
-3. The watcher will discover it automatically when its tiles are checked
+3. The watcher will discover it via database query when its tiles are next checked
 
 ### Project states
 

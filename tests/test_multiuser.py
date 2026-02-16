@@ -277,7 +277,3 @@ async def test_multiple_owners_different_tiles(person1, person2):
 
     assert person1_reloaded.watched_tiles_count == 2
     assert person2_reloaded.watched_tiles_count == 2
-
-    # Verify they're watching different tiles (non-overlapping rects)
-    assert person1_reloaded.watched_tiles_count == 2
-    assert person2_reloaded.watched_tiles_count == 2
