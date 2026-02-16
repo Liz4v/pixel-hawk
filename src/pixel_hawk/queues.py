@@ -72,6 +72,10 @@ def calculate_zipf_queue_sizes(total_tiles: int, min_hottest_size: int = 4) -> t
             # This k too large, try smaller k
             right = k - 1
 
+    if num_queues >= 999:
+        # Wow we need to be watching 26170 tiles to get to 999 queues! That's 0.6% of the canvas!
+        logger.warning("Uh-oh! Burning queue is mingled with regular heat tiles. It will still work, but with quirks.")
+
     # Calculate harmonic sum for the chosen number of queues
     harmonic = sum(1.0 / i for i in range(1, num_queues + 1))
 
