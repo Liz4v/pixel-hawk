@@ -87,7 +87,7 @@ uv run hawk
 uv run python scripts/add_project.py
 ```
 
-The helper script will guide you through creating a Person (if needed) and a ProjectInfo record, then tell you where to place your PNG file.
+The helper script will guide you through creating a Person (if needed) and a ProjectInfo record, then wait for you to place your PNG file before linking tiles so the watcher can discover the project.
 
 #### Manual setup
 

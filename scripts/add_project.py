@@ -2,13 +2,14 @@
 """Helper script to add new projects to pixel-hawk.
 
 This script guides you through creating a Person (if needed) and a ProjectInfo record,
-then tells you where to place your PNG file.
+then waits for you to place the project PNG file before linking tiles.
 
 Usage:
     uv run python scripts/add_project.py
 """
 
 import asyncio
+from pathlib import Path
 
 from pixel_hawk.config import get_config
 from pixel_hawk.db import database
@@ -86,6 +87,21 @@ def get_project_state() -> ProjectState:
         return ProjectState.ACTIVE
 
 
+def get_project_file_path(person: Person, info: ProjectInfo) -> Path:
+    """Return the expected file path for a project."""
+    config = get_config()
+    return config.projects_dir / str(person.id) / info.filename
+
+
+async def wait_for_file(path: Path) -> None:
+    """Wait for a file to appear at the given path, polling once per second."""
+    print(f"\nWaiting for file: {path}")
+    print("(Press Ctrl+C to cancel)\n")
+    while not path.exists():
+        await asyncio.sleep(1)
+    print(f"✓ File detected: {path}")
+
+
 async def create_project(person: Person) -> ProjectInfo:
     """Create a new project for the given person."""
     name = input("\nProject name (human-readable, stored in DB): ").strip()
@@ -95,7 +111,17 @@ async def create_project(person: Person) -> ProjectInfo:
     # Create ProjectInfo
     info = await ProjectInfo.from_rect(rect, person.id, name, state)
 
-    # Create TileInfo and TileProject records so the watcher can discover this project
+    print(f"\n✓ Created project: {info.name}")
+    print(f"  State: {info.state}")
+    print(f"  Bounds: ({info.x}, {info.y}) {info.width}x{info.height}")
+    print(f"  Filename: {info.filename}")
+
+    return info
+
+
+async def link_tiles(person: Person, info: ProjectInfo) -> None:
+    """Create TileInfo and TileProject records so the watcher can discover this project."""
+    rect = info.rectangle
     tiles_created = 0
     for tile in rect.tiles:
         tile_id = TileInfo.tile_id(tile.x, tile.y)
@@ -107,16 +133,8 @@ async def create_project(person: Person) -> ProjectInfo:
         if created:
             tiles_created += 1
 
-    # Update person totals
     await person.update_totals()
-
-    print(f"\n✓ Created project: {info.name}")
-    print(f"  State: {info.state}")
-    print(f"  Bounds: ({info.x}, {info.y}) {info.width}x{info.height}")
-    print(f"  Filename: {info.filename}")
     print(f"  Tiles linked: {tiles_created}")
-
-    return info
 
 
 async def main():
@@ -130,20 +148,25 @@ async def main():
         # Get or create person
         person = await get_or_create_person()
 
-        # Create project
+        # Create project record
         info = await create_project(person)
 
-        # Show where to place the file
-        config = get_config()
-        person_dir = config.projects_dir / str(person.id)
-        file_path = person_dir / info.filename
+        # Wait for the user to place the project file
+        file_path = get_project_file_path(person, info)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
 
         print(horizontal_line)
-        print("Next steps:")
-        print("1. Create your project image using the WPlace palette")
-        print(f"2. Create directory (if needed): {person_dir}")
-        print(f"3. Save your PNG file to: {file_path}")
-        print("4. The watcher will pick it up on the next tile check cycle")
+        print("Place your project PNG (using the WPlace palette) at:")
+        print(f"  {file_path}")
+        print(horizontal_line)
+
+        await wait_for_file(file_path)
+
+        # Now that the file exists, link tiles so the watcher discovers this project
+        await link_tiles(person, info)
+
+        print(horizontal_line)
+        print("✓ Done! The watcher will pick it up on the next tile check cycle.")
         print(horizontal_line)
 
 
