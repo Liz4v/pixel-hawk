@@ -8,11 +8,13 @@ Provides slash commands under the /hawk command group.
 """
 
 import asyncio
+import contextlib
 import uuid
 
 import discord
 from discord import app_commands
 from loguru import logger
+
 from .config import get_config
 from .models import BotAccess, Person
 
@@ -90,8 +92,9 @@ class HawkBot(discord.Client):
         logger.info(f"Discord bot connected as {self.user}")
 
 
-async def start_bot() -> HawkBot | None:
-    """Attempt to start the Discord bot. Returns HawkBot if started, None if skipped.
+@contextlib.asynccontextmanager
+async def maybe_bot():
+    """Attempt to start the Discord bot.
 
     Reads bot_token from config.toml, generates the admin UUID, and launches
     the bot as a background asyncio task in the current event loop.
@@ -99,11 +102,13 @@ async def start_bot() -> HawkBot | None:
     token = load_bot_token()
     if token is None:
         logger.debug("No Discord bot token in config.toml, skipping bot")
-        return None
+        yield
+        return
 
     admin_token = generate_admin_token()
     logger.info(f"Admin token: {admin_token} (see nest/data/admin-me.txt)")
 
     bot = HawkBot(admin_token)
     asyncio.create_task(bot.start(token))
-    return bot
+    yield
+    await bot.close()

@@ -1,15 +1,13 @@
 """Tests for Discord bot integration."""
 
-import asyncio
 import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from pixel_hawk.bot import HawkBot, generate_admin_token, grant_admin, load_bot_token, start_bot
 from pixel_hawk.config import get_config
+from pixel_hawk.interactions import HawkBot, generate_admin_token, grant_admin, load_bot_token, maybe_bot
 from pixel_hawk.models import BotAccess, Person
-
 
 # BotAccess enum tests
 
@@ -207,24 +205,23 @@ class TestHawkBot:
         bot.tree.sync.assert_awaited_once()
 
 
-# start_bot tests
+# maybe_bot tests
 
 
-class TestStartBot:
-    async def test_returns_none_without_config(self, setup_config):
-        result = await start_bot()
-        assert result is None
+class TestMaybeBot:
+    async def test_yields_without_bot_when_no_config(self, setup_config):
+        async with maybe_bot():
+            pass  # should not raise
 
-    async def test_returns_bot_with_config(self, setup_config):
+    async def test_starts_and_closes_bot_with_config(self, setup_config):
         config_path = get_config().home / "config.toml"
         config_path.write_text('[discord]\nbot_token = "fake-token"\n')
         _invalidate_config_toml()
 
-        with patch.object(HawkBot, "start", new_callable=AsyncMock):
-            bot = await start_bot()
-            assert bot is not None
-            assert isinstance(bot, HawkBot)
-            # Clean up the background task
-            for task in asyncio.all_tasks():
-                if "HawkBot.start" in str(task):
-                    task.cancel()
+        with (
+            patch.object(HawkBot, "start", new_callable=AsyncMock),
+            patch.object(HawkBot, "close", new_callable=AsyncMock) as mock_close,
+        ):
+            async with maybe_bot():
+                pass
+            mock_close.assert_awaited_once()
