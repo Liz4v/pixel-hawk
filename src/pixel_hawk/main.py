@@ -11,6 +11,7 @@ import asyncio
 
 from loguru import logger
 
+from .bot import start_bot
 from .config import get_config
 from .db import database
 from .ingest import TileChecker
@@ -40,6 +41,7 @@ class Main:
         # Initialize database and run main loop
         async with database():
             await self.start()
+            bot = await start_bot()
             consecutive_errors = 0
             logger.info(f"Starting polling loop ({POLLING_CYCLE_SECONDS:.1f}s cycle, 60φ = 30(1+√5))...")
             while True:
@@ -57,6 +59,8 @@ class Main:
                     await asyncio.sleep(POLLING_CYCLE_SECONDS)
                 except (KeyboardInterrupt, asyncio.CancelledError):
                     logger.info("Exiting due to user interrupt.")
+                    if bot:
+                        await bot.close()
                     return
 
     async def start(self) -> None:

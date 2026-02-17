@@ -10,7 +10,7 @@ TileProject: Junction table for many-to-many tile-project relationships.
 """
 
 import time
-from enum import IntEnum
+from enum import IntEnum, IntFlag
 
 from tortoise import fields
 from tortoise.models import Model
@@ -34,11 +34,21 @@ class ProjectState(IntEnum):
     INACTIVE = 20  # Not checked, doesn't count towards quota
 
 
+class BotAccess(IntFlag):
+    """Bitmask for bot-level access control on a Person."""
+
+    ADMIN = 0x10000000
+
+
 class Person(Model):
     """Represents a person who can own projects."""
 
     id = fields.IntField(primary_key=True)
-    name = fields.CharField(max_length=255, unique=True)
+    name = fields.CharField(max_length=255)
+
+    # Discord integration (nullable — not every Person has a Discord account)
+    discord_id = fields.BigIntField(null=True, unique=True)
+    access = fields.IntField(default=0)  # BotAccess bitmask
 
     # Calculated properties
     watched_tiles_count = fields.IntField(default=0)

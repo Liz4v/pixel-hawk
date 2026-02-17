@@ -25,6 +25,26 @@ class TestConfig:
         assert config.home == tmp_path
         assert config.home.is_absolute()
 
+    def test_config_toml_missing_file(self, tmp_path):
+        """Test that config_toml returns empty dict when file doesn't exist."""
+        config = Config(home=tmp_path)
+        assert config.config_toml == {}
+
+    def test_config_toml_valid_file(self, tmp_path):
+        """Test that config_toml reads and parses TOML file."""
+        config = Config(home=tmp_path)
+        (tmp_path / "config.toml").write_text('[discord]\nbot_token = "abc"\n')
+        assert config.config_toml == {"discord": {"bot_token": "abc"}}
+
+    def test_config_toml_cached(self, tmp_path):
+        """Test that config_toml is cached across accesses."""
+        config = Config(home=tmp_path)
+        (tmp_path / "config.toml").write_text('[discord]\nbot_token = "first"\n')
+        first = config.config_toml
+        (tmp_path / "config.toml").write_text('[discord]\nbot_token = "second"\n')
+        second = config.config_toml
+        assert first is second  # Same object, cached
+
 
 class TestLoadConfig:
     """Tests for load_config function."""

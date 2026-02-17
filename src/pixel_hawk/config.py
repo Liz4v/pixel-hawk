@@ -8,8 +8,10 @@ Can be overridden with --nest CLI flag or HAWK_NEST environment variable.
 Precedence: CLI flag > env var > default
 """
 
+import functools
 import os
 import sys
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -52,6 +54,16 @@ class Config:
     def data_dir(self) -> Path:
         """Directory for SQLite database and bot data."""
         return self.home / "data"
+
+    @functools.cached_property
+    def config_toml(self) -> dict:
+        """Read config.toml from nest root, defaulting to empty dict."""
+        path = self.home / "config.toml"
+        try:
+            with path.open("rb") as f:
+                return tomllib.load(f)
+        except (IOError, ValueError):
+            return {}
 
 
 def load_config(args: list[str] | None = None) -> Config:

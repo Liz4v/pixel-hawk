@@ -1,0 +1,5 @@
+# Copy this file to your nest directory as config.toml and fill in values.
+# e.g.: cp config.example.toml nest/config.toml
+
+[discord]
+bot_token = ""
