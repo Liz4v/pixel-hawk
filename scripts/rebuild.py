@@ -70,7 +70,7 @@ async def rebuild() -> None:
                 if existing:
                     continue
 
-                await ProjectInfo.create(
+                info = ProjectInfo(
                     owner_id=person_id,
                     name=name,
                     state=ProjectState.ACTIVE,
@@ -81,6 +81,7 @@ async def rebuild() -> None:
                     first_seen=mtime,
                     last_check=mtime,
                 )
+                await info.save_as_new()
                 projects_created += 1
                 print(f"  + Project {person_id}/{name} ({size.w}x{size.h})")
 

@@ -221,7 +221,7 @@ async def _create_project_with_tile(x: int, y: int, *, state: ProjectState = Pro
     Also creates the TileInfo if it doesn't exist yet.
     """
     person = await Person.create(name=f"tester-{x}-{y}")
-    info = await ProjectInfo.create(
+    info = ProjectInfo(
         owner=person,
         name=f"project-{x}-{y}",
         state=state,
@@ -231,6 +231,7 @@ async def _create_project_with_tile(x: int, y: int, *, state: ProjectState = Pro
         height=1000,
         first_seen=1000,
     )
+    await info.save_as_new()
     tile_id = TileInfo.tile_id(x, y)
     tile_info, _ = await TileInfo.get_or_create(
         id=tile_id,
