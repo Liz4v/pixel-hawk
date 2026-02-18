@@ -1,59 +1,20 @@
 # Pixel Hawk Tasks
 
-## Backlog
-
-### Discord Bot for project tracking and notifications
-
-**Status:** Backlog
-**Priority:** Medium
-
-**Description:**
-Create a Discord bot that integrates with pixel-hawk to provide real-time project monitoring through Discord. Users can add and manage projects via Discord commands under a quota of watched tiles, and the bot maintains living status messages that update as progress changes. Bot will only operate in trusted servers.
-
-**Key Features:**
-- Project management through Discord commands (`/hawk add`, `/hawk remove`, `/hawk list`)
-- Automatic status message updates showing progress, last change, timestamps
-- Server & user whitelist for security
-- Rich embeds with progress bars and visual indicators
-- Rate limiting to respect Discord API constraints
-
----
-
-### Memory profiling and optimization for Raspberry Pi deployment
-
-**Status:** Backlog
-**Priority:** Low
-
-**Description:**
-Add memory profiling to identify and optimize memory usage for deployment on memory-constrained devices like Raspberry Pi. Large projects can consume significant memory during tile stitching and diff computation.
-
-**Implementation Considerations:**
-- Add profiling infrastructure (stdlib `tracemalloc` for zero dependencies, or `memray` for detailed analysis)
-- Profile tile stitching in `stitch_tiles()` which creates full project-sized images
-- Profile diff computation in `Project.run_diff()` which creates multiple byte arrays (`get_flattened_data()`, `bytes(newdata)`, etc.)
-- Consider optimizations: stream diff computation to avoid large intermediate byte arrays, crop before stitching to only stitch needed pixels
-
-**Related Code:**
-- `Project.run_diff()` in `src/pixel_hawk/projects.py`
-- `stitch_tiles()` in `src/pixel_hawk/projects.py`
-
----
-
 ## Completed
 
 > **Note:** Keep completed task descriptions to a single concise paragraph summarizing what was done.
 
 ### ✅ Remove redundant tile JSON fields from ProjectInfo (2026-02-18)
 
-Removed `tile_last_update` (JSON dict) and `tile_updates_24h` (JSON list) from `ProjectInfo` — both were redundant with `HistoryChange` and `TileInfo`. `tile_updates_24h` was write-only dead data (maintained but never consumed). `tile_last_update` had one reader in `_update_single_tile_metadata()` for mtime deduplication, but this was redundant because `run_diff()` is only called after `has_tile_changed()` already confirmed a change. Removed supporting functions (`prune_old_tile_updates`, `update_tile`, `_update_single_tile_metadata`, `_update_tile_metadata`) and the `changed_tile` parameter from `run_diff()`. Generated Aerich migration to drop both columns. Removed 19 dead tests.
+Dropped `tile_last_update` and `tile_updates_24h` JSON fields from `ProjectInfo` — both redundant with `HistoryChange`/`TileInfo`. Removed associated helper functions, the `changed_tile` parameter from `run_diff()`, and 19 dead tests. Aerich migration drops both columns.
 
 ### ✅ `/hawk list` command for Discord bot (2026-02-18)
 
-Added `/hawk list` slash command that shows all projects for the calling user with state-dependent formatting: in-progress projects show completion %, remaining pixels, and 24h progress/regress; complete projects show completion timestamp (Discord relative format); never-checked projects show placeholder text; inactive projects show only the WPlace link. Core logic in `list_projects()` is separated from the handler for testability (same pattern as `grant_admin()`). Streams project formatting and stops when Discord's 2000-char message limit would be exceeded, appending "... and N more". Includes 8 tests covering all states, ordering, and truncation.
+Added `/hawk list` slash command showing all projects for the calling user with state-dependent formatting (completion %, 24h changes, timestamps). Truncates at Discord's 2000-char limit with "... and N more". Core logic separated from handler for testability. 8 tests.
 
 ### ✅ Discord bot foundation with admin access command (2026-02-16)
 
-Added optional Discord bot integration: `config.toml` at nest root for bot credentials, `BotAccess(IntFlag)` enum with `ADMIN = 0x10000000`, `discord_id` and `access` fields on `Person`, and `/hawk sa myself <uuid>` slash command that grants admin access using a UUID4 token generated fresh each startup (stored in `nest/data/admin-me.txt`). Bot runs alongside the polling loop as a background task and is silently skipped when no token is configured. Removed unique constraint from `Person.name` since Discord identity is now the primary lookup key.
+Added optional Discord bot with `config.toml` credentials, `BotAccess` IntFlag, and `/hawk sa myself <uuid>` admin-grant command using a per-startup UUID4 token. Bot runs as a background task alongside polling, silently skipped when unconfigured.
 
 ### ✅ Query-driven project lookups via TileProject table (2026-02-16)
 
