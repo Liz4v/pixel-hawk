@@ -9,10 +9,12 @@ TileInfo: Database-backed tile metadata (coordinates, timestamps, queue assignme
 TileProject: Junction table for many-to-many tile-project relationships.
 """
 
+import random
 import time
 from enum import IntEnum, IntFlag
 
 from tortoise import fields
+from tortoise.exceptions import IntegrityError
 from tortoise.models import Model
 
 from .geometry import Point, Rectangle, Size, Tile
@@ -78,8 +80,8 @@ class Person(Model):
 class ProjectInfo(Model):
     """Persistent metadata for a project. Pure Tortoise ORM model."""
 
-    # Primary key: auto-increment ID
-    id = fields.IntField(primary_key=True)
+    # Primary key: random ID (1 to 9999), assigned via save_as_new()
+    id = fields.IntField(primary_key=True, generated=False)
 
     # Foreign key to Person (owner of this project)
     owner = fields.ForeignKeyField("models.Person", related_name="projects")
@@ -141,13 +143,27 @@ class ProjectInfo(Model):
         tx, ty, px, py = Point(self.x, self.y).to4()
         return f"{tx}_{ty}_{px}_{py}.png"
 
+    async def save_as_new(self, max_attempts: int = 50) -> None:
+        """Save this instance as a new record with a random ID.
+
+        ID range is 1 to config.max_project_id. Retries on primary key collision.
+        """
+        for _ in range(max_attempts):
+            self.id = random.randint(1, 9999)
+            try:
+                await self.save(force_create=True)
+                return
+            except IntegrityError:
+                continue
+        assert False, f"Failed to save project with unique ID after {max_attempts} attempts"
+
     @classmethod
     async def from_rect(
         cls, rect: Rectangle, owner_id: int, name: str, state: ProjectState = ProjectState.ACTIVE
     ) -> ProjectInfo:
         """Create and save a new ProjectInfo from project rectangle."""
         now = round(time.time())
-        return await cls.create(
+        info = cls(
             owner_id=owner_id,
             name=name,
             state=state,
@@ -158,6 +174,8 @@ class ProjectInfo(Model):
             first_seen=now,
             last_check=now,
         )
+        await info.save_as_new()
+        return info
 
     @classmethod
     async def get_or_create_from_rect(cls, rect: Rectangle, owner_id: int, name: str) -> ProjectInfo:

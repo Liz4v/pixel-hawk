@@ -166,7 +166,7 @@ All pixel-hawk data lives in a unified directory structure under `nest` (default
 - Both counts updated via `update_totals()` on startup
 
 ### ProjectInfo table (`project`)
-- `id`: Auto-increment primary key
+- `id`: Randomly assigned primary key (1 to 9999). Assigned by `save_as_new()` with collision retry.
 - `owner_id`: Foreign key to Person
 - `name`: Human-readable project name
 - `state`: ACTIVE (0) / PASSIVE (10) / INACTIVE (20) IntEnum
