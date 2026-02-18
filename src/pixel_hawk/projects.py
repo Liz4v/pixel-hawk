@@ -24,8 +24,8 @@ from loguru import logger
 
 from . import metadata
 from .config import get_config
-from .geometry import Rectangle, Size, Tile
-from .models import DiffStatus, ProjectInfo
+from .geometry import Rectangle, Size
+from .models import ProjectInfo
 from .palette import PALETTE, AsyncImage, ColorsNotInPalette
 
 if TYPE_CHECKING:
@@ -123,11 +123,8 @@ class Project:
 
         return AsyncImage(_load)
 
-    async def run_diff(self, changed_tile: Tile | None = None) -> None:
+    async def run_diff(self) -> None:
         """Compares current canvas against project target and previous snapshot.
-
-        Args:
-            changed_tile: The specific tile that changed (if known), for efficient metadata updates
 
         Tracks progress (pixels placed toward goal) and regress (pixels removed/griefed),
         updates info with completion history, saves snapshot and persists to DB.
@@ -154,38 +151,13 @@ class Project:
         if change.progress_pixels or change.regress_pixels:
             await change.save()
 
-        # Update tile metadata if a specific tile changed
-        if changed_tile is not None and change.status == DiffStatus.IN_PROGRESS:
-            self._update_single_tile_metadata(changed_tile)
-        elif change.status == DiffStatus.IN_PROGRESS:
-            self._update_tile_metadata()
-
         # Log and save
         logger.info(self.info.last_log_message)
         await self.info.save()
 
     async def run_nochange(self) -> None:
         self.info.last_check = round(time.time())
-        metadata.prune_old_tile_updates(self.info)  # regular cleanup task
         await self.info.save()
-
-    def _update_single_tile_metadata(self, tile: Tile) -> None:
-        """Update metadata for a single tile that changed."""
-        tile_path = get_config().tiles_dir / f"tile-{tile}.png"
-        if tile_path.exists():
-            mtime = round(tile_path.stat().st_mtime)
-            tile_str = str(tile)
-
-            last_update = self.info.tile_last_update.get(tile_str, 0)
-            if mtime > last_update:
-                metadata.update_tile(self.info, tile, mtime)
-
-    def _update_tile_metadata(self) -> None:
-        """Update tile modification times from cached tile files."""
-        metadata.prune_old_tile_updates(self.info)
-
-        for tile in self.rect.tiles:
-            self._update_single_tile_metadata(tile)
 
     def _has_missing_tiles(self) -> bool:
         """Check if any tiles required by this project are missing from cache."""

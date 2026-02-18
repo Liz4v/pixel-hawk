@@ -120,10 +120,6 @@ class ProjectInfo(Model):
     recent_rate_pixels_per_hour = fields.FloatField(default=0.0)
     recent_rate_window_start = fields.IntField(default=0)
 
-    # Tile updates (JSON columns for operational data)
-    tile_last_update = fields.JSONField(default=dict)
-    tile_updates_24h = fields.JSONField(default=list)
-
     # Cache state
     has_missing_tiles = fields.BooleanField(default=True)
 

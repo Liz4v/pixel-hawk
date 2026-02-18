@@ -43,6 +43,10 @@ Add memory profiling to identify and optimize memory usage for deployment on mem
 
 > **Note:** Keep completed task descriptions to a single concise paragraph summarizing what was done.
 
+### ✅ Remove redundant tile JSON fields from ProjectInfo (2026-02-18)
+
+Removed `tile_last_update` (JSON dict) and `tile_updates_24h` (JSON list) from `ProjectInfo` — both were redundant with `HistoryChange` and `TileInfo`. `tile_updates_24h` was write-only dead data (maintained but never consumed). `tile_last_update` had one reader in `_update_single_tile_metadata()` for mtime deduplication, but this was redundant because `run_diff()` is only called after `has_tile_changed()` already confirmed a change. Removed supporting functions (`prune_old_tile_updates`, `update_tile`, `_update_single_tile_metadata`, `_update_tile_metadata`) and the `changed_tile` parameter from `run_diff()`. Generated Aerich migration to drop both columns. Removed 19 dead tests.
+
 ### ✅ `/hawk list` command for Discord bot (2026-02-18)
 
 Added `/hawk list` slash command that shows all projects for the calling user with state-dependent formatting: in-progress projects show completion %, remaining pixels, and 24h progress/regress; complete projects show completion timestamp (Discord relative format); never-checked projects show placeholder text; inactive projects show only the WPlace link. Core logic in `list_projects()` is separated from the handler for testability (same pattern as `grant_admin()`). Streams project formatting and stops when Discord's 2000-char message limit would be exceeded, appending "... and N more". Includes 8 tests covering all states, ordering, and truncation.

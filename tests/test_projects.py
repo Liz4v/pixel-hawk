@@ -1,11 +1,11 @@
 import io
-import os
+
 
 import pytest
 from PIL import Image
 
 from pixel_hawk import projects
-from pixel_hawk.geometry import Point, Rectangle, Size, Tile
+from pixel_hawk.geometry import Point, Rectangle, Size
 from pixel_hawk.models import HistoryChange, Person, ProjectInfo
 from pixel_hawk.palette import PALETTE, AsyncImage
 
@@ -66,7 +66,7 @@ async def test_from_info_valid_project(tmp_path, setup_config, test_person, monk
     im.putdata([1] * 100)
     im.save(path)
 
-    async def noop_run_diff(self, changed_tile=None):
+    async def noop_run_diff(self):
         pass
 
     monkeypatch.setattr(projects.Project, "run_diff", noop_run_diff)
@@ -600,70 +600,6 @@ async def test_run_diff_complete_status(tmp_path, monkeypatch, test_person):
     await proj.run_diff()
 
     assert "Complete" in proj.info.last_log_message
-
-
-async def test_update_single_tile_metadata_updates_when_newer(tmp_path, monkeypatch, setup_config, test_person):
-    """Test _update_single_tile_metadata updates when tile file is newer."""
-    path = tmp_path / "proj_0_0_0_0.png"
-    path.touch()
-    rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
-    proj = await _make_project(path, rect, test_person.id)
-
-    tile = Tile(0, 0)
-    tile_path = setup_config.tiles_dir / f"tile-{tile}.png"
-    tile_path.write_bytes(b"dummy")
-
-    tile_mtime = 10000
-    os.utime(tile_path, (tile_mtime, tile_mtime))
-
-    proj.info.tile_last_update["0_0"] = 5000
-
-    proj._update_single_tile_metadata(tile)
-
-    assert proj.info.tile_last_update["0_0"] == tile_mtime
-    assert ["0_0", tile_mtime] in proj.info.tile_updates_24h
-
-
-async def test_update_single_tile_metadata_skips_when_not_newer(tmp_path, monkeypatch, setup_config, test_person):
-    """Test _update_single_tile_metadata skips update when tile not newer."""
-    path = tmp_path / "proj_0_0_0_0.png"
-    path.touch()
-    rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
-    proj = await _make_project(path, rect, test_person.id)
-
-    tile = Tile(0, 0)
-    tile_path = setup_config.tiles_dir / f"tile-{tile}.png"
-    tile_path.write_bytes(b"dummy")
-
-    tile_mtime = 10000
-    os.utime(tile_path, (tile_mtime, tile_mtime))
-
-    proj.info.tile_last_update["0_0"] = 15000
-    proj.info.tile_updates_24h = [["0_0", 15000]]
-
-    proj._update_single_tile_metadata(tile)
-
-    assert proj.info.tile_last_update["0_0"] == 15000
-    assert len(proj.info.tile_updates_24h) == 1
-    assert ["0_0", 15000] in proj.info.tile_updates_24h
-
-
-async def test_update_single_tile_metadata_handles_missing_file(tmp_path, monkeypatch, setup_config, test_person):
-    """Test _update_single_tile_metadata handles nonexistent tile file."""
-    path = tmp_path / "proj_0_0_0_0.png"
-    path.touch()
-    rect = Rectangle.from_point_size(Point(0, 0), Size(1000, 1000))
-    proj = await _make_project(path, rect, test_person.id)
-
-    tile = Tile(0, 0)
-
-    proj.info.tile_last_update = {}
-    proj.info.tile_updates_24h = []
-
-    proj._update_single_tile_metadata(tile)
-
-    assert "0_0" not in proj.info.tile_last_update
-    assert len(proj.info.tile_updates_24h) == 0
 
 
 async def test_has_missing_tiles_all_present(tmp_path, monkeypatch, setup_config, test_person):

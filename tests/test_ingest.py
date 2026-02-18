@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 
-from pixel_hawk.geometry import Tile
+
 from pixel_hawk.ingest import TileChecker
 from pixel_hawk.models import Person, ProjectInfo, ProjectState, TileInfo, TileProject
 from pixel_hawk.palette import PALETTE
@@ -270,7 +270,7 @@ async def test_check_next_tile_changed_calls_run_diff(setup_config):
     with patch("pixel_hawk.projects.Project.run_diff", mock_run_diff):
         await checker.check_next_tile()
 
-    mock_run_diff.assert_called_once_with(changed_tile=Tile(0, 0))
+    mock_run_diff.assert_called_once_with()
     await checker.close()
 
 
@@ -328,7 +328,7 @@ async def test_check_next_tile_includes_passive_projects(setup_config):
     with patch("pixel_hawk.projects.Project.run_diff", mock_run_diff):
         await checker.check_next_tile()
 
-    mock_run_diff.assert_called_once_with(changed_tile=Tile(0, 0))
+    mock_run_diff.assert_called_once_with()
     await checker.close()
 
 

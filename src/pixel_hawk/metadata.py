@@ -10,27 +10,10 @@ process_diff() creates and returns a HistoryChange object for the caller to pers
 import time
 from typing import TYPE_CHECKING
 
-from .geometry import Tile
 from .models import DiffStatus, HistoryChange
 
 if TYPE_CHECKING:
     from .models import ProjectInfo
-
-
-def prune_old_tile_updates(info: ProjectInfo) -> None:
-    """Remove tile updates older than cutoff_time from 24h list."""
-    cutoff_time = info.last_check - 86400
-    info.tile_updates_24h = [entry for entry in info.tile_updates_24h if entry[1] >= cutoff_time]
-
-
-def update_tile(info: ProjectInfo, tile: Tile, timestamp: int) -> None:
-    """Record a tile update, maintaining last update map and 24h list."""
-    tile_str = str(tile)
-    info.tile_last_update[tile_str] = timestamp
-    # Add to 24h list if not already present with this timestamp
-    entry = [tile_str, timestamp]
-    if entry not in info.tile_updates_24h:
-        info.tile_updates_24h.append(entry)
 
 
 def compare_snapshots(current_data: bytes, prev_data: bytes, target_data: bytes) -> tuple[int, int]:

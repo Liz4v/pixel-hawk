@@ -111,7 +111,7 @@ Query-driven lookup of affected projects when a tile changes. `TileChecker` quer
 A PNG image saved alongside a project that captures the previous canvas state. Used to detect progress/regress by comparing the current state against the previous state.
 
 ### Metadata
-Project statistics and history stored in the `ProjectInfo` database table via Tortoise ORM. Tracks completion, progress/regress totals, rates, and tile update times. Business logic lives in `metadata.py` as standalone functions.
+Project statistics and history stored in the `ProjectInfo` database table via Tortoise ORM. Tracks completion, progress/regress totals, and rates. Business logic lives in `metadata.py` as standalone functions.
 
 ### Completion Percentage
 The percentage of target pixels that are correctly placed on the canvas.

@@ -6,7 +6,7 @@ import time
 import pytest
 
 from pixel_hawk import metadata
-from pixel_hawk.geometry import Point, Rectangle, Size, Tile
+from pixel_hawk.geometry import Point, Rectangle, Size
 from pixel_hawk.models import Person, ProjectInfo
 
 
@@ -37,8 +37,6 @@ async def test_project_info_default_initialization(test_person):
     assert info.largest_regress_time == 0
     assert info.recent_rate_pixels_per_hour == 0.0
     assert info.recent_rate_window_start == 0
-    assert info.tile_last_update == {}
-    assert info.tile_updates_24h == []
 
 
 async def test_from_rect(test_person):
@@ -110,8 +108,6 @@ async def test_db_persistence_round_trip(test_person):
         max_completion_percent=75.5,
         total_progress=50,
         total_regress=5,
-        tile_last_update={"1_2": 7000},
-        tile_updates_24h=[["1_2", 7000]],
     )
     await info.save_as_new()
 
@@ -125,161 +121,6 @@ async def test_db_persistence_round_trip(test_person):
     assert loaded.max_completion_percent == 75.5
     assert loaded.total_progress == 50
     assert loaded.total_regress == 5
-    assert loaded.tile_last_update == {"1_2": 7000}
-    assert loaded.tile_updates_24h == [["1_2", 7000]]
-
-
-async def test_prune_old_tile_updates(test_person):
-    """Test pruning of old tile updates from 24h list."""
-    info = ProjectInfo(owner=test_person, name="prune_test")
-    await info.save_as_new()
-    now = round(time.time())
-    old_time = now - 100000  # more than 24h ago
-    recent_time = now - 1000  # within 24h
-
-    info.tile_updates_24h = [
-        ["old_tile_1", old_time],
-        ["recent_tile", recent_time],
-        ["old_tile_2", old_time - 5000],
-        ["recent_tile_2", now],
-    ]
-
-    info.last_check = now
-    metadata.prune_old_tile_updates(info)
-
-    assert len(info.tile_updates_24h) == 2
-    assert ["recent_tile", recent_time] in info.tile_updates_24h
-    assert ["recent_tile_2", now] in info.tile_updates_24h
-    assert ["old_tile_1", old_time] not in info.tile_updates_24h
-    assert ["old_tile_2", old_time - 5000] not in info.tile_updates_24h
-
-
-async def test_prune_empty_list(test_person):
-    """Test pruning on empty tile updates list."""
-    info = ProjectInfo(owner=test_person, name="prune_empty")
-    await info.save_as_new()
-    info.tile_updates_24h = []
-
-    info.last_check = round(time.time())
-    metadata.prune_old_tile_updates(info)
-
-    assert info.tile_updates_24h == []
-
-
-async def test_prune_all_old(test_person):
-    """Test pruning when all updates are old."""
-    info = ProjectInfo(owner=test_person, name="prune_all_old")
-    await info.save_as_new()
-    old_time = round(time.time()) - 200000
-    info.tile_updates_24h = [
-        ["tile_1", old_time],
-        ["tile_2", old_time + 1000],
-    ]
-
-    info.last_check = round(time.time())
-    metadata.prune_old_tile_updates(info)
-
-    assert info.tile_updates_24h == []
-
-
-async def test_update_tile(test_person):
-    """Test tile update recording."""
-    info = ProjectInfo(owner=test_person, name="update_tile")
-    await info.save_as_new()
-    tile = Tile(1, 2)
-    timestamp = 12345
-
-    metadata.update_tile(info, tile, timestamp)
-
-    assert info.tile_last_update["1_2"] == timestamp
-    assert ["1_2", timestamp] in info.tile_updates_24h
-
-
-async def test_update_tile_multiple_times(test_person):
-    """Test updating the same tile multiple times."""
-    info = ProjectInfo(owner=test_person, name="update_multi")
-    await info.save_as_new()
-    tile = Tile(5, 10)
-
-    metadata.update_tile(info, tile, 1000)
-    assert info.tile_last_update["5_10"] == 1000
-    assert len(info.tile_updates_24h) == 1
-
-    metadata.update_tile(info, tile, 2000)
-    assert info.tile_last_update["5_10"] == 2000
-    assert len(info.tile_updates_24h) == 2
-    assert ["5_10", 1000] in info.tile_updates_24h
-    assert ["5_10", 2000] in info.tile_updates_24h
-
-
-async def test_update_tile_duplicate_prevention(test_person):
-    """Test that duplicate tile updates are not added."""
-    info = ProjectInfo(owner=test_person, name="update_dup")
-    await info.save_as_new()
-    tile = Tile(3, 7)
-    timestamp = 5000
-
-    metadata.update_tile(info, tile, timestamp)
-    metadata.update_tile(info, tile, timestamp)
-    metadata.update_tile(info, tile, timestamp)
-
-    assert info.tile_last_update["3_7"] == timestamp
-    assert len(info.tile_updates_24h) == 1
-    assert info.tile_updates_24h[0] == ["3_7", timestamp]
-
-
-async def test_update_multiple_tiles(test_person):
-    """Test updating multiple different tiles."""
-    info = ProjectInfo(owner=test_person, name="update_many")
-    await info.save_as_new()
-
-    tiles_and_times = [
-        (Tile(1, 2), 1000),
-        (Tile(3, 4), 2000),
-        (Tile(5, 6), 3000),
-    ]
-
-    for tile, timestamp in tiles_and_times:
-        metadata.update_tile(info, tile, timestamp)
-
-    assert len(info.tile_last_update) == 3
-    assert info.tile_last_update["1_2"] == 1000
-    assert info.tile_last_update["3_4"] == 2000
-    assert info.tile_last_update["5_6"] == 3000
-
-    assert len(info.tile_updates_24h) == 3
-    assert ["1_2", 1000] in info.tile_updates_24h
-    assert ["3_4", 2000] in info.tile_updates_24h
-    assert ["5_6", 3000] in info.tile_updates_24h
-
-
-async def test_tile_tracking_integrated(test_person):
-    """Test integrated tile tracking with updates and pruning."""
-    info = ProjectInfo(owner=test_person, name="integrated")
-    await info.save_as_new()
-    now = round(time.time())
-
-    old_time = now - 100000
-    metadata.update_tile(info, Tile(1, 1), old_time)
-    metadata.update_tile(info, Tile(2, 2), old_time + 1000)
-
-    recent_time = now - 1000
-    metadata.update_tile(info, Tile(3, 3), recent_time)
-    metadata.update_tile(info, Tile(4, 4), now)
-
-    assert len(info.tile_last_update) == 4
-    assert len(info.tile_updates_24h) == 4
-
-    info.last_check = now
-    metadata.prune_old_tile_updates(info)
-
-    assert len(info.tile_updates_24h) == 2
-    assert ["3_3", recent_time] in info.tile_updates_24h
-    assert ["4_4", now] in info.tile_updates_24h
-
-    assert len(info.tile_last_update) == 4
-    assert "1_1" in info.tile_last_update
-    assert "2_2" in info.tile_last_update
 
 
 async def test_numeric_fields_precision(test_person):

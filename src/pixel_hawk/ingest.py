@@ -77,7 +77,7 @@ class TileChecker:
         projects = await self._get_projects_for_tile(tile_info)
         if changed:
             for proj in projects:
-                await proj.run_diff(changed_tile=tile_info.tile)
+                await proj.run_diff()
         else:
             untouched = tile_info.last_checked - tile_info.last_update
             logger.debug(f"Tile {tile_info.tile}: Unchanged for {untouched}s ({naturaldelta(untouched)})")
