@@ -156,11 +156,28 @@ All pixel-hawk data lives in a unified directory structure under `nest` (default
 
 **Production deployment:** For production use, set `--nest` explicitly.
 
+### Discord bot
+
+An optional Discord bot runs alongside the polling loop, providing slash commands under the `/hawk` group. Configure by adding a `config.toml` at the nest root:
+
+```toml
+[discord]
+bot_token = "your-bot-token"
+```
+
+If no token is configured, the bot is silently skipped.
+
+**Commands:**
+- `/hawk sa myself <token>` — Grant admin access using a one-time UUID (printed to console and saved to `nest/data/admin-me.txt` on each startup)
+- `/hawk list` — List all your projects with state, completion stats, 24h progress/regress, and WPlace links (ephemeral, visible only to you)
+
 ## Database schema
 
 ### Person table (`person`)
 - `id`: Auto-increment primary key
-- `name`: Unique user name
+- `name`: User name
+- `discord_id`: Optional Discord user ID (unique)
+- `access`: Bitmask for bot-level access control (`BotAccess` IntFlag)
 - `watched_tiles_count`: Cached count of unique tiles watched
 - `active_projects_count`: Cached count of active projects
 - Both counts updated via `update_totals()` on startup

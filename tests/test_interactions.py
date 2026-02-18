@@ -1,13 +1,23 @@
 """Tests for Discord bot integration."""
 
+import time
 import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from pixel_hawk.config import get_config
-from pixel_hawk.interactions import HawkBot, generate_admin_token, grant_admin, load_bot_token, maybe_bot
-from pixel_hawk.models import BotAccess, Person
+from pixel_hawk.geometry import Point, Rectangle, Size
+from pixel_hawk.interactions import (
+    DISCORD_MESSAGE_LIMIT,
+    HawkBot,
+    generate_admin_token,
+    grant_admin,
+    list_projects,
+    load_bot_token,
+    maybe_bot,
+)
+from pixel_hawk.models import BotAccess, DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState
 
 # BotAccess enum tests
 
@@ -225,3 +235,114 @@ class TestMaybeBot:
             async with maybe_bot():
                 pass
             mock_close.assert_awaited_once()
+
+
+# list_projects tests
+
+RECT = Rectangle.from_point_size(Point(500_000, 600_000), Size(100, 100))
+
+
+class TestListProjects:
+    async def test_unknown_discord_id_returns_none(self):
+        result = await list_projects(99999)
+        assert result is None
+
+    async def test_person_with_no_projects(self):
+        await Person.create(name="Empty", discord_id=11111)
+        result = await list_projects(11111)
+        assert result == "You have no projects."
+
+    async def test_active_in_progress(self):
+        person = await Person.create(name="Alice", discord_id=22222)
+        info = await ProjectInfo.from_rect(RECT, person.id, "sonic the hedgehog")
+        info.last_check = round(time.time())
+        await info.save()
+        now = round(time.time())
+        await HistoryChange.create(
+            project=info,
+            timestamp=now,
+            status=DiffStatus.IN_PROGRESS,
+            num_remaining=12415,
+            num_target=26000,
+            completion_percent=52.3,
+            progress_pixels=354,
+            regress_pixels=12,
+        )
+
+        result = await list_projects(22222)
+        assert result is not None
+        assert f"**{info.id}** [ACTIVE] sonic the hedgehog" in result
+        assert "52.3% complete" in result
+        assert "12,415 px remaining" in result
+        assert "Last 24h +354-12" in result
+        assert "https://wplace.live/" in result
+
+    async def test_active_complete(self):
+        person = await Person.create(name="Bob", discord_id=33333)
+        info = await ProjectInfo.from_rect(RECT, person.id, "twilight sparkle")
+        info.last_check = round(time.time())
+        info.max_completion_time = 1770550880
+        await info.save()
+        await HistoryChange.create(
+            project=info,
+            timestamp=round(time.time()),
+            status=DiffStatus.COMPLETE,
+            num_remaining=0,
+            num_target=35221,
+            completion_percent=100.0,
+        )
+
+        result = await list_projects(33333)
+        assert result is not None
+        assert "[ACTIVE] twilight sparkle" in result
+        assert "Complete since <t:1770550880:R>!" in result
+        assert "35,221 px total" in result
+
+    async def test_never_checked(self):
+        person = await Person.create(name="Carol", discord_id=44444)
+        info = await ProjectInfo.from_rect(RECT, person.id, "sans undertale")
+        info.last_check = 0
+        await info.save()
+
+        result = await list_projects(44444)
+        assert result is not None
+        assert "Not yet checked" in result
+
+    async def test_inactive_shows_no_stats(self):
+        person = await Person.create(name="Dave", discord_id=55555)
+        await ProjectInfo.from_rect(RECT, person.id, "old project", state=ProjectState.INACTIVE)
+
+        result = await list_projects(55555)
+        assert result is not None
+        assert "[INACTIVE] old project" in result
+        assert "complete" not in result
+        assert "Not yet checked" not in result
+        assert "https://wplace.live/" in result
+
+    async def test_ordered_by_last_snapshot_descending(self):
+        person = await Person.create(name="Eve", discord_id=66666)
+        old = await ProjectInfo.from_rect(RECT, person.id, "old one")
+        old.last_snapshot = 1000
+        old.last_check = 0
+        await old.save()
+        new = await ProjectInfo.from_rect(RECT, person.id, "new one")
+        new.last_snapshot = 2000
+        new.last_check = 0
+        await new.save()
+
+        result = await list_projects(66666)
+        assert result is not None
+        assert result.index("new one") < result.index("old one")
+
+    async def test_truncation_at_message_limit(self):
+        person = await Person.create(name="Frank", discord_id=77777)
+        for i in range(20):
+            info = await ProjectInfo.from_rect(RECT, person.id, f"project {'x' * 200} {i}")
+            info.last_check = 0
+            await info.save()
+
+        result = await list_projects(77777)
+        assert result is not None
+        assert len(result) <= DISCORD_MESSAGE_LIMIT
+        assert "... and" in result
+        assert "more" in result

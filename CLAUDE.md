@@ -79,6 +79,7 @@ uv run hawk
 - `src/pixel_hawk/projects.py` — `Project` model (async diffs, snapshots, database-first loading via from_info()), `stitch_tiles()` (async canvas assembly)
 - `src/pixel_hawk/metadata.py` — functional service layer for ProjectInfo business logic (pixel counting, snapshot comparison, rate tracking, owner-attributed logging)
 - `src/pixel_hawk/queues.py` — `QueueSystem`, temperature-based tile queues with Zipf distribution, tile metadata tracking
+- `src/pixel_hawk/interactions.py` — Discord bot integration: `HawkBot` (slash commands under `/hawk` group), `grant_admin()` (admin-me flow), `list_projects()` (project listing with stats, 24h changes, Discord message truncation), `maybe_bot()` (lifecycle context manager)
 - `scripts/rebuild.py` — Idempotent database rebuild from filesystem artifacts (projects, tiles, snapshots)
 
 ## Architecture conventions

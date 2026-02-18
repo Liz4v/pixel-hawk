@@ -43,9 +43,13 @@ Add memory profiling to identify and optimize memory usage for deployment on mem
 
 > **Note:** Keep completed task descriptions to a single concise paragraph summarizing what was done.
 
+### ✅ `/hawk list` command for Discord bot (2026-02-18)
+
+Added `/hawk list` slash command that shows all projects for the calling user with state-dependent formatting: in-progress projects show completion %, remaining pixels, and 24h progress/regress; complete projects show completion timestamp (Discord relative format); never-checked projects show placeholder text; inactive projects show only the WPlace link. Core logic in `list_projects()` is separated from the handler for testability (same pattern as `grant_admin()`). Streams project formatting and stops when Discord's 2000-char message limit would be exceeded, appending "... and N more". Includes 8 tests covering all states, ordering, and truncation.
+
 ### ✅ Discord bot foundation with admin access command (2026-02-16)
 
-Added optional Discord bot integration: `config.toml` at nest root for bot credentials, `BotAccess(IntFlag)` enum with `ADMIN = 0x10000000`, `discord_id` and `access` fields on `Person`, and `/hawk admin-me <uuid>` slash command that grants admin access using a UUID4 token generated fresh each startup (stored in `nest/data/admin-me.txt`). Bot runs alongside the polling loop as a background task and is silently skipped when no token is configured. Removed unique constraint from `Person.name` since Discord identity is now the primary lookup key.
+Added optional Discord bot integration: `config.toml` at nest root for bot credentials, `BotAccess(IntFlag)` enum with `ADMIN = 0x10000000`, `discord_id` and `access` fields on `Person`, and `/hawk sa myself <uuid>` slash command that grants admin access using a UUID4 token generated fresh each startup (stored in `nest/data/admin-me.txt`). Bot runs alongside the polling loop as a background task and is silently skipped when no token is configured. Removed unique constraint from `Person.name` since Discord identity is now the primary lookup key.
 
 ### ✅ Query-driven project lookups via TileProject table (2026-02-16)
 
