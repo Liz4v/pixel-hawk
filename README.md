@@ -1,6 +1,8 @@
 # Pixel Hawk
 
-A multi-user change tracker for WPlace paint projects. Monitors tile changes and tracks progress and attacks on artwork for multiple users simultaneously.
+A multi-user change tracker for WPlace paint projects. Monitors tile changes and tracks progress and attacks on artwork.
+
+This is still being built and it's not yet been optimized for being easy to adopt and use. I'm still the only user (that I know of). The rest of this document is LLM-generated, but I'm keeping it around because confusing (but correct) documentation is better than no documentation.
 
 ## What it does
 
