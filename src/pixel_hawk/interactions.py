@@ -17,7 +17,9 @@ from discord import app_commands
 from loguru import logger
 
 from .config import get_config
+from .geometry import Point
 from .models import BotAccess, DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState
+from .palette import PALETTE, ColorsNotInPalette
 
 
 def load_bot_token() -> str | None:
@@ -59,6 +61,158 @@ async def grant_admin(discord_id: int, display_name: str, token: str, expected_t
     return f"Admin access granted to {person.name}."
 
 
+def _parse_filename(filename: str) -> tuple[str | None, tuple[int, int, int, int] | None]:
+    """Extract trailing tx_ty_px_py coords and optional name prefix from a filename."""
+    stem = filename.rsplit(".", maxsplit=1)[0] if "." in filename else filename
+    parts = stem.split("_")
+    if len(parts) >= 4:
+        try:
+            tx, ty, px, py = (int(p) for p in parts[-4:])
+        except ValueError:
+            return None, None
+        if 0 <= tx < 2048 and 0 <= ty < 2048 and 0 <= px < 1000 and 0 <= py < 1000:
+            name = "_".join(parts[:-4]) or None
+            return name, (tx, ty, px, py)
+    return None, None
+
+
+def _parse_coords(coords_str: str) -> tuple[int, int, int, int]:
+    """Parse a tx_ty_px_py coordinate string. Accepts ``_``, ``,`` or space as separators."""
+    parts = coords_str.replace(",", " ").replace("_", " ").split()
+    if len(parts) != 4:
+        raise ValueError("Invalid coordinates: expected tx_ty_px_py (e.g. 5_7_0_0)")
+    try:
+        tx, ty, px, py = (int(p) for p in parts)
+    except ValueError:
+        raise ValueError("Invalid coordinates: all values must be integers")
+    if not (0 <= tx < 2048 and 0 <= ty < 2048 and 0 <= px < 1000 and 0 <= py < 1000):
+        raise ValueError(f"Coordinates out of range: {tx}_{ty}_{px}_{py} (tile 0-2047, pixel 0-999)")
+    return tx, ty, px, py
+
+
+def _set_coords(info: ProjectInfo, person_id: int, x: int, y: int) -> None:
+    """Update info.x/y and rename the file from pending to canonical (or between canonicals)."""
+    person_dir = get_config().projects_dir / str(person_id)
+    pending = person_dir / f"new_{info.id}.png"
+    old_canonical = person_dir / info.filename
+
+    info.x = x
+    info.y = y
+    new_canonical = person_dir / info.filename
+
+    if pending.exists():
+        pending.rename(new_canonical)
+    elif old_canonical != new_canonical and old_canonical.exists():
+        old_canonical.rename(new_canonical)
+
+
+PNG_HEADER = b"\x89PNG\r\n\x1a\n"
+
+
+async def new_project(discord_id: int, image_data: bytes, filename: str) -> str | None:
+    """Create a new project from an uploaded image. Returns None if no Person linked."""
+    person = await Person.filter(discord_id=discord_id).first()
+    if person is None:
+        return None
+
+    if not image_data.startswith(PNG_HEADER):
+        raise ValueError("Not a PNG file.")
+
+    async with PALETTE.aopen_bytes(image_data) as image:
+        width, height = image.size
+
+    if width > 1000 or height > 1000:
+        raise ValueError(f"Image too large ({width}x{height}). Maximum 1000x1000 px.")
+
+    inferred_name, inferred_coords = _parse_filename(filename)
+
+    if inferred_coords:
+        point = Point.from4(*inferred_coords)
+        state = ProjectState.ACTIVE
+    else:
+        point = Point(0, 0)
+        state = ProjectState.CREATING
+
+    now = round(time.time())
+    info = ProjectInfo(
+        owner_id=person.id, name="pending", state=state,
+        x=point.x, y=point.y, width=width, height=height,
+        first_seen=now, last_check=0,
+    )
+    await info.save_as_new()
+    info.name = inferred_name or f"Project {info.id:04}"
+    await info.save()
+
+    person_dir = get_config().projects_dir / str(person.id)
+    await asyncio.to_thread(person_dir.mkdir, parents=True, exist_ok=True)
+
+    if inferred_coords:
+        await asyncio.to_thread((person_dir / info.filename).write_bytes, image_data)
+        linked = await info.link_tiles()
+        await person.update_totals()
+        logger.info(f"{person.name}: Created project {info.id:04} '{info.name}' ({width}x{height}, {linked} tiles)")
+        return f"Project **{info.id:04}** activated ({width}x{height} px, {linked} tiles).\n" \
+               f"Name: {info.name} · Coords: {point}"
+
+    await asyncio.to_thread((person_dir / f"new_{info.id}.png").write_bytes, image_data)
+    logger.info(f"{person.name}: Created project {info.id:04} ({width}x{height}, awaiting coords)")
+    return f"Project **{info.id:04}** created ({width}x{height} px).\n" \
+           f"Use `/hawk edit {info.id}` to set coordinates and name, then activate."
+
+
+async def edit_project(
+    discord_id: int,
+    project_id: int,
+    *,
+    name: str | None = None,
+    coords: str | None = None,
+    state: ProjectState | None = None,
+) -> str | None:
+    """Edit an existing project. Returns None if no Person linked."""
+    person = await Person.filter(discord_id=discord_id).first()
+    if person is None:
+        return None
+
+    info = await ProjectInfo.filter(id=project_id).prefetch_related("owner").first()
+    if info is None:
+        raise ValueError(f"Project {project_id:04} not found.")
+    if info.owner.id != person.id:
+        raise ValueError(f"Project {project_id:04} is not yours.")
+
+    changes: list[str] = []
+
+    if name is not None:
+        existing = await ProjectInfo.filter(owner_id=person.id, name=name).exclude(id=project_id).first()
+        if existing:
+            raise ValueError(f"You already have a project named '{name}'.")
+        info.name = name
+        changes.append(f"Name: {name}")
+
+    if coords is not None:
+        tx, ty, px, py = _parse_coords(coords)
+        point = Point.from4(tx, ty, px, py)
+        _set_coords(info, person.id, point.x, point.y)
+        await info.unlink_tiles()
+        linked = await info.link_tiles()
+        await person.update_totals()
+        changes.append(f"Coords: {tx}_{ty}_{px}_{py} ({linked} tiles)")
+
+    if state is not None:
+        if state in (ProjectState.ACTIVE, ProjectState.PASSIVE):
+            canonical = get_config().projects_dir / str(person.id) / info.filename
+            if not canonical.exists():
+                raise ValueError("Cannot activate: set coordinates first with `/hawk edit`.")
+        info.state = state
+        changes.append(f"State: {state.name}")
+
+    if not changes:
+        raise ValueError("No changes specified.")
+
+    await info.save()
+    logger.info(f"{person.name}: Edited project {info.id:04}: {', '.join(changes)}")
+    return f"Project **{info.id:04}** updated:\n" + "\n".join(f"  {c}" for c in changes)
+
+
 DISCORD_MESSAGE_LIMIT = 2000
 
 
@@ -71,6 +225,9 @@ def _format_project(
     """Format a single project entry for the /hawk list response."""
     state = ProjectState(info.state)
     header = f"**{info.id:04}** [{state.name}] {info.name} <{info.rectangle.to_link()}>"
+
+    if state == ProjectState.CREATING:
+        return f"**{info.id:04}** [CREATING] {info.name}"
 
     if state == ProjectState.INACTIVE:
         return header
@@ -149,6 +306,8 @@ class HawkBot(discord.Client):
         hawk_group = app_commands.Group(name="hawk", description="Pixel Hawk commands")
         hawk_group.command(name="sa", description="Admin commands")(self._sa)
         hawk_group.command(name="list", description="List your projects")(self._list)
+        hawk_group.command(name="new", description="Upload a new project image")(self._new)
+        hawk_group.command(name="edit", description="Edit an existing project")(self._edit)
         self.tree.add_command(hawk_group)
 
     @app_commands.describe(args="Subcommand and arguments")
@@ -172,10 +331,51 @@ class HawkBot(discord.Client):
         msg = await list_projects(interaction.user.id)
         await interaction.response.send_message(msg or "No linked account found.", ephemeral=True)
 
+    @app_commands.describe(image="Project PNG image (must use WPlace palette, max 1000x1000)")
+    async def _new(self, interaction: discord.Interaction, image: discord.Attachment) -> None:
+        """Handle /hawk new — upload a new project image."""
+        await interaction.response.defer(ephemeral=True)
+        try:
+            image_data = await image.read()
+            msg = await new_project(interaction.user.id, image_data, image.filename)
+        except (ValueError, ColorsNotInPalette) as e:
+            msg = str(e)
+        except Exception as e:
+            logger.error(f"Error in /hawk new: {e}")
+            msg = "An error occurred while creating the project."
+        await interaction.followup.send(msg or "No linked account found.", ephemeral=True)
+
+    @app_commands.describe(
+        project_id="Project ID (4-digit number)", name="New project name",
+        coords="Coordinates as tx_ty_px_py (e.g. 5_7_0_0)", state="Project state",
+    )
+    @app_commands.choices(state=[
+        app_commands.Choice(name="Active", value=int(ProjectState.ACTIVE)),
+        app_commands.Choice(name="Passive", value=int(ProjectState.PASSIVE)),
+        app_commands.Choice(name="Inactive", value=int(ProjectState.INACTIVE)),
+    ])
+    async def _edit(
+        self,
+        interaction: discord.Interaction,
+        project_id: int,
+        name: str | None = None,
+        coords: str | None = None,
+        state: app_commands.Choice[int] | None = None,
+    ) -> None:
+        """Handle /hawk edit — modify an existing project."""
+        await interaction.response.defer(ephemeral=True)
+        try:
+            state_value = ProjectState(state.value) if state else None
+            msg = await edit_project(interaction.user.id, project_id, name=name, coords=coords, state=state_value)
+        except ValueError as e:
+            msg = str(e)
+        except Exception as e:
+            logger.error(f"Error in /hawk edit: {e}")
+            msg = "An error occurred while editing the project."
+        await interaction.followup.send(msg or "No linked account found.", ephemeral=True)
+
     async def setup_hook(self) -> None:
-        """Sync command tree with Discord on ready."""
-        synced = await self.tree.sync()
-        logger.debug(f"Discord bot command tree synced: {synced}")
+        await self.tree.sync()
         logger.info("Discord bot command tree synced")
 
     async def on_ready(self) -> None:
@@ -184,11 +384,7 @@ class HawkBot(discord.Client):
 
 @contextlib.asynccontextmanager
 async def maybe_bot():
-    """Attempt to start the Discord bot.
-
-    Reads bot_token from config.toml, generates the admin UUID, and launches
-    the bot as a background asyncio task in the current event loop.
-    """
+    """Start the Discord bot if a token is configured, otherwise silently skip."""
     token = load_bot_token()
     if token is None:
         logger.debug("No Discord bot token in config.toml, skipping bot")

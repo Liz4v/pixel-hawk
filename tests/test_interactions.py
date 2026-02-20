@@ -2,22 +2,29 @@
 
 import time
 import uuid
+from io import BytesIO
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from PIL import Image
 
 from pixel_hawk.config import get_config
 from pixel_hawk.geometry import Point, Rectangle, Size
 from pixel_hawk.interactions import (
     DISCORD_MESSAGE_LIMIT,
     HawkBot,
+    _parse_coords,
+    _parse_filename,
+    edit_project,
     generate_admin_token,
     grant_admin,
     list_projects,
     load_bot_token,
     maybe_bot,
+    new_project,
 )
-from pixel_hawk.models import BotAccess, DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState
+from pixel_hawk.models import BotAccess, DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState, TileProject
+from pixel_hawk.palette import PALETTE, ColorsNotInPalette
 
 # BotAccess enum tests
 
@@ -271,7 +278,7 @@ class TestListProjects:
 
         result = await list_projects(22222)
         assert result is not None
-        assert f"**{info.id}** [ACTIVE] sonic the hedgehog" in result
+        assert f"**{info.id:04}** [ACTIVE] sonic the hedgehog" in result
         assert "52.3% complete" in result
         assert "12,415 px remaining" in result
         assert "Last 24h +354-12" in result
@@ -307,6 +314,18 @@ class TestListProjects:
         result = await list_projects(44444)
         assert result is not None
         assert "Not yet checked" in result
+
+    async def test_checked_no_history_shows_header_only(self):
+        person = await Person.create(name="Carol2", discord_id=44555)
+        info = await ProjectInfo.from_rect(RECT, person.id, "checked project")
+        info.last_check = round(time.time())
+        await info.save()
+
+        result = await list_projects(44555)
+        assert result is not None
+        assert "[ACTIVE] checked project" in result
+        assert "complete" not in result
+        assert "Not yet checked" not in result
 
     async def test_inactive_shows_no_stats(self):
         person = await Person.create(name="Dave", discord_id=55555)
@@ -346,3 +365,351 @@ class TestListProjects:
         assert len(result) <= DISCORD_MESSAGE_LIMIT
         assert "... and" in result
         assert "more" in result
+
+    async def test_creating_shows_no_link(self):
+        person = await Person.create(name="Grace", discord_id=88888)
+        await ProjectInfo.from_rect(RECT, person.id, "wip", state=ProjectState.CREATING)
+
+        result = await list_projects(88888)
+        assert result is not None
+        assert "[CREATING] wip" in result
+        assert "https://wplace.live/" not in result
+
+
+# Test image helpers
+
+
+def _make_test_png(width: int = 10, height: int = 10) -> bytes:
+    """Create a valid WPlace palette PNG as bytes."""
+    image = PALETTE.new((width, height))
+    buf = BytesIO()
+    image.save(buf, format="PNG")
+    image.close()
+    return buf.getvalue()
+
+
+def _make_bad_png(width: int = 10, height: int = 10) -> bytes:
+    """Create a PNG with colors not in the WPlace palette."""
+    image = Image.new("RGB", (width, height), color=(1, 2, 3))
+    buf = BytesIO()
+    image.save(buf, format="PNG")
+    image.close()
+    return buf.getvalue()
+
+
+# _parse_filename tests
+
+
+class TestParseFilename:
+    def test_coords_only(self):
+        name, coords = _parse_filename("5_7_0_0.png")
+        assert name is None
+        assert coords == (5, 7, 0, 0)
+
+    def test_name_and_coords(self):
+        name, coords = _parse_filename("sonic_5_7_0_0.png")
+        assert name == "sonic"
+        assert coords == (5, 7, 0, 0)
+
+    def test_multi_word_name_and_coords(self):
+        name, coords = _parse_filename("my_cool_art_1_2_100_200.png")
+        assert name == "my_cool_art"
+        assert coords == (1, 2, 100, 200)
+
+    def test_no_coords(self):
+        name, coords = _parse_filename("my project.png")
+        assert name is None
+        assert coords is None
+
+    def test_generic_filename(self):
+        name, coords = _parse_filename("image.png")
+        assert name is None
+        assert coords is None
+
+    def test_out_of_range_tile_ignored(self):
+        name, coords = _parse_filename("test_9999_0_0_0.png")
+        assert coords is None
+
+    def test_out_of_range_pixel_ignored(self):
+        name, coords = _parse_filename("test_0_0_1000_0.png")
+        assert coords is None
+
+    def test_no_extension(self):
+        name, coords = _parse_filename("5_7_0_0")
+        assert coords == (5, 7, 0, 0)
+
+    def test_non_numeric_parts(self):
+        name, coords = _parse_filename("a_b_c_d.png")
+        assert coords is None
+
+
+# _parse_coords tests
+
+
+class TestParseCoords:
+    def test_underscore_separator(self):
+        assert _parse_coords("5_7_0_0") == (5, 7, 0, 0)
+
+    def test_comma_separator(self):
+        assert _parse_coords("5,7,0,0") == (5, 7, 0, 0)
+
+    def test_space_separator(self):
+        assert _parse_coords("5 7 0 0") == (5, 7, 0, 0)
+
+    def test_mixed_separators(self):
+        assert _parse_coords("5_7,0 0") == (5, 7, 0, 0)
+
+    def test_wrong_count(self):
+        with pytest.raises(ValueError, match="expected tx_ty_px_py"):
+            _parse_coords("5_7_0")
+
+    def test_non_numeric(self):
+        with pytest.raises(ValueError, match="integers"):
+            _parse_coords("a_b_c_d")
+
+    def test_tile_out_of_range(self):
+        with pytest.raises(ValueError, match="out of range"):
+            _parse_coords("2048_0_0_0")
+
+    def test_pixel_out_of_range(self):
+        with pytest.raises(ValueError, match="out of range"):
+            _parse_coords("0_0_1000_0")
+
+    def test_negative_values(self):
+        with pytest.raises(ValueError, match="out of range"):
+            _parse_coords("-1_0_0_0")
+
+
+# new_project tests
+
+
+class TestNewProject:
+    async def test_no_person_returns_none(self):
+        result = await new_project(99999, _make_test_png(), "test.png")
+        assert result is None
+
+    async def test_not_png_raises(self):
+        await Person.create(name="Alice", discord_id=10001)
+        with pytest.raises(ValueError, match="Not a PNG"):
+            await new_project(10001, b"not a png file", "test.png")
+
+    async def test_too_large_raises(self):
+        await Person.create(name="Bob", discord_id=10002)
+        with pytest.raises(ValueError, match="too large"):
+            await new_project(10002, _make_test_png(1001, 500), "test.png")
+
+    async def test_bad_palette_raises(self):
+        await Person.create(name="Carol", discord_id=10003)
+        with pytest.raises(ColorsNotInPalette):
+            await new_project(10003, _make_bad_png(), "test.png")
+
+    async def test_plain_filename_creates_creating_project(self):
+        person = await Person.create(name="Dave", discord_id=10004)
+        result = await new_project(10004, _make_test_png(), "image.png")
+
+        assert result is not None
+        assert "created" in result
+        assert "/hawk edit" in result
+
+        info = await ProjectInfo.filter(owner=person).first()
+        assert info is not None
+        assert info.state == ProjectState.CREATING
+        assert info.name.startswith("Project ")
+
+        # Pending file should exist
+        pending = get_config().projects_dir / str(person.id) / f"new_{info.id}.png"
+        assert pending.exists()
+
+    async def test_coords_filename_creates_active_project(self):
+        person = await Person.create(name="Eve", discord_id=10005)
+        result = await new_project(10005, _make_test_png(50, 60), "5_7_0_0.png")
+
+        assert result is not None
+        assert "activated" in result
+
+        info = await ProjectInfo.filter(owner=person).first()
+        assert info is not None
+        assert info.state == ProjectState.ACTIVE
+        assert info.x == 5000
+        assert info.y == 7000
+        assert info.width == 50
+        assert info.height == 60
+
+        # Canonical file should exist (not pending)
+        canonical = get_config().projects_dir / str(person.id) / info.filename
+        assert canonical.exists()
+        pending = get_config().projects_dir / str(person.id) / f"new_{info.id}.png"
+        assert not pending.exists()
+
+    async def test_name_and_coords_from_filename(self):
+        person = await Person.create(name="Fay", discord_id=10006)
+        await new_project(10006, _make_test_png(), "sonic_5_7_0_0.png")
+
+        info = await ProjectInfo.filter(owner=person).first()
+        assert info is not None
+        assert info.name == "sonic"
+        assert info.state == ProjectState.ACTIVE
+
+    async def test_coords_filename_creates_tile_links(self):
+        person = await Person.create(name="Gina", discord_id=10007)
+        await new_project(10007, _make_test_png(), "5_7_0_0.png")
+
+        info = await ProjectInfo.filter(owner=person).first()
+        tile_links = await TileProject.filter(project_id=info.id).count()
+        assert tile_links > 0
+
+    async def test_plain_filename_no_tile_links(self):
+        person = await Person.create(name="Hank", discord_id=10008)
+        await new_project(10008, _make_test_png(), "image.png")
+
+        info = await ProjectInfo.filter(owner=person).first()
+        tile_links = await TileProject.filter(project_id=info.id).count()
+        assert tile_links == 0
+
+
+# edit_project tests
+
+
+class TestEditProject:
+    async def test_no_person_returns_none(self):
+        result = await edit_project(99999, 1, name="test")
+        assert result is None
+
+    async def test_project_not_found(self):
+        await Person.create(name="Alice", discord_id=20001)
+        with pytest.raises(ValueError, match="not found"):
+            await edit_project(20001, 9999, name="test")
+
+    async def test_not_owner(self):
+        owner = await Person.create(name="Owner", discord_id=20002)
+        await Person.create(name="Other", discord_id=20003)
+        info = await ProjectInfo.from_rect(RECT, owner.id, "owned project")
+
+        with pytest.raises(ValueError, match="not yours"):
+            await edit_project(20003, info.id, name="stolen")
+
+    async def test_set_name(self):
+        person = await Person.create(name="Bob", discord_id=20004)
+        info = await ProjectInfo.from_rect(RECT, person.id, "old name")
+
+        result = await edit_project(20004, info.id, name="new name")
+        assert result is not None
+        assert "new name" in result
+
+        reloaded = await ProjectInfo.get(id=info.id)
+        assert reloaded.name == "new name"
+
+    async def test_duplicate_name_raises(self):
+        person = await Person.create(name="Carol", discord_id=20005)
+        await ProjectInfo.from_rect(RECT, person.id, "existing")
+        info2 = await ProjectInfo.from_rect(RECT, person.id, "other")
+
+        with pytest.raises(ValueError, match="already have"):
+            await edit_project(20005, info2.id, name="existing")
+
+    async def test_set_coords_renames_pending_file(self):
+        person = await Person.create(name="Dave", discord_id=20006)
+        await new_project(20006, _make_test_png(), "image.png")
+        info = await ProjectInfo.filter(owner=person).first()
+
+        pending = get_config().projects_dir / str(person.id) / f"new_{info.id}.png"
+        assert pending.exists()
+
+        result = await edit_project(20006, info.id, coords="5_7_0_0")
+        assert result is not None
+        assert "5_7_0_0" in result
+
+        assert not pending.exists()
+        reloaded = await ProjectInfo.get(id=info.id)
+        canonical = get_config().projects_dir / str(person.id) / reloaded.filename
+        assert canonical.exists()
+
+    async def test_set_coords_creates_tile_links(self):
+        person = await Person.create(name="Eve", discord_id=20007)
+        await new_project(20007, _make_test_png(), "image.png")
+        info = await ProjectInfo.filter(owner=person).first()
+
+        await edit_project(20007, info.id, coords="5_7_0_0")
+
+        tile_links = await TileProject.filter(project_id=info.id).count()
+        assert tile_links > 0
+
+    async def test_change_coords_relinks_tiles(self):
+        person = await Person.create(name="Fay", discord_id=20008)
+        await new_project(20008, _make_test_png(), "image.png")
+        info = await ProjectInfo.filter(owner=person).first()
+
+        await edit_project(20008, info.id, coords="5_7_0_0")
+
+        await edit_project(20008, info.id, coords="10_20_0_0")
+
+        # Should have tile links (old ones deleted, new ones created)
+        assert await TileProject.filter(project_id=info.id).count() > 0
+
+        reloaded = await ProjectInfo.get(id=info.id)
+        assert reloaded.x == 10000
+        assert reloaded.y == 20000
+
+    async def test_activate_requires_coords(self):
+        person = await Person.create(name="Gina", discord_id=20009)
+        await new_project(20009, _make_test_png(), "image.png")
+        info = await ProjectInfo.filter(owner=person).first()
+
+        with pytest.raises(ValueError, match="set coordinates first"):
+            await edit_project(20009, info.id, state=ProjectState.ACTIVE)
+
+    async def test_activate_with_coords(self):
+        person = await Person.create(name="Hank", discord_id=20010)
+        await new_project(20010, _make_test_png(), "image.png")
+        info = await ProjectInfo.filter(owner=person).first()
+
+        await edit_project(20010, info.id, coords="5_7_0_0")
+        result = await edit_project(20010, info.id, state=ProjectState.ACTIVE)
+
+        assert result is not None
+        assert "ACTIVE" in result
+        reloaded = await ProjectInfo.get(id=info.id)
+        assert reloaded.state == ProjectState.ACTIVE
+
+    async def test_no_changes_raises(self):
+        person = await Person.create(name="Ivy", discord_id=20011)
+        info = await ProjectInfo.from_rect(RECT, person.id, "test")
+
+        with pytest.raises(ValueError, match="No changes"):
+            await edit_project(20011, info.id)
+
+    async def test_all_at_once(self):
+        person = await Person.create(name="Jack", discord_id=20012)
+        await new_project(20012, _make_test_png(), "image.png")
+        info = await ProjectInfo.filter(owner=person).first()
+
+        result = await edit_project(
+            20012, info.id, name="sonic", coords="5_7_0_0", state=ProjectState.ACTIVE
+        )
+
+        assert result is not None
+        assert "sonic" in result
+        assert "5_7_0_0" in result
+        assert "ACTIVE" in result
+
+        reloaded = await ProjectInfo.get(id=info.id)
+        assert reloaded.name == "sonic"
+        assert reloaded.state == ProjectState.ACTIVE
+        assert reloaded.x == 5000
+
+
+# HawkBot command tree tests
+
+
+class TestHawkBotNewCommands:
+    def test_command_tree_has_new(self):
+        bot = HawkBot("test-token")
+        hawk = next(c for c in bot.tree.get_commands() if c.name == "hawk")
+        names = [c.name for c in hawk.commands]
+        assert "new" in names
+
+    def test_command_tree_has_edit(self):
+        bot = HawkBot("test-token")
+        hawk = next(c for c in bot.tree.get_commands() if c.name == "hawk")
+        names = [c.name for c in hawk.commands]
+        assert "edit" in names

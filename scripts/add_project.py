@@ -14,7 +14,7 @@ from pathlib import Path
 from pixel_hawk.config import get_config
 from pixel_hawk.db import database
 from pixel_hawk.geometry import Point, Rectangle, Size
-from pixel_hawk.models import Person, ProjectInfo, ProjectState, TileInfo, TileProject
+from pixel_hawk.models import Person, ProjectInfo, ProjectState
 
 
 async def list_persons() -> list[Person]:
@@ -121,18 +121,7 @@ async def create_project(person: Person) -> ProjectInfo:
 
 async def link_tiles(person: Person, info: ProjectInfo) -> None:
     """Create TileInfo and TileProject records so the watcher can discover this project."""
-    rect = info.rectangle
-    tiles_created = 0
-    for tile in rect.tiles:
-        tile_id = TileInfo.tile_id(tile.x, tile.y)
-        await TileInfo.get_or_create(
-            id=tile_id,
-            defaults={"x": tile.x, "y": tile.y, "heat": 999, "last_checked": 0, "last_update": 0, "etag": ""},
-        )
-        _, created = await TileProject.get_or_create(tile_id=tile_id, project_id=info.id)
-        if created:
-            tiles_created += 1
-
+    tiles_created = await info.link_tiles()
     await person.update_totals()
     print(f"  Tiles linked: {tiles_created}")
 

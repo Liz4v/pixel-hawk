@@ -34,6 +34,7 @@ class ProjectState(IntEnum):
     ACTIVE = 0  # Watched, counts towards quota
     PASSIVE = 10  # Checked if tile updates, doesn't count towards quota
     INACTIVE = 20  # Not checked, doesn't count towards quota
+    CREATING = 30  # Newly uploaded via Discord, not yet configured
 
 
 class BotAccess(IntFlag):
@@ -152,6 +153,30 @@ class ProjectInfo(Model):
             except IntegrityError:
                 continue
         assert False, f"Failed to save project with unique ID after {max_attempts} attempts"
+
+    async def link_tiles(self) -> int:
+        """Create TileInfo and TileProject records for all tiles in this project's rectangle.
+
+        Returns the number of new TileProject records created.
+        """
+        created_count = 0
+        for tile in self.rectangle.tiles:
+            tile_id = TileInfo.tile_id(tile.x, tile.y)
+            await TileInfo.get_or_create(
+                id=tile_id,
+                defaults={"x": tile.x, "y": tile.y, "heat": 999, "last_checked": 0, "last_update": 0, "etag": ""},
+            )
+            _, created = await TileProject.get_or_create(tile_id=tile_id, project_id=self.id)
+            if created:
+                created_count += 1
+        return created_count
+
+    async def unlink_tiles(self) -> int:
+        """Delete all TileProject records for this project.
+
+        Returns the number of records deleted.
+        """
+        return await TileProject.filter(project_id=self.id).delete()
 
     @classmethod
     async def from_rect(
