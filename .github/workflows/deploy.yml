@@ -1,0 +1,24 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Stop service
+        run: sudo systemctl stop pixel-hawk
+
+      - name: Pull latest
+        run: cd ~/pixel-hawk && git pull
+
+      - name: Sync dependencies
+        run: cd ~/pixel-hawk && uv sync --quiet
+
+      - name: Start service
+        run: sudo systemctl start pixel-hawk
+
+      - name: Verify
+        run: sleep 3 && sudo systemctl is-active pixel-hawk
