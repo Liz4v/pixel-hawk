@@ -11,7 +11,7 @@ dependencies = [
     "loguru>=0.7.3",
     "pillow>=12.0.0",
     "httpx>=0.28.0",
-    "tortoise-orm>=0.25.0",
+    "tortoise-orm>=1.0.0",
     "humanize>=4.15.0",
     "discord.py>=2.4.0",
 ]
@@ -31,7 +31,7 @@ dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.0.0",
     "pytest-cov>=7.0.0",
-    "ty>=0.0.17",
+    "ty==0.0.17",
     "aerich[toml]>=0.8.0",
 ]
 

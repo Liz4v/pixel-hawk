@@ -88,10 +88,10 @@ class ProjectInfo(Model):
     owner = fields.ForeignKeyField("models.Person", related_name="projects")
 
     # Project name (no longer in filename, only in database)
-    name = fields.CharField(max_length=255, index=True)
+    name = fields.CharField(max_length=255, db_index=True)
 
     # Project state for quota control
-    state = fields.IntEnumField(ProjectState, default=ProjectState.ACTIVE, index=True)
+    state = fields.IntEnumField(ProjectState, default=ProjectState.ACTIVE, db_index=True)
 
     # Project bounds
     x = fields.IntField(default=0)
