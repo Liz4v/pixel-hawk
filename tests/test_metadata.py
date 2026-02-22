@@ -377,3 +377,57 @@ async def test_save_as_new_exhaustion(test_person, monkeypatch):
     second = ProjectInfo(owner=test_person, name="exhausted")
     with pytest.raises(AssertionError, match="Failed to save project with unique ID"):
         await second.save_as_new(max_attempts=5)
+
+
+# link_tiles / unlink_tiles tests
+
+
+TILE_RECT = Rectangle.from_point_size(Point(5000, 7000), Size(100, 100))
+
+
+class TestLinkTiles:
+    async def test_creates_tile_records(self, test_person):
+        info = await ProjectInfo.from_rect(TILE_RECT, test_person.id, "link-test")
+        linked = await info.link_tiles()
+        assert linked > 0
+
+        from pixel_hawk.models import TileProject
+
+        count = await TileProject.filter(project_id=info.id).count()
+        assert count == linked
+
+    async def test_idempotent(self, test_person):
+        info = await ProjectInfo.from_rect(TILE_RECT, test_person.id, "idem-test")
+        first = await info.link_tiles()
+        second = await info.link_tiles()
+        assert first > 0
+        assert second == 0
+
+    async def test_creates_tile_info(self, test_person):
+        info = await ProjectInfo.from_rect(TILE_RECT, test_person.id, "tileinfo-test")
+        await info.link_tiles()
+
+        from pixel_hawk.models import TileInfo
+
+        tile_info = await TileInfo.get(id=TileInfo.tile_id(5, 7))
+        assert tile_info.x == 5
+        assert tile_info.y == 7
+
+
+class TestUnlinkTiles:
+    async def test_deletes_tile_projects(self, test_person):
+        info = await ProjectInfo.from_rect(TILE_RECT, test_person.id, "unlink-test")
+        await info.link_tiles()
+
+        deleted = await info.unlink_tiles()
+        assert deleted > 0
+
+        from pixel_hawk.models import TileProject
+
+        count = await TileProject.filter(project_id=info.id).count()
+        assert count == 0
+
+    async def test_no_records_returns_zero(self, test_person):
+        info = await ProjectInfo.from_rect(TILE_RECT, test_person.id, "empty-test")
+        deleted = await info.unlink_tiles()
+        assert deleted == 0
