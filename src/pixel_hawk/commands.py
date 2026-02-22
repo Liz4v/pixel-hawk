@@ -17,6 +17,7 @@ from .config import get_config
 from .geometry import Point
 from .models import BotAccess, DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState
 from .palette import PALETTE
+from .projects import Project, count_cached_tiles
 
 _command_prefix: str | None = None
 
@@ -113,6 +114,21 @@ def _set_coords(info: ProjectInfo, person_id: int, x: int, y: int) -> None:
         old.rename(new)
 
 
+async def _try_initial_diff(info: ProjectInfo) -> str | None:
+    """Run an initial diff if any tiles are cached. Returns formatted status or None."""
+    cached, total = await count_cached_tiles(info.rectangle)
+    if cached == 0:
+        return None
+    await info.fetch_related("owner")
+    change = await Project(info).run_diff()
+    if not change.pk:
+        await change.save()
+    status = _format_project(info, change, 0, 0)
+    if cached < total:
+        status += f"\n  ({cached}/{total} tiles cached)"
+    return status
+
+
 PNG_HEADER = b"\x89PNG\r\n\x1a\n"
 
 
@@ -167,10 +183,16 @@ async def new_project(discord_id: int, image_data: bytes, filename: str) -> str 
         linked = await info.link_tiles()
         await person.update_totals()
         logger.info(f"{person.name}: Created project {info.id:04} '{info.name}' ({width}x{height}, {linked} tiles)")
-        return (
+        result = (
             f"Project **{info.id:04}** activated ({width}x{height} px, {linked} tiles).\n"
             f"Name: {info.name} · Coords: {point}"
         )
+
+        status = await _try_initial_diff(info)
+        if status:
+            result += "\n" + status
+
+        return result
 
     await asyncio.to_thread((person_dir / info.filename).write_bytes, image_data)
     logger.info(f"{person.name}: Created project {info.id:04} '{info.name}' ({width}x{height}, awaiting coords)")
@@ -201,6 +223,7 @@ async def edit_project(
         raise ValueError(f"Project {project_id:04} is not yours.")
 
     changes: list[str] = []
+    coords_changed = False
 
     if name is not None:
         existing = await ProjectInfo.filter(owner_id=person.id, name=name).exclude(id=project_id).first()
@@ -217,6 +240,7 @@ async def edit_project(
         linked = await info.link_tiles()
         await person.update_totals()
         changes.append(f"Coords: {tx}_{ty}_{px}_{py} ({linked} tiles)")
+        coords_changed = True
 
     if state is not None:
         if state in (ProjectState.ACTIVE, ProjectState.PASSIVE) and info.state == ProjectState.CREATING:
@@ -228,6 +252,12 @@ async def edit_project(
         raise ValueError("No changes specified.")
 
     await info.save()
+
+    if coords_changed and info.state == ProjectState.ACTIVE:
+        status = await _try_initial_diff(info)
+        if status:
+            changes.append(status)
+
     logger.info(f"{person.name}: Edited project {info.id:04}: {', '.join(changes)}")
     return f"Project **{info.id:04}** updated:\n" + "\n".join(f"  {c}" for c in changes)
 

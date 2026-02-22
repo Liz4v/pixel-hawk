@@ -17,6 +17,7 @@ from pixel_hawk.commands import (
     new_project,
     parse_filename,
 )
+from pixel_hawk import projects
 from pixel_hawk.config import get_config
 from pixel_hawk.geometry import Point, Rectangle, Size
 from pixel_hawk.models import BotAccess, DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState, TileProject
@@ -633,3 +634,129 @@ class TestEditProject:
         assert reloaded.name == "sonic"
         assert reloaded.state == ProjectState.ACTIVE
         assert reloaded.x == 5000
+
+
+# Initial diff tests
+
+
+class _FakeImage:
+    """Minimal fake image for monkeypatching PALETTE.aopen_file and stitch_tiles."""
+
+    def __init__(self, data, size=(10, 10)):
+        self._data = data
+        self.size = size
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        pass
+
+    def get_flattened_data(self):
+        return self._data
+
+    def save(self, path):
+        pass
+
+    def close(self):
+        pass
+
+
+def _patch_diff(monkeypatch, size=(10, 10), target_value=1, current_value=1):
+    """Patch stitch_tiles and PALETTE.aopen_file so run_diff can execute."""
+    n = size[0] * size[1]
+    target = _FakeImage(bytes([target_value] * n), size)
+    current = _FakeImage(bytes([current_value] * n), size)
+
+    monkeypatch.setattr(PALETTE, "aopen_file", lambda path: target)
+
+    async def fake_stitch(rect):
+        return current
+
+    monkeypatch.setattr(projects, "stitch_tiles", fake_stitch)
+
+
+class TestInitialDiffNewProject:
+    async def test_no_tiles_skips_diff(self, monkeypatch):
+        """No tiles cached -> no initial diff in response."""
+        person = await Person.create(name="NoDiff", discord_id=30001)
+        result = await new_project(30001, _make_test_png(), "5_7_0_0.png")
+
+        assert result is not None
+        assert "activated" in result
+        # No completion stats since no tiles cached
+        assert "complete" not in result
+
+    async def test_all_tiles_runs_diff(self, setup_config, monkeypatch):
+        """All tiles cached -> initial diff included in response."""
+        _patch_diff(monkeypatch)
+        person = await Person.create(name="AllTiles", discord_id=30002)
+
+        # Pre-create the tile cache file
+        (setup_config.tiles_dir / "tile-5_7.png").touch()
+
+        result = await new_project(30002, _make_test_png(), "5_7_0_0.png")
+
+        assert result is not None
+        assert "activated" in result
+        assert "complete" in result.lower() or "%" in result
+
+    async def test_some_tiles_shows_count(self, setup_config, monkeypatch):
+        """Partial tiles cached -> diff runs with tile count note."""
+        _patch_diff(monkeypatch, size=(20, 10), target_value=1, current_value=0)
+        person = await Person.create(name="SomeTiles", discord_id=30003)
+
+        # 20px wide starting at px=990 spans tiles 5 and 6
+        png = _make_test_png(20, 10)
+        (setup_config.tiles_dir / "tile-5_7.png").touch()
+
+        result = await new_project(30003, png, "5_7_990_0.png")
+
+        assert result is not None
+        assert "1/2 tiles cached" in result
+
+
+class TestInitialDiffEditProject:
+    async def test_coords_change_with_tiles_runs_diff(self, setup_config, monkeypatch):
+        """Editing coords with tiles cached -> initial diff included."""
+        _patch_diff(monkeypatch)
+        person = await Person.create(name="EditDiff", discord_id=30004)
+        await new_project(30004, _make_test_png(), "image.png")
+        info = await ProjectInfo.filter(owner=person).first()
+
+        (setup_config.tiles_dir / "tile-10_20.png").touch()
+
+        result = await edit_project(30004, info.id, coords="10_20_0_0")
+
+        assert result is not None
+        assert "10_20_0_0" in result
+        assert "complete" in result.lower() or "%" in result
+
+    async def test_coords_change_no_tiles_skips_diff(self):
+        """Editing coords without tiles cached -> no diff."""
+        person = await Person.create(name="EditNoDiff", discord_id=30005)
+        await new_project(30005, _make_test_png(), "image.png")
+        info = await ProjectInfo.filter(owner=person).first()
+
+        result = await edit_project(30005, info.id, coords="10_20_0_0")
+
+        assert result is not None
+        assert "10_20_0_0" in result
+        assert "complete" not in result.lower()
+
+    async def test_name_only_no_diff(self):
+        """Editing only the name -> no diff attempted."""
+        person = await Person.create(name="NameOnly", discord_id=30006)
+        info = await ProjectInfo.from_rect(RECT, person.id, "old")
+
+        result = await edit_project(30006, info.id, name="new")
+
+        assert result is not None
+        assert "new" in result
+        assert "complete" not in result.lower()

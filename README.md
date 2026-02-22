@@ -12,6 +12,7 @@ pixel-hawk polls WPlace tile images, stitches cached tiles, and diffs them again
 - Checks one tile per cycle in round-robin fashion across burning and temperature queues
 - Downloads and caches WPlace tiles when they change
 - Discovers affected projects on demand via database queries (query-driven architecture)
+- Runs an immediate initial diff when creating or editing a project if tiles are already cached (reports partial coverage when some tiles are missing)
 - Diffs updated tiles against project images
 - Tracks watched tiles per person with overlap deduplication
 - Logs pixel placement progress with owner attribution

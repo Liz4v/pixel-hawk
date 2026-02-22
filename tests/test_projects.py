@@ -615,6 +615,38 @@ async def test_run_diff_sets_has_missing_tiles(monkeypatch, setup_config, test_p
     assert proj.info.has_missing_tiles is False
 
 
+# --- count_cached_tiles ---
+
+
+async def test_count_cached_tiles_all_present(setup_config):
+    """All tiles exist in cache."""
+    rect = Rectangle.from_point_size(Point(0, 0), Size(2000, 1000))
+    for tile in rect.tiles:
+        (setup_config.tiles_dir / f"tile-{tile}.png").touch()
+
+    cached, total = await projects.count_cached_tiles(rect)
+    assert cached == total == 2
+
+
+async def test_count_cached_tiles_some_present(setup_config):
+    """Only one of two tiles exists."""
+    rect = Rectangle.from_point_size(Point(0, 0), Size(2000, 1000))
+    (setup_config.tiles_dir / "tile-0_0.png").touch()
+
+    cached, total = await projects.count_cached_tiles(rect)
+    assert cached == 1
+    assert total == 2
+
+
+async def test_count_cached_tiles_none_present(setup_config):
+    """No tiles exist in cache."""
+    rect = Rectangle.from_point_size(Point(0, 0), Size(2000, 1000))
+
+    cached, total = await projects.count_cached_tiles(rect)
+    assert cached == 0
+    assert total == 2
+
+
 # --- stitch_tiles ---
 def _paletted_png_bytes(size=(1, 1), data=(0,)):
     im = PALETTE.new(size)

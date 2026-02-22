@@ -25,7 +25,7 @@ from loguru import logger
 from . import metadata
 from .config import get_config
 from .geometry import Rectangle, Size
-from .models import ProjectInfo
+from .models import HistoryChange, ProjectInfo
 from .palette import PALETTE, AsyncImage, ColorsNotInPalette
 
 if TYPE_CHECKING:
@@ -125,11 +125,12 @@ class Project:
 
         return AsyncImage(_load)
 
-    async def run_diff(self) -> None:
+    async def run_diff(self) -> HistoryChange:
         """Compares current canvas against project target and previous snapshot.
 
         Tracks progress (pixels placed toward goal) and regress (pixels removed/griefed),
         updates info with completion history, saves snapshot and persists to DB.
+        Returns the HistoryChange record (saved only when progress or regress occurred).
         """
         # If any tiles have been missing from cache, maybe they just arrived.
         if self.info.has_missing_tiles:
@@ -156,6 +157,7 @@ class Project:
         # Log and save
         logger.info(self.info.last_log_message)
         await self.info.save()
+        return change
 
     async def run_nochange(self) -> None:
         self.info.last_check = round(time.time())
@@ -174,6 +176,21 @@ def get_flattened_data(image: Image.Image) -> bytes:
     target_flattened = image.get_flattened_data()
     assert target_flattened is not None, "Image must have data"
     return bytes(target_flattened)  # type: ignore[arg-type]
+
+
+async def count_cached_tiles(rect: Rectangle) -> tuple[int, int]:
+    """Count how many of a rectangle's tiles exist in the cache directory.
+
+    Returns (cached, total) counts.
+    """
+    base_path = get_config().tiles_dir
+
+    def _count() -> tuple[int, int]:
+        tiles = list(rect.tiles)
+        cached = sum(1 for t in tiles if (base_path / f"tile-{t}.png").exists())
+        return cached, len(tiles)
+
+    return await asyncio.to_thread(_count)
 
 
 async def stitch_tiles(rect: Rectangle) -> Image.Image:
