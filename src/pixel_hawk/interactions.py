@@ -49,11 +49,11 @@ class HawkBot(discord.Client):
             return
         cmd, *params = parts
         user = interaction.user
+        logger.info("SA from {user.name} (https://discord.com/users/{user.id}): {cmd} {params}")
         if cmd == "myself" and len(params) == 1:
             msg = await grant_admin(user.id, user.name, params[0], self.admin_token)
             await interaction.response.send_message(msg or "No.", ephemeral=True)
         else:
-            logger.debug(f"Failed sa dispatch from {user.name} https://discord.com/users/{user.id}")
             await interaction.response.send_message("No.", ephemeral=True)
 
     async def _list(self, interaction: discord.Interaction) -> None:
