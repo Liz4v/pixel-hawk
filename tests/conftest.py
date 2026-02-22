@@ -1,6 +1,7 @@
 import pytest
 from loguru import logger
 
+import pixel_hawk.commands
 import pixel_hawk.config
 from pixel_hawk.config import Config
 from pixel_hawk.db import database
@@ -25,8 +26,9 @@ def setup_config(tmp_path, monkeypatch):
 
     yield config
 
-    # Cleanup: Reset CONFIG after test
+    # Cleanup: Reset CONFIG and cached command_prefix after test
     pixel_hawk.config.CONFIG = None
+    pixel_hawk.commands._command_prefix = None
 
 
 @pytest.fixture(autouse=True)

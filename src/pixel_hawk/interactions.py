@@ -125,11 +125,10 @@ async def maybe_bot():
         yield
         return
 
-    command_prefix = get_config().discord.command_prefix
-    admin_token = generate_admin_token(command_prefix)
+    admin_token = generate_admin_token()
     logger.info(f"Admin token: {admin_token} (see nest/data/admin-me.txt)")
 
-    bot = HawkBot(admin_token, command_prefix)
+    bot = HawkBot(admin_token, get_config().discord.command_prefix)
     asyncio.create_task(bot.start(token))
     yield
     await bot.close()

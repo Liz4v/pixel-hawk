@@ -16,15 +16,24 @@ from .geometry import Point
 from .models import BotAccess, DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState
 from .palette import PALETTE
 
+_command_prefix: str | None = None
 
-def generate_admin_token(command_prefix: str) -> str:
+
+def get_command_prefix() -> str:
+    global _command_prefix
+    if _command_prefix is None:
+        _command_prefix = get_config().discord.command_prefix
+    return _command_prefix
+
+
+def generate_admin_token() -> str:
     """Generate a fresh admin UUID and write it to nest/data/admin-me.txt.
 
     A new UUID is generated on every startup so old tokens cannot be reused.
     """
     path = get_config().data_dir / "admin-me.txt"
     token = str(uuid.uuid4())
-    path.write_text(f"/{command_prefix} sa myself {token}")
+    path.write_text(f"/{get_command_prefix()} sa myself {token}")
     return token
 
 
@@ -153,7 +162,7 @@ async def new_project(discord_id: int, image_data: bytes, filename: str) -> str 
     logger.info(f"{person.name}: Created project {info.id:04} ({width}x{height}, awaiting coords)")
     return (
         f"Project **{info.id:04}** created ({width}x{height} px).\n"
-        f"Use `/hawk edit {info.id}` to set coordinates and name, then activate."
+        f"Use `/{get_command_prefix()} edit {info.id}` to set coordinates and name, then activate."
     )
 
 
@@ -198,7 +207,7 @@ async def edit_project(
         if state in (ProjectState.ACTIVE, ProjectState.PASSIVE):
             canonical = get_config().projects_dir / str(person.id) / info.filename
             if not canonical.exists():
-                raise ValueError("Cannot activate: set coordinates first with `/hawk edit`.")
+                raise ValueError(f"Cannot activate: set coordinates first with `/{get_command_prefix()} edit`.")
         info.state = state
         changes.append(f"State: {state.name}")
 

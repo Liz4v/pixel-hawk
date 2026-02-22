@@ -47,29 +47,29 @@ class TestBotAccess:
 
 class TestGenerateAdminToken:
     def test_creates_file(self, setup_config):
-        token = generate_admin_token("hawk")
+        token = generate_admin_token()
         path = get_config().data_dir / "admin-me.txt"
         assert path.exists()
         assert token in path.read_text()
 
     def test_returns_valid_uuid4(self, setup_config):
-        token = generate_admin_token("hawk")
+        token = generate_admin_token()
         parsed = uuid.UUID(token, version=4)
         assert str(parsed) == token
 
     def test_overwrites_on_each_call(self, setup_config):
-        token1 = generate_admin_token("hawk")
-        token2 = generate_admin_token("hawk")
+        token1 = generate_admin_token()
+        token2 = generate_admin_token()
         assert token1 != token2
         # File should contain the latest token
         path = get_config().data_dir / "admin-me.txt"
         assert token2 in path.read_text()
 
-    def test_custom_command_prefix(self, setup_config):
-        token = generate_admin_token(command_prefix="testhawk")
+    def test_uses_config_command_prefix(self, setup_config):
+        token = generate_admin_token()
         path = get_config().data_dir / "admin-me.txt"
         content = path.read_text()
-        assert content.startswith("/testhawk sa myself ")
+        assert content.startswith(f"/{get_config().discord.command_prefix} sa myself ")
         assert token in content
 
 
@@ -417,7 +417,7 @@ class TestNewProject:
 
         assert result is not None
         assert "created" in result
-        assert "/hawk edit" in result
+        assert f"/{get_config().discord.command_prefix} edit" in result
 
         info = await ProjectInfo.filter(owner=person).first()
         assert info is not None
