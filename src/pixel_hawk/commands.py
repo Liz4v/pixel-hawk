@@ -6,6 +6,7 @@ parsing filenames/coordinates.
 """
 
 import asyncio
+import re
 import time
 import uuid
 
@@ -57,19 +58,29 @@ async def grant_admin(discord_id: int, display_name: str, token: str, expected_t
     return f"Admin access granted to {person.name}."
 
 
-def _parse_filename(filename: str) -> tuple[str | None, tuple[int, int, int, int] | None]:
-    """Extract trailing tx_ty_px_py coords and optional name prefix from a filename."""
-    stem = filename.rsplit(".", maxsplit=1)[0] if "." in filename else filename
-    parts = stem.split("_")
-    if len(parts) >= 4:
-        try:
-            tx, ty, px, py = (int(p) for p in parts[-4:])
-        except ValueError:
-            return None, None
+_ENTIRELY_RE = re.compile(
+    r'^(?P<tx>\d+)(?P<sep>[ ._-])(?P<ty>\d+)(?P=sep)(?P<px>\d+)(?P=sep)(?P<py>\d+)$'
+)
+_ENDS_WITH_RE = re.compile(
+    r'^(?P<name>.+)[ ._-](?P<tx>\d+)(?P<sep>[ ._-])(?P<ty>\d+)(?P=sep)(?P<px>\d+)(?P=sep)(?P<py>\d+)$'
+)
+_BEGINS_WITH_RE = re.compile(
+    r'^(?P<tx>\d+)(?P<sep>[ ._-])(?P<ty>\d+)(?P=sep)(?P<px>\d+)(?P=sep)(?P<py>\d+)[ ._-](?P<name>.+)$'
+)
+
+
+def parse_filename(filename: str) -> tuple[str | None, tuple[int, int, int, int] | None]:
+    """Extract coords (tx, ty, px, py) and optional project name from a filename."""
+    stem = filename[:-4] if filename.lower().endswith('.png') else filename
+    for pattern in (_ENTIRELY_RE, _ENDS_WITH_RE, _BEGINS_WITH_RE):
+        m = pattern.match(stem)
+        if not m:
+            continue
+        tx, ty, px, py = int(m['tx']), int(m['ty']), int(m['px']), int(m['py'])
         if 0 <= tx < 2048 and 0 <= ty < 2048 and 0 <= px < 1000 and 0 <= py < 1000:
-            name = "_".join(parts[:-4]) or None
+            name = m.groupdict().get('name')
             return name, (tx, ty, px, py)
-    return None, None
+    return stem or None, None
 
 
 def _parse_coords(coords_str: str) -> tuple[int, int, int, int]:
@@ -120,7 +131,7 @@ async def new_project(discord_id: int, image_data: bytes, filename: str) -> str 
     if width > 1000 or height > 1000:
         raise ValueError(f"Image too large ({width}x{height}). Maximum 1000x1000 px.")
 
-    inferred_name, inferred_coords = _parse_filename(filename)
+    inferred_name, inferred_coords = parse_filename(filename)
 
     if inferred_coords:
         point = Point.from4(*inferred_coords)
@@ -159,9 +170,10 @@ async def new_project(discord_id: int, image_data: bytes, filename: str) -> str 
         )
 
     await asyncio.to_thread((person_dir / f"new_{info.id}.png").write_bytes, image_data)
-    logger.info(f"{person.name}: Created project {info.id:04} ({width}x{height}, awaiting coords)")
+    logger.info(f"{person.name}: Created project {info.id:04} '{info.name}' ({width}x{height}, awaiting coords)")
     return (
         f"Project **{info.id:04}** created ({width}x{height} px).\n"
+        f"Name: {info.name}\n"
         f"Use `/{get_command_prefix()} edit {info.id}` to set coordinates and name, then activate."
     )
 

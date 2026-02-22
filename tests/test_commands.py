@@ -10,7 +10,7 @@ from PIL import Image
 from pixel_hawk.commands import (
     DISCORD_MESSAGE_LIMIT,
     _parse_coords,
-    _parse_filename,
+    parse_filename,
     edit_project,
     generate_admin_token,
     grant_admin,
@@ -305,49 +305,79 @@ def _make_bad_png(width: int = 10, height: int = 10) -> bytes:
     return buf.getvalue()
 
 
-# _parse_filename tests
+# parse_filename tests
 
 
 class TestParseFilename:
     def test_coords_only(self):
-        name, coords = _parse_filename("5_7_0_0.png")
+        name, coords = parse_filename("5_7_0_0.png")
         assert name is None
         assert coords == (5, 7, 0, 0)
 
     def test_name_and_coords(self):
-        name, coords = _parse_filename("sonic_5_7_0_0.png")
+        name, coords = parse_filename("sonic_5_7_0_0.png")
         assert name == "sonic"
         assert coords == (5, 7, 0, 0)
 
     def test_multi_word_name_and_coords(self):
-        name, coords = _parse_filename("my_cool_art_1_2_100_200.png")
+        name, coords = parse_filename("my_cool_art_1_2_100_200.png")
         assert name == "my_cool_art"
         assert coords == (1, 2, 100, 200)
 
     def test_no_coords(self):
-        name, coords = _parse_filename("my project.png")
-        assert name is None
+        name, coords = parse_filename("my project.png")
+        assert name == "my project"
         assert coords is None
 
     def test_generic_filename(self):
-        name, coords = _parse_filename("image.png")
-        assert name is None
+        name, coords = parse_filename("image.png")
+        assert name == "image"
         assert coords is None
 
     def test_out_of_range_tile_ignored(self):
-        name, coords = _parse_filename("test_9999_0_0_0.png")
+        name, coords = parse_filename("test_9999_0_0_0.png")
         assert coords is None
 
     def test_out_of_range_pixel_ignored(self):
-        name, coords = _parse_filename("test_0_0_1000_0.png")
+        name, coords = parse_filename("test_0_0_1000_0.png")
         assert coords is None
 
     def test_no_extension(self):
-        name, coords = _parse_filename("5_7_0_0")
+        name, coords = parse_filename("5_7_0_0")
         assert coords == (5, 7, 0, 0)
 
     def test_non_numeric_parts(self):
-        name, coords = _parse_filename("a_b_c_d.png")
+        name, coords = parse_filename("a_b_c_d.png")
+        assert coords is None
+
+    def test_dot_separator(self):
+        name, coords = parse_filename("5.7.0.0.png")
+        assert name is None
+        assert coords == (5, 7, 0, 0)
+
+    def test_hyphen_separator(self):
+        name, coords = parse_filename("5-7-0-0.png")
+        assert name is None
+        assert coords == (5, 7, 0, 0)
+
+    def test_space_separator(self):
+        name, coords = parse_filename("5 7 0 0.png")
+        assert name is None
+        assert coords == (5, 7, 0, 0)
+
+    def test_name_with_dot_separator(self):
+        name, coords = parse_filename("sonic.5.7.0.0.png")
+        assert name == "sonic"
+        assert coords == (5, 7, 0, 0)
+
+    def test_coords_at_beginning(self):
+        name, coords = parse_filename("5_7_0_0_sonic.png")
+        assert name == "sonic"
+        assert coords == (5, 7, 0, 0)
+
+    def test_mixed_separators_rejected(self):
+        name, coords = parse_filename("5_7.0_0.png")
+        assert name == "5_7.0_0"
         assert coords is None
 
 
@@ -422,7 +452,7 @@ class TestNewProject:
         info = await ProjectInfo.filter(owner=person).first()
         assert info is not None
         assert info.state == ProjectState.CREATING
-        assert info.name.startswith("Project ")
+        assert info.name == "image"
 
         # Pending file should exist
         pending = get_config().projects_dir / str(person.id) / f"new_{info.id}.png"
