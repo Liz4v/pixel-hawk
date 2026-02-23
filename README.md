@@ -93,7 +93,7 @@ All pixel-hawk data lives in a unified directory structure under `nest` (default
 - **`projects/{person_id}/`** — Project PNG files organized by person ID
   - Example: `projects/1/0_0_500_500.png` for person_id=1
   - Filenames are coordinates only: `{tx}_{ty}_{px}_{py}.png`
-- **`data/pixel-hawk.db`** — SQLite database (Person, ProjectInfo, HistoryChange, TileInfo, TileProject tables)
+- **`data/pixel-hawk.db`** — SQLite database (Person, ProjectInfo, HistoryChange, TileInfo, TileProject, GuildConfig tables)
 - **`tiles/`** — Cached tiles from WPlace backend
 - **`snapshots/{person_id}/`** — Canvas state snapshots organized by person (same structure as projects)
 - **`logs/`** — Application logs (`pixel-hawk.log` with 10 MB rotation and 7-day retention)
@@ -114,9 +114,19 @@ bot_token = "your-bot-token"
 
 If no token is configured, the bot is silently skipped. The `command_prefix` setting changes the slash command group name (default: `hawk`).
 
+**Guild setup:**
+1. Start the bot — it prints a one-time admin token to the console and saves it to `nest/data/admin-me.txt`
+2. Run `/hawk sa myself <token>` to grant yourself admin access
+3. Run `/hawk sa role <role_name>` to set the required Discord role for the server — users with this role can use the bot and are auto-enrolled on first command
+
+Commands are blocked until a role is configured. Admins always bypass the role check.
+
 **Commands:**
-- `/hawk sa myself <token>` — Grant admin access using a one-time UUID (printed to console and saved to `nest/data/admin-me.txt` on each startup)
+- `/hawk sa myself <token>` — Grant admin access using a one-time UUID
+- `/hawk sa role <name>` — Set the required Discord role for this server (admin only)
 - `/hawk list` — List all your projects with state, completion stats, 24h progress/regress, and WPlace links (ephemeral, visible only to you)
+- `/hawk new` — Upload a new project image
+- `/hawk edit` — Edit an existing project (name, coordinates, state)
 
 ## Database schema
 
@@ -158,6 +168,10 @@ If no token is configured, the bot is silently skipped. The `command_prefix` set
 - `tile_id`: Foreign key to TileInfo
 - `project_id`: Foreign key to ProjectInfo
 - Unique constraint on `(tile_id, project_id)`
+
+### GuildConfig table (`guild_config`)
+- `guild_id`: Discord guild snowflake (primary key, not auto-generated)
+- `required_role`: Name of the Discord role required to use bot commands in this guild
 
 ## Rebuilding the database
 
