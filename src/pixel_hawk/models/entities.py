@@ -127,8 +127,8 @@ class ProjectInfo(Model):
     # Last log message
     last_log_message = fields.TextField(default="")
 
-    # Incoming foreign keys
-    tiles: fields.ReverseRelation[TileProject]
+    # Reverse relation (defined by TileProject.project FK with related_name="project_tiles")
+    project_tiles: fields.ReverseRelation[TileProject]
 
     @property
     def rectangle(self) -> Rectangle:
@@ -262,7 +262,7 @@ class TileInfo(Model):
     etag = fields.CharField(max_length=255, default="")  # Raw ETag header
 
     # Reverse relation (defined by TileProject.tile FK with related_name="tile_projects")
-    projects: fields.ReverseRelation[TileProject]
+    tile_projects: fields.ReverseRelation[TileProject]
 
     @staticmethod
     def tile_id(x: int, y: int) -> int:
@@ -272,6 +272,17 @@ class TileInfo(Model):
     @property
     def tile(self) -> Tile:
         return Tile(self.x, self.y)
+
+    async def adjust_project_heat(self) -> None:
+        """Verifies if the special heat 0 is consistent with the presence or absence of a linked Project."""
+        has_projects = await self.tile_projects.all().exists()
+        if not has_projects:
+            if self.heat != 0:
+                self.heat = 0
+                await self.save(update_fields=["heat"])
+        elif self.heat == 0:
+            self.heat = 999
+            await self.save(update_fields=["heat"])
 
     class Meta(Model.Meta):
         table = "tile"
