@@ -120,7 +120,9 @@ def process_diff(info: ProjectInfo, current_data: bytes, target_data: bytes, pre
 
     # Check for completion
     if max(remaining) == 0:
-        info.last_log_message = f"{info.owner.name}/{info.name}: Complete! {num_target} pixels total. {info.rectangle.to_link()}"
+        info.last_log_message = (
+            f"{info.owner.name}/{info.name}: Complete! {num_target} pixels total. {info.rectangle.to_link()}"
+        )
         return HistoryChange(
             project=info,
             timestamp=timestamp,

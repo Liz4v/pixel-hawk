@@ -220,10 +220,7 @@ async def new_project(discord_id: int, image_data: bytes, filename: str) -> str 
         linked = await info.link_tiles()
         await person.update_totals()
         logger.info(f"{person.name}: Created project {info.id:04} '{info.name}' ({width}x{height}, {linked} tiles)")
-        result = (
-            f"Project **{info.id:04}** activated ({width}x{height} px, {linked} tiles).\n"
-            f"Name: {info.name} · Coords: {point}"
-        )
+        result = f"Project **{info.id:04}** activated ({width}x{height} px, {linked} tiles).\nName: {info.name} · Coords: {point}"
 
         status = await _try_initial_diff(info)
         if status:

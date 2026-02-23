@@ -24,7 +24,15 @@ import asyncio
 from pixel_hawk.models.config import load_config
 from pixel_hawk.models.db import database
 from pixel_hawk.models.geometry import Point, Rectangle, Size
-from pixel_hawk.models.entities import DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState, TileInfo, TileProject
+from pixel_hawk.models.entities import (
+    DiffStatus,
+    HistoryChange,
+    Person,
+    ProjectInfo,
+    ProjectState,
+    TileInfo,
+    TileProject,
+)
 from pixel_hawk.models.palette import PALETTE
 from pixel_hawk.watcher.projects import get_flattened_data, stitch_tiles
 
