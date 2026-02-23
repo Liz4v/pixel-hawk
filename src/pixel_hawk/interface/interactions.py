@@ -17,17 +17,8 @@ from loguru import logger
 from ..models.config import get_config
 from ..models.entities import Person, ProjectState
 from ..models.palette import ColorsNotInPalette
-from .commands import (
-    ErrorMsg,
-    check_guild_access,
-    delete_project,
-    edit_project,
-    generate_admin_token,
-    grant_admin,
-    list_projects,
-    new_project,
-    set_guild_role,
-)
+from .access import ErrorMsg, check_guild_access, generate_admin_token, grant_admin, set_guild_role
+from .commands import delete_project, edit_project, list_projects, new_project
 
 
 class HawkBot(discord.Client):
@@ -142,9 +133,13 @@ class HawkBot(discord.Client):
             image_filename = image.filename if image else None
             state_value = ProjectState(state.value) if state else None
             msg = await edit_project(
-                interaction.user.id, project_id,
-                image_data=image_data, image_filename=image_filename,
-                name=name, coords=coords, state=state_value,
+                interaction.user.id,
+                project_id,
+                image_data=image_data,
+                image_filename=image_filename,
+                name=name,
+                coords=coords,
+                state=state_value,
             )
         except (ErrorMsg, ColorsNotInPalette) as e:
             msg = str(e)

@@ -44,7 +44,7 @@ def generate_default_config() -> str:
             if isinstance(val, str):
                 lines.append(f'{f.name} = "{val}"')
             elif isinstance(val, bool):
-                lines.append(f'{f.name} = {"true" if val else "false"}')
+                lines.append(f"{f.name} = {'true' if val else 'false'}")
             elif isinstance(val, (int, float)):
                 lines.append(f"{f.name} = {val}")
         lines.append("")

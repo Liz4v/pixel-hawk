@@ -4,13 +4,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 
-from pixel_hawk.interface.commands import ErrorMsg
-from pixel_hawk.interface.interactions import (
-    HawkBot,
-    maybe_bot,
-)
+from pixel_hawk.interface.access import ErrorMsg
+from pixel_hawk.interface.interactions import HawkBot, maybe_bot
 from pixel_hawk.models.config import get_config
-from pixel_hawk.models.entities import Person
+from pixel_hawk.models.entities import Person, ProjectState
+from pixel_hawk.models.palette import ColorsNotInPalette
 
 
 def _invalidate_config_toml():
@@ -83,7 +81,7 @@ class TestMaybeBot:
 # HawkBot command tree tests
 
 
-class TestHawkBotNewCommands:
+class TestHawkBotCommands:
     def test_command_tree_has_new(self):
         bot = HawkBot("test-token", "hawk")
         hawk = next(c for c in bot.tree.get_commands() if c.name == "hawk")
@@ -95,6 +93,12 @@ class TestHawkBotNewCommands:
         hawk = next(c for c in bot.tree.get_commands() if c.name == "hawk")
         names = [c.name for c in hawk.commands]
         assert "edit" in names
+
+    def test_command_tree_has_delete(self):
+        bot = HawkBot("test-token", "hawk")
+        hawk = next(c for c in bot.tree.get_commands() if c.name == "hawk")
+        names = [c.name for c in hawk.commands]
+        assert "delete" in names
 
 
 def _mock_interaction(*, guild_id=999, user_id=12345, user_name="TestUser", role_names=None):
@@ -196,6 +200,327 @@ class TestSaRoleCommand:
         await bot._sa(interaction, "role")
         msg = interaction.response.send_message.call_args
         assert msg.args[0] == "No."
+
+
+# _sa other subcommand tests
+
+
+class TestSaOtherCommands:
+    async def test_empty_args(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+        await bot._sa(interaction, "")
+        msg = interaction.response.send_message.call_args
+        assert msg.args[0] == "No."
+
+    async def test_myself_valid_token(self):
+        bot = HawkBot("admin-token-123", "hawk")
+        interaction = _mock_interaction()
+
+        with patch(
+            "pixel_hawk.interface.interactions.grant_admin",
+            new_callable=AsyncMock,
+            return_value="Admin access granted to TestUser.",
+        ):
+            await bot._sa(interaction, "myself admin-token-123")
+
+        msg = interaction.response.send_message.call_args
+        assert "Admin access granted" in msg.args[0]
+
+    async def test_myself_invalid_token(self):
+        bot = HawkBot("admin-token-123", "hawk")
+        interaction = _mock_interaction()
+
+        with patch(
+            "pixel_hawk.interface.interactions.grant_admin",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            await bot._sa(interaction, "myself wrong-token")
+
+        msg = interaction.response.send_message.call_args
+        assert msg.args[0] == "No."
+
+    async def test_unknown_command(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+        await bot._sa(interaction, "unknown subcommand")
+        msg = interaction.response.send_message.call_args
+        assert msg.args[0] == "No."
+
+
+# _new handler tests
+
+
+class TestNewHandler:
+    async def test_denied_returns_early(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+
+        with patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=None):
+            await bot._new(interaction, MagicMock())
+
+        interaction.response.defer.assert_not_awaited()
+
+    async def test_success(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+        attachment = MagicMock(spec=discord.Attachment)
+        attachment.read = AsyncMock(return_value=b"png-data")
+        attachment.filename = "5_7_0_0.png"
+
+        with (
+            patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=MagicMock()),
+            patch("pixel_hawk.interface.interactions.new_project", new_callable=AsyncMock, return_value="Created!"),
+        ):
+            await bot._new(interaction, attachment)
+
+        interaction.response.defer.assert_awaited_once()
+        msg = interaction.followup.send.call_args
+        assert msg.args[0] == "Created!"
+
+    async def test_error_msg(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+        attachment = MagicMock(spec=discord.Attachment)
+        attachment.read = AsyncMock(return_value=b"bad")
+        attachment.filename = "test.png"
+
+        with (
+            patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=MagicMock()),
+            patch(
+                "pixel_hawk.interface.interactions.new_project",
+                new_callable=AsyncMock,
+                side_effect=ErrorMsg("Not a PNG file."),
+            ),
+        ):
+            await bot._new(interaction, attachment)
+
+        msg = interaction.followup.send.call_args
+        assert "Not a PNG" in msg.args[0]
+
+    async def test_palette_error(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+        attachment = MagicMock(spec=discord.Attachment)
+        attachment.read = AsyncMock(return_value=b"data")
+        attachment.filename = "test.png"
+
+        with (
+            patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=MagicMock()),
+            patch(
+                "pixel_hawk.interface.interactions.new_project",
+                new_callable=AsyncMock,
+                side_effect=ColorsNotInPalette({0x010203: 1}),
+            ),
+        ):
+            await bot._new(interaction, attachment)
+
+        msg = interaction.followup.send.call_args
+        assert "not in" in msg.args[0].lower() or "palette" in msg.args[0].lower() or "(1, 2, 3)" in msg.args[0]
+
+    async def test_unexpected_error(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+        attachment = MagicMock(spec=discord.Attachment)
+        attachment.read = AsyncMock(return_value=b"data")
+        attachment.filename = "test.png"
+
+        with (
+            patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=MagicMock()),
+            patch(
+                "pixel_hawk.interface.interactions.new_project",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("boom"),
+            ),
+        ):
+            await bot._new(interaction, attachment)
+
+        msg = interaction.followup.send.call_args
+        assert "error occurred" in msg.args[0].lower()
+
+
+# _edit handler tests
+
+
+class TestEditHandler:
+    async def test_denied_returns_early(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+
+        with patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=None):
+            await bot._edit(interaction, 1234)
+
+        interaction.response.defer.assert_not_awaited()
+
+    async def test_name_only(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+
+        with (
+            patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=MagicMock()),
+            patch(
+                "pixel_hawk.interface.interactions.edit_project", new_callable=AsyncMock, return_value="Updated!"
+            ) as mock_edit,
+        ):
+            await bot._edit(interaction, 1234, name="new name")
+
+        mock_edit.assert_awaited_once_with(
+            12345,
+            1234,
+            image_data=None,
+            image_filename=None,
+            name="new name",
+            coords=None,
+            state=None,
+        )
+        msg = interaction.followup.send.call_args
+        assert msg.args[0] == "Updated!"
+
+    async def test_with_image(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+        attachment = MagicMock(spec=discord.Attachment)
+        attachment.read = AsyncMock(return_value=b"png-data")
+        attachment.filename = "5_7_0_0.png"
+
+        with (
+            patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=MagicMock()),
+            patch(
+                "pixel_hawk.interface.interactions.edit_project", new_callable=AsyncMock, return_value="Image updated!"
+            ) as mock_edit,
+        ):
+            await bot._edit(interaction, 1234, image=attachment)
+
+        mock_edit.assert_awaited_once_with(
+            12345,
+            1234,
+            image_data=b"png-data",
+            image_filename="5_7_0_0.png",
+            name=None,
+            coords=None,
+            state=None,
+        )
+
+    async def test_with_state_choice(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+        state_choice = MagicMock()
+        state_choice.value = int(ProjectState.PASSIVE)
+
+        with (
+            patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=MagicMock()),
+            patch(
+                "pixel_hawk.interface.interactions.edit_project", new_callable=AsyncMock, return_value="State changed!"
+            ) as mock_edit,
+        ):
+            await bot._edit(interaction, 1234, state=state_choice)
+
+        mock_edit.assert_awaited_once_with(
+            12345,
+            1234,
+            image_data=None,
+            image_filename=None,
+            name=None,
+            coords=None,
+            state=ProjectState.PASSIVE,
+        )
+
+    async def test_error_msg(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+
+        with (
+            patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=MagicMock()),
+            patch(
+                "pixel_hawk.interface.interactions.edit_project",
+                new_callable=AsyncMock,
+                side_effect=ErrorMsg("not yours"),
+            ),
+        ):
+            await bot._edit(interaction, 1234, name="x")
+
+        msg = interaction.followup.send.call_args
+        assert "not yours" in msg.args[0]
+
+    async def test_unexpected_error(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+
+        with (
+            patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=MagicMock()),
+            patch(
+                "pixel_hawk.interface.interactions.edit_project",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("boom"),
+            ),
+        ):
+            await bot._edit(interaction, 1234, name="x")
+
+        msg = interaction.followup.send.call_args
+        assert "error occurred" in msg.args[0].lower()
+
+
+# _delete handler tests
+
+
+class TestDeleteHandler:
+    async def test_denied_returns_early(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+
+        with patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=None):
+            await bot._delete(interaction, 1234)
+
+        interaction.response.defer.assert_not_awaited()
+
+    async def test_success(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+
+        with (
+            patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=MagicMock()),
+            patch("pixel_hawk.interface.interactions.delete_project", new_callable=AsyncMock, return_value="Deleted!"),
+        ):
+            await bot._delete(interaction, 1234)
+
+        interaction.response.defer.assert_awaited_once()
+        msg = interaction.followup.send.call_args
+        assert msg.args[0] == "Deleted!"
+
+    async def test_error_msg(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+
+        with (
+            patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=MagicMock()),
+            patch(
+                "pixel_hawk.interface.interactions.delete_project",
+                new_callable=AsyncMock,
+                side_effect=ErrorMsg("not found"),
+            ),
+        ):
+            await bot._delete(interaction, 9999)
+
+        msg = interaction.followup.send.call_args
+        assert "not found" in msg.args[0]
+
+    async def test_unexpected_error(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+
+        with (
+            patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=MagicMock()),
+            patch(
+                "pixel_hawk.interface.interactions.delete_project",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("boom"),
+            ),
+        ):
+            await bot._delete(interaction, 1234)
+
+        msg = interaction.followup.send.call_args
+        assert "error occurred" in msg.args[0].lower()
 
 
 # _list with access check
