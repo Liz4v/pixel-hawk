@@ -77,7 +77,7 @@ uv run hawk
 
 ### Models (`src/pixel_hawk/models/`) — data layer
 - `config.py` — `DiscordSettings` dataclass, `Config` dataclass, `load_config()`, `get_config()`, CONFIG singleton
-- `db.py` — database async context manager (`database()`), Tortoise ORM config, Aerich integration
+- `db.py` — database async context manager (`database()`), Tortoise ORM config, Aerich integration, `rebuild_table()` migration utility
 - `entities.py` — `Person` (user model with watched_tiles_count, active_projects_count, update_totals()), `ProjectState` IntEnum (ACTIVE/PASSIVE/INACTIVE), `ProjectInfo` (pure Tortoise model with owner FK, random ID via `save_as_new()`), `HistoryChange` (diff event log), `DiffStatus` IntEnum, `TileInfo` (tile metadata: coordinates, heat, timestamps, etag), `TileProject` (tile-project junction table), `GuildConfig` (per-guild bot configuration: required role name)
 - `geometry.py` — `Tile`, `Point`, `Size`, `Rectangle` helpers (tile math)
 - `palette.py` — palette enforcement + `PALETTE` singleton + `AsyncImage[T]` (deferred async I/O handle)
@@ -148,6 +148,16 @@ This project embraces core principles from PEP 20 ("The Zen of Python"):
   - The project enforces a coverage threshold for all modules.
   - Test assertions: Write tests that verify assertions fire for "shouldn't happen" cases (use `pytest.raises(AssertionError)`).
   - Run tests: `uv run pytest`
+
+## Aerich migrations and SQLite
+
+Aerich manages schema migrations, but SQLite has gaps that require workarounds:
+
+- **`MODIFY COLUMN` is unsupported in SQLite.** If `aerich migrate` fails with `NotSupportError: Modify column is unsupported in SQLite`, the column type/constraint change needs a table rebuild. Use `rebuild_table()` from `models/db.py` in a manually-written migration file (see its docstring for usage). `MODELS_STATE` at the bottom of migration files is cosmetic — Aerich reads state from its `aerich` DB table, not from migration files, so manual migrations work fine without it.
+- **`ALTER COLUMN COMMENT` is unsupported in SQLite.** Enum description changes (e.g., adding a new `IntEnumField` value) trigger this. These are cosmetic — the column type doesn't actually change. Fix by patching the aerich DB state (update the `description` field in the stored content JSON).
+- **Tortoise ORM upgrades can cause phantom diffs.** Newer Tortoise versions may add keys to model field descriptions (e.g., `db_default`). The stored aerich state (written by the old Tortoise) lacks these keys, so `aerich migrate` sees phantom changes on every field. Fix by patching the aerich DB content to include the new keys, or by including the patch in a migration file (see migration 3 for an example).
+- **Diagnosing aerich diffs:** Compare the aerich DB content with current model descriptions using `dictdiffer.diff()` to see exactly what Aerich thinks changed. Read the last `Aerich` record's `content` field and compare with `aerich.utils.get_models_describe('models')`.
+- **Deploy workflow:** Production runs `aerich upgrade` (applies migration files), never `aerich migrate` (generates new migrations). Migration generation is dev-only.
 
 ## Running and debugging
 
