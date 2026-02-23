@@ -12,7 +12,7 @@ from tortoise.exceptions import OperationalError
 
 from .config import get_config
 
-MODELS = ["pixel_hawk.models", "aerich.models"]
+MODELS = ["pixel_hawk.models.entities", "aerich.models"]
 
 
 def tortoise_config(db_path: str | None = None) -> dict:

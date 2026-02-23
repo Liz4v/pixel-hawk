@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, patch
 import httpx
 
 
-from pixel_hawk.ingest import TileChecker
-from pixel_hawk.models import Person, ProjectInfo, ProjectState, TileInfo, TileProject
-from pixel_hawk.palette import PALETTE
+from pixel_hawk.watcher.ingest import TileChecker
+from pixel_hawk.models.entities import Person, ProjectInfo, ProjectState, TileInfo, TileProject
+from pixel_hawk.models.palette import PALETTE
 
 
 def _paletted_png_bytes(size=(1, 1), data=(0,)):
@@ -267,7 +267,7 @@ async def test_check_next_tile_changed_calls_run_diff(setup_config):
     )
 
     mock_run_diff = AsyncMock()
-    with patch("pixel_hawk.projects.Project.run_diff", mock_run_diff):
+    with patch("pixel_hawk.watcher.projects.Project.run_diff", mock_run_diff):
         await checker.check_next_tile()
 
     mock_run_diff.assert_called_once_with()
@@ -289,7 +289,7 @@ async def test_check_next_tile_unchanged_calls_run_nochange(setup_config):
     checker.client = MockClient(httpx.Response(304))
 
     mock_run_nochange = AsyncMock()
-    with patch("pixel_hawk.projects.Project.run_nochange", mock_run_nochange):
+    with patch("pixel_hawk.watcher.projects.Project.run_nochange", mock_run_nochange):
         await checker.check_next_tile()
 
     mock_run_nochange.assert_called_once()
@@ -307,7 +307,7 @@ async def test_check_next_tile_skips_inactive_projects(setup_config):
     )
 
     mock_run_diff = AsyncMock()
-    with patch("pixel_hawk.projects.Project.run_diff", mock_run_diff):
+    with patch("pixel_hawk.watcher.projects.Project.run_diff", mock_run_diff):
         await checker.check_next_tile()
 
     mock_run_diff.assert_not_called()
@@ -325,7 +325,7 @@ async def test_check_next_tile_includes_passive_projects(setup_config):
     )
 
     mock_run_diff = AsyncMock()
-    with patch("pixel_hawk.projects.Project.run_diff", mock_run_diff):
+    with patch("pixel_hawk.watcher.projects.Project.run_diff", mock_run_diff):
         await checker.check_next_tile()
 
     mock_run_diff.assert_called_once_with()
@@ -349,7 +349,7 @@ async def test_check_next_tile_updates_database(setup_config):
         )
     )
 
-    with patch("pixel_hawk.projects.Project.run_diff", AsyncMock()):
+    with patch("pixel_hawk.watcher.projects.Project.run_diff", AsyncMock()):
         await checker.check_next_tile()
 
     # Verify TileInfo was updated

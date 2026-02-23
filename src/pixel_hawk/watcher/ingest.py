@@ -22,9 +22,9 @@ from humanize import naturaldelta
 from loguru import logger
 from PIL import UnidentifiedImageError
 
-from .config import get_config
-from .models import ProjectInfo, ProjectState, TileInfo
-from .palette import PALETTE, ColorsNotInPalette
+from ..models.config import get_config
+from ..models.entities import ProjectInfo, ProjectState, TileInfo
+from ..models.palette import PALETTE, ColorsNotInPalette
 from .projects import Project
 from .queues import QueueSystem
 

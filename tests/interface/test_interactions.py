@@ -2,8 +2,8 @@
 
 from unittest.mock import AsyncMock, patch
 
-from pixel_hawk.config import get_config
-from pixel_hawk.interactions import (
+from pixel_hawk.models.config import get_config
+from pixel_hawk.interface.interactions import (
     HawkBot,
     maybe_bot,
 )

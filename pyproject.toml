@@ -38,7 +38,7 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 addopts = "--cov=pixel_hawk --cov-report=term-missing --cov-fail-under=95 -q"
-python_files = ["tests/*.py"]
+python_files = ["test_*.py"]
 testpaths = ["tests"]
 
 [tool.coverage.run]
@@ -50,6 +50,6 @@ src = { exclude = ["tests"] }
 environment = { root = ["./src"] }
 
 [tool.aerich]
-tortoise_orm = "pixel_hawk.db.TORTOISE_ORM"
+tortoise_orm = "pixel_hawk.models.db.TORTOISE_ORM"
 location = "./src/pixel_hawk/migrations"
 src_folder = "./."

@@ -13,11 +13,11 @@ import uuid
 from loguru import logger
 from PIL import Image
 
-from .config import get_config
-from .geometry import Point
-from .models import BotAccess, DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState
-from .palette import PALETTE
-from .projects import Project, count_cached_tiles
+from ..models.config import get_config
+from ..models.geometry import Point
+from ..models.entities import BotAccess, DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState
+from ..models.palette import PALETTE
+from ..watcher.projects import Project, count_cached_tiles
 
 _command_prefix: str | None = None
 

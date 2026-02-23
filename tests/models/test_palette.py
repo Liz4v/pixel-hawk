@@ -2,7 +2,7 @@ import io
 
 import pytest
 
-from pixel_hawk.palette import PALETTE
+from pixel_hawk.models.palette import PALETTE
 
 
 def test_lookup_transparent():
@@ -60,7 +60,7 @@ def test_open_file_with_existing_paletted_file(tmp_path):
 def test_ensure_rgba_conversion_for_rgb_image():
     from PIL import Image
 
-    from pixel_hawk.palette import _ensure_rgba
+    from pixel_hawk.models.palette import _ensure_rgba
 
     rgb_im = Image.new("RGB", (1, 1), (1, 2, 3))
     rgba = _ensure_rgba(rgb_im)

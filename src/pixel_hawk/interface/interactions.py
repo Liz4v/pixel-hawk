@@ -15,9 +15,9 @@ from discord import app_commands
 from loguru import logger
 
 from .commands import edit_project, generate_admin_token, grant_admin, list_projects, new_project
-from .config import get_config
-from .models import ProjectState
-from .palette import ColorsNotInPalette
+from ..models.config import get_config
+from ..models.entities import ProjectState
+from ..models.palette import ColorsNotInPalette
 
 
 class HawkBot(discord.Client):

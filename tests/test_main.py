@@ -3,8 +3,8 @@ import asyncio
 import pytest
 
 from pixel_hawk import main as main_mod
-from pixel_hawk.geometry import Point, Rectangle, Size
-from pixel_hawk.models import Person, ProjectInfo
+from pixel_hawk.models.geometry import Point, Rectangle, Size
+from pixel_hawk.models.entities import Person, ProjectInfo
 
 
 @pytest.fixture

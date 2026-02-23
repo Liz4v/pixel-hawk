@@ -5,9 +5,9 @@ import time
 
 import pytest
 
-from pixel_hawk import metadata
-from pixel_hawk.geometry import Point, Rectangle, Size
-from pixel_hawk.models import Person, ProjectInfo
+from pixel_hawk.watcher import metadata
+from pixel_hawk.models.geometry import Point, Rectangle, Size
+from pixel_hawk.models.entities import Person, ProjectInfo
 
 
 @pytest.fixture
@@ -391,7 +391,7 @@ class TestLinkTiles:
         linked = await info.link_tiles()
         assert linked > 0
 
-        from pixel_hawk.models import TileProject
+        from pixel_hawk.models.entities import TileProject
 
         count = await TileProject.filter(project_id=info.id).count()
         assert count == linked
@@ -407,7 +407,7 @@ class TestLinkTiles:
         info = await ProjectInfo.from_rect(TILE_RECT, test_person.id, "tileinfo-test")
         await info.link_tiles()
 
-        from pixel_hawk.models import TileInfo
+        from pixel_hawk.models.entities import TileInfo
 
         tile_info = await TileInfo.get(id=TileInfo.tile_id(5, 7))
         assert tile_info.x == 5
@@ -422,7 +422,7 @@ class TestUnlinkTiles:
         deleted = await info.unlink_tiles()
         assert deleted > 0
 
-        from pixel_hawk.models import TileProject
+        from pixel_hawk.models.entities import TileProject
 
         count = await TileProject.filter(project_id=info.id).count()
         assert count == 0

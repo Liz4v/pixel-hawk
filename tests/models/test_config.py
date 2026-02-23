@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-import pixel_hawk.config
-from pixel_hawk.config import Config, DiscordSettings, get_config, load_config
+import pixel_hawk.models.config
+from pixel_hawk.models.config import Config, DiscordSettings, get_config, load_config
 
 
 class TestConfig:
@@ -170,14 +170,14 @@ class TestGetConfig:
     def test_get_config_returns_config_when_initialized(self, tmp_path):
         """Test that get_config returns CONFIG when it's set."""
         # Save original CONFIG
-        original = pixel_hawk.config.CONFIG
+        original = pixel_hawk.models.config.CONFIG
         try:
             # Set CONFIG
-            pixel_hawk.config.CONFIG = Config(home=tmp_path)
+            pixel_hawk.models.config.CONFIG = Config(home=tmp_path)
 
             config = get_config()
-            assert config == pixel_hawk.config.CONFIG
+            assert config == pixel_hawk.models.config.CONFIG
             assert config.home == tmp_path
         finally:
             # Restore original CONFIG
-            pixel_hawk.config.CONFIG = original
+            pixel_hawk.models.config.CONFIG = original

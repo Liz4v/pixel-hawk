@@ -4,11 +4,11 @@ import io
 import pytest
 from PIL import Image
 
-from pixel_hawk import projects
-from pixel_hawk.config import get_config
-from pixel_hawk.geometry import Point, Rectangle, Size
-from pixel_hawk.models import HistoryChange, Person, ProjectInfo
-from pixel_hawk.palette import PALETTE, AsyncImage
+from pixel_hawk.watcher import projects
+from pixel_hawk.models.config import get_config
+from pixel_hawk.models.geometry import Point, Rectangle, Size
+from pixel_hawk.models.entities import HistoryChange, Person, ProjectInfo
+from pixel_hawk.models.palette import PALETTE, AsyncImage
 
 
 @pytest.fixture

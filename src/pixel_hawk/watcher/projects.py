@@ -23,10 +23,10 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from . import metadata
-from .config import get_config
-from .geometry import Rectangle, Size
-from .models import HistoryChange, ProjectInfo
-from .palette import PALETTE, AsyncImage, ColorsNotInPalette
+from ..models.config import get_config
+from ..models.geometry import Rectangle, Size
+from ..models.entities import HistoryChange, ProjectInfo
+from ..models.palette import PALETTE, AsyncImage, ColorsNotInPalette
 
 if TYPE_CHECKING:
     from PIL import Image

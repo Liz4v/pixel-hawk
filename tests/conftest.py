@@ -1,10 +1,10 @@
 import pytest
 from loguru import logger
 
-import pixel_hawk.commands
-import pixel_hawk.config
-from pixel_hawk.config import Config
-from pixel_hawk.db import database
+import pixel_hawk.interface.commands
+import pixel_hawk.models.config
+from pixel_hawk.models.config import Config
+from pixel_hawk.models.db import database
 
 
 @pytest.fixture(autouse=True)
@@ -14,7 +14,7 @@ def setup_config(tmp_path, monkeypatch):
     config = Config(home=tmp_path / "nest")
 
     # Set module-level CONFIG
-    pixel_hawk.config.CONFIG = config
+    pixel_hawk.models.config.CONFIG = config
 
     # Create all subdirectories for tests
     config.projects_dir.mkdir(parents=True, exist_ok=True)
@@ -27,8 +27,8 @@ def setup_config(tmp_path, monkeypatch):
     yield config
 
     # Cleanup: Reset CONFIG and cached command_prefix after test
-    pixel_hawk.config.CONFIG = None
-    pixel_hawk.commands._command_prefix = None
+    pixel_hawk.models.config.CONFIG = None
+    pixel_hawk.interface.commands._command_prefix = None
 
 
 @pytest.fixture(autouse=True)

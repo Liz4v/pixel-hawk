@@ -7,7 +7,7 @@ from io import BytesIO
 import pytest
 from PIL import Image
 
-from pixel_hawk.commands import (
+from pixel_hawk.interface.commands import (
     DISCORD_MESSAGE_LIMIT,
     _parse_coords,
     edit_project,
@@ -17,11 +17,11 @@ from pixel_hawk.commands import (
     new_project,
     parse_filename,
 )
-from pixel_hawk import projects
-from pixel_hawk.config import get_config
-from pixel_hawk.geometry import Point, Rectangle, Size
-from pixel_hawk.models import BotAccess, DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState, TileProject
-from pixel_hawk.palette import PALETTE, ColorsNotInPalette
+from pixel_hawk.watcher import projects
+from pixel_hawk.models.config import get_config
+from pixel_hawk.models.geometry import Point, Rectangle, Size
+from pixel_hawk.models.entities import BotAccess, DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState, TileProject
+from pixel_hawk.models.palette import PALETTE, ColorsNotInPalette
 
 # BotAccess enum tests
 
@@ -685,7 +685,7 @@ def _patch_diff(monkeypatch, size=(10, 10), target_value=1, current_value=1):
 class TestInitialDiffNewProject:
     async def test_no_tiles_skips_diff(self, monkeypatch):
         """No tiles cached -> no initial diff in response."""
-        person = await Person.create(name="NoDiff", discord_id=30001)
+        await Person.create(name="NoDiff", discord_id=30001)
         result = await new_project(30001, _make_test_png(), "5_7_0_0.png")
 
         assert result is not None
@@ -696,7 +696,7 @@ class TestInitialDiffNewProject:
     async def test_all_tiles_runs_diff(self, setup_config, monkeypatch):
         """All tiles cached -> initial diff included in response."""
         _patch_diff(monkeypatch)
-        person = await Person.create(name="AllTiles", discord_id=30002)
+        await Person.create(name="AllTiles", discord_id=30002)
 
         # Pre-create the tile cache file
         (setup_config.tiles_dir / "tile-5_7.png").touch()
@@ -710,7 +710,7 @@ class TestInitialDiffNewProject:
     async def test_some_tiles_shows_count(self, setup_config, monkeypatch):
         """Partial tiles cached -> diff runs with tile count note."""
         _patch_diff(monkeypatch, size=(20, 10), target_value=1, current_value=0)
-        person = await Person.create(name="SomeTiles", discord_id=30003)
+        await Person.create(name="SomeTiles", discord_id=30003)
 
         # 20px wide starting at px=990 spans tiles 5 and 6
         png = _make_test_png(20, 10)

@@ -11,11 +11,11 @@ import asyncio
 
 from loguru import logger
 
-from .config import get_config
-from .db import database
-from .ingest import TileChecker
-from .interactions import maybe_bot
-from .models import Person
+from .models.config import get_config
+from .models.db import database
+from .watcher.ingest import TileChecker
+from .interface.interactions import maybe_bot
+from .models.entities import Person
 
 # Polling cycle period: 60φ = 30(1 + √5) ≈ 97.08 seconds
 # Chosen to be maximally dissonant with 27s and 30s periods

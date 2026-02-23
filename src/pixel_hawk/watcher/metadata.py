@@ -10,10 +10,10 @@ process_diff() creates and returns a HistoryChange object for the caller to pers
 import time
 from typing import TYPE_CHECKING
 
-from .models import DiffStatus, HistoryChange
+from ..models.entities import DiffStatus, HistoryChange
 
 if TYPE_CHECKING:
-    from .models import ProjectInfo
+    from ..models.entities import ProjectInfo
 
 
 def compare_snapshots(current_data: bytes, prev_data: bytes, target_data: bytes) -> tuple[int, int]:

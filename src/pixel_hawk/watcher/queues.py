@@ -23,7 +23,7 @@ from collections.abc import Iterator
 
 from loguru import logger
 
-from .models import TileInfo
+from ..models.entities import TileInfo
 
 
 @functools.lru_cache(3)

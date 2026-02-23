@@ -1,6 +1,6 @@
 import pytest
 
-from pixel_hawk.geometry import GeoPoint, Point, Rectangle, Size, Tile
+from pixel_hawk.models.geometry import GeoPoint, Point, Rectangle, Size, Tile
 
 
 def test_point_from4_and_to4():

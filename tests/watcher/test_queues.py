@@ -2,8 +2,8 @@
 
 import time
 
-from pixel_hawk.models import TileInfo
-from pixel_hawk.queues import QueueSystem, calculate_zipf_queue_sizes
+from pixel_hawk.models.entities import TileInfo
+from pixel_hawk.watcher.queues import QueueSystem, calculate_zipf_queue_sizes
 
 # --- calculate_zipf_queue_sizes (pure function, no DB) ---
 
