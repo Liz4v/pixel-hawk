@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
 
+defaults:
+  run:
+    working-directory: ~/pixel-hawk
+
 jobs:
   deploy:
     runs-on: self-hosted
@@ -12,10 +16,13 @@ jobs:
         run: sudo systemctl stop pixel-hawk
 
       - name: Pull latest
-        run: cd ~/pixel-hawk && git pull
+        run: git pull
 
       - name: Sync dependencies
-        run: cd ~/pixel-hawk && uv sync --quiet
+        run: uv sync --quiet
+
+      - name: Run migrations
+        run: uv run aerich upgrade
 
       - name: Start service
         run: sudo systemctl start pixel-hawk
