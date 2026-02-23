@@ -10,17 +10,20 @@ from PIL import Image
 from pixel_hawk.interface.commands import (
     DISCORD_MESSAGE_LIMIT,
     _parse_coords,
+    check_guild_access,
     edit_project,
     generate_admin_token,
     grant_admin,
     list_projects,
     new_project,
     parse_filename,
+    set_guild_role,
 )
 from pixel_hawk.models.config import get_config
 from pixel_hawk.models.entities import (
     BotAccess,
     DiffStatus,
+    GuildConfig,
     HistoryChange,
     Person,
     ProjectInfo,
@@ -764,3 +767,112 @@ class TestInitialDiffEditProject:
         assert result is not None
         assert "new" in result
         assert "complete" not in result.lower()
+
+
+# GuildConfig model tests
+
+
+class TestGuildConfig:
+    async def test_create_and_retrieve(self):
+        await GuildConfig.create(guild_id=100001, required_role="artists")
+        config = await GuildConfig.filter(guild_id=100001).first()
+        assert config is not None
+        assert config.required_role == "artists"
+
+    async def test_update_existing(self):
+        await GuildConfig.create(guild_id=100002, required_role="old")
+        await GuildConfig.update_or_create(defaults={"required_role": "new"}, guild_id=100002)
+        config = await GuildConfig.get(guild_id=100002)
+        assert config.required_role == "new"
+
+    async def test_different_guilds_independent(self):
+        await GuildConfig.create(guild_id=100003, required_role="role_a")
+        await GuildConfig.create(guild_id=100004, required_role="role_b")
+        a = await GuildConfig.get(guild_id=100003)
+        b = await GuildConfig.get(guild_id=100004)
+        assert a.required_role == "role_a"
+        assert b.required_role == "role_b"
+
+
+# set_guild_role tests
+
+
+class TestSetGuildRole:
+    async def test_no_person_raises(self):
+        with pytest.raises(ValueError, match="Admin access required"):
+            await set_guild_role(99999, 200001, "artists")
+
+    async def test_non_admin_raises(self):
+        await Person.create(name="User", discord_id=40001, access=0)
+        with pytest.raises(ValueError, match="Admin access required"):
+            await set_guild_role(40001, 200001, "artists")
+
+    async def test_allowed_only_raises(self):
+        await Person.create(name="Allowed", discord_id=40002, access=int(BotAccess.ALLOWED))
+        with pytest.raises(ValueError, match="Admin access required"):
+            await set_guild_role(40002, 200001, "artists")
+
+    async def test_admin_sets_role(self):
+        await Person.create(name="Admin", discord_id=40003, access=int(BotAccess.ADMIN))
+        result = await set_guild_role(40003, 200002, "painters")
+        assert "painters" in result
+        config = await GuildConfig.get(guild_id=200002)
+        assert config.required_role == "painters"
+
+    async def test_admin_updates_existing_role(self):
+        await Person.create(name="Admin", discord_id=40004, access=int(BotAccess.ADMIN))
+        await set_guild_role(40004, 200003, "old_role")
+        result = await set_guild_role(40004, 200003, "new_role")
+        assert "new_role" in result
+        config = await GuildConfig.get(guild_id=200003)
+        assert config.required_role == "new_role"
+
+
+# check_guild_access tests
+
+
+class TestCheckGuildAccess:
+    async def test_no_config_denies(self):
+        with pytest.raises(ValueError, match="not been configured"):
+            await check_guild_access(300001, 50001, "User", ["artists"])
+
+    async def test_has_role_auto_creates_person(self):
+        await GuildConfig.create(guild_id=300002, required_role="artists")
+        person = await check_guild_access(300002, 50002, "NewUser", ["artists", "everyone"])
+        assert person.discord_id == 50002
+        assert person.name == "NewUser"
+        assert person.access & BotAccess.ALLOWED
+
+    async def test_auto_created_gets_allowed_not_admin(self):
+        await GuildConfig.create(guild_id=300003, required_role="artists")
+        person = await check_guild_access(300003, 50003, "User", ["artists"])
+        assert person.access & BotAccess.ALLOWED
+        assert not (person.access & BotAccess.ADMIN)
+
+    async def test_has_role_existing_person(self):
+        await GuildConfig.create(guild_id=300004, required_role="artists")
+        existing = await Person.create(name="Existing", discord_id=50004, access=int(BotAccess.ALLOWED))
+        person = await check_guild_access(300004, 50004, "Existing", ["artists"])
+        assert person.id == existing.id
+
+    async def test_missing_role_denies(self):
+        await GuildConfig.create(guild_id=300005, required_role="artists")
+        with pytest.raises(ValueError, match="artists"):
+            await check_guild_access(300005, 50005, "User", ["everyone", "bots"])
+
+    async def test_missing_role_denies_existing_person(self):
+        await GuildConfig.create(guild_id=300006, required_role="artists")
+        await Person.create(name="Existing", discord_id=50006, access=int(BotAccess.ALLOWED))
+        with pytest.raises(ValueError, match="artists"):
+            await check_guild_access(300006, 50006, "Existing", ["everyone"])
+
+    async def test_admin_bypasses_no_config(self):
+        await Person.create(name="Admin", discord_id=50007, access=int(BotAccess.ADMIN))
+        person = await check_guild_access(399999, 50007, "Admin", [])
+        assert person.access & BotAccess.ADMIN
+
+    async def test_admin_bypasses_missing_role(self):
+        await GuildConfig.create(guild_id=300008, required_role="artists")
+        await Person.create(name="Admin", discord_id=50008, access=int(BotAccess.ADMIN))
+        person = await check_guild_access(300008, 50008, "Admin", ["everyone"])
+        assert person.access & BotAccess.ADMIN

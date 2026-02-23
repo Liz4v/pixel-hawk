@@ -1,8 +1,11 @@
 """Tests for Discord bot wiring (interactions.py)."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import discord
 
 from pixel_hawk.models.config import get_config
+from pixel_hawk.models.entities import Person
 from pixel_hawk.interface.interactions import (
     HawkBot,
     maybe_bot,
@@ -91,3 +94,131 @@ class TestHawkBotNewCommands:
         hawk = next(c for c in bot.tree.get_commands() if c.name == "hawk")
         names = [c.name for c in hawk.commands]
         assert "edit" in names
+
+
+def _mock_interaction(*, guild_id=999, user_id=12345, user_name="TestUser", role_names=None):
+    """Create a mock discord.Interaction with a Member user."""
+    interaction = MagicMock(spec=discord.Interaction)
+    interaction.guild_id = guild_id
+
+    member = MagicMock(spec=discord.Member)
+    member.id = user_id
+    member.name = user_name
+    roles = []
+    for name in (role_names or []):
+        role = MagicMock(spec=discord.Role)
+        role.name = name
+        roles.append(role)
+    member.roles = roles
+    interaction.user = member
+
+    interaction.response = MagicMock()
+    interaction.response.send_message = AsyncMock()
+    interaction.response.defer = AsyncMock()
+    interaction.followup = MagicMock()
+    interaction.followup.send = AsyncMock()
+    return interaction
+
+
+# _check_access tests
+
+
+class TestCheckAccess:
+    async def test_success_returns_person(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction(role_names=["artists"])
+        fake_person = MagicMock(spec=Person)
+
+        with patch("pixel_hawk.interface.interactions.check_guild_access", new_callable=AsyncMock, return_value=fake_person):
+            result = await bot._check_access(interaction)
+
+        assert result is fake_person
+        interaction.response.send_message.assert_not_awaited()
+
+    async def test_denied_sends_error_and_returns_none(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction(role_names=["everyone"])
+
+        with patch(
+            "pixel_hawk.interface.interactions.check_guild_access",
+            new_callable=AsyncMock,
+            side_effect=ValueError("You need the **artists** role"),
+        ):
+            result = await bot._check_access(interaction)
+
+        assert result is None
+        interaction.response.send_message.assert_awaited_once()
+        msg = interaction.response.send_message.call_args
+        assert "artists" in msg.args[0]
+        assert msg.kwargs["ephemeral"] is True
+
+
+# _sa role subcommand tests
+
+
+class TestSaRoleCommand:
+    async def test_role_success(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction(guild_id=555)
+
+        with patch(
+            "pixel_hawk.interface.interactions.set_guild_role",
+            new_callable=AsyncMock,
+            return_value="Required role set to **painters** for this server.",
+        ):
+            await bot._sa(interaction, "role painters")
+
+        interaction.response.send_message.assert_awaited_once()
+        msg = interaction.response.send_message.call_args
+        assert "painters" in msg.args[0]
+        assert msg.kwargs["ephemeral"] is True
+
+    async def test_role_not_admin(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+
+        with patch(
+            "pixel_hawk.interface.interactions.set_guild_role",
+            new_callable=AsyncMock,
+            side_effect=ValueError("Admin access required."),
+        ):
+            await bot._sa(interaction, "role painters")
+
+        msg = interaction.response.send_message.call_args
+        assert "Admin access required" in msg.args[0]
+
+    async def test_role_missing_param(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+        await bot._sa(interaction, "role")
+        msg = interaction.response.send_message.call_args
+        assert msg.args[0] == "No."
+
+
+# _list with access check
+
+
+class TestListWithAccessCheck:
+    async def test_denied_returns_early(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+
+        with patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=None):
+            await bot._list(interaction)
+
+        # Only _check_access should have been called, not send_message again
+        interaction.response.send_message.assert_not_awaited()
+
+    async def test_allowed_calls_list_projects(self):
+        bot = HawkBot("test-token", "hawk")
+        interaction = _mock_interaction()
+        fake_person = MagicMock(spec=Person)
+
+        with (
+            patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=fake_person),
+            patch("pixel_hawk.interface.interactions.list_projects", new_callable=AsyncMock, return_value="Projects here"),
+        ):
+            await bot._list(interaction)
+
+        interaction.response.send_message.assert_awaited_once()
+        assert "Projects here" in interaction.response.send_message.call_args.args[0]

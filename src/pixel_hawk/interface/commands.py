@@ -14,7 +14,7 @@ from loguru import logger
 from PIL import Image
 
 from ..models.config import get_config
-from ..models.entities import BotAccess, DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState
+from ..models.entities import BotAccess, DiffStatus, GuildConfig, HistoryChange, Person, ProjectInfo, ProjectState
 from ..models.geometry import Point
 from ..models.palette import PALETTE
 from ..watcher.projects import Project, count_cached_tiles
@@ -58,6 +58,40 @@ async def grant_admin(discord_id: int, display_name: str, token: str, expected_t
 
     logger.info(f"Admin access granted to '{person.name}' (discord_id={discord_id})")
     return f"Admin access granted to {person.name}."
+
+
+async def set_guild_role(discord_id: int, guild_id: int, role_name: str) -> str:
+    """Set the required role for a guild. Caller must be an admin."""
+    person = await Person.filter(discord_id=discord_id).first()
+    if person is None or not (person.access & BotAccess.ADMIN):
+        raise ValueError("Admin access required.")
+
+    await GuildConfig.update_or_create(defaults={"required_role": role_name}, guild_id=guild_id)
+    logger.info(f"{person.name}: Set required role for guild {guild_id} to '{role_name}'")
+    return f"Required role set to **{role_name}** for this server."
+
+
+async def check_guild_access(guild_id: int, discord_id: int, display_name: str, role_names: list[str]) -> Person:
+    """Check if a user has access in the given guild. Returns the Person (auto-created if needed).
+
+    Raises ValueError if access is denied.
+    """
+    person = await Person.filter(discord_id=discord_id).first()
+    if person and person.access & BotAccess.ADMIN:
+        return person
+
+    config = await GuildConfig.filter(guild_id=guild_id).first()
+    if config is None:
+        raise ValueError("This server has not been configured. An admin must set a role first.")
+
+    if config.required_role not in role_names:
+        raise ValueError(f"You need the **{config.required_role}** role to use this bot.")
+
+    if person is None:
+        person = await Person.create(name=display_name, discord_id=discord_id, access=int(BotAccess.ALLOWED))
+        logger.info(f"Auto-created person '{display_name}' (discord_id={discord_id}) via guild role")
+
+    return person
 
 
 _ENTIRELY_RE = re.compile(r"^(?P<tx>\d+)(?P<sep>[ ._-])(?P<ty>\d+)(?P=sep)(?P<px>\d+)(?P=sep)(?P<py>\d+)$")

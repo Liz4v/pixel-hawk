@@ -15,9 +15,17 @@ from discord import app_commands
 from loguru import logger
 
 from ..models.config import get_config
-from ..models.entities import ProjectState
+from ..models.entities import Person, ProjectState
 from ..models.palette import ColorsNotInPalette
-from .commands import edit_project, generate_admin_token, grant_admin, list_projects, new_project
+from .commands import (
+    check_guild_access,
+    edit_project,
+    generate_admin_token,
+    grant_admin,
+    list_projects,
+    new_project,
+    set_guild_role,
+)
 
 
 class HawkBot(discord.Client):
@@ -40,6 +48,19 @@ class HawkBot(discord.Client):
         hawk_group.command(name="edit", description="Edit an existing project")(self._edit)
         self.tree.add_command(hawk_group)
 
+    async def _check_access(self, interaction: discord.Interaction) -> Person | None:
+        """Check guild role access. Returns Person on success, sends denial and returns None on failure."""
+        guild_id = interaction.guild_id
+        assert guild_id is not None, "Commands must be used in a guild"
+        member = interaction.user
+        assert isinstance(member, discord.Member), "Commands must be used in a guild"
+        role_names = [r.name for r in member.roles]
+        try:
+            return await check_guild_access(guild_id, member.id, member.name, role_names)
+        except ValueError as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return None
+
     @app_commands.describe(args="Subcommand and arguments")
     async def _sa(self, interaction: discord.Interaction, args: str) -> None:
         """Dispatch /hawk sa subcommands."""
@@ -53,17 +74,28 @@ class HawkBot(discord.Client):
         if cmd == "myself" and len(params) == 1:
             msg = await grant_admin(user.id, user.name, params[0], self.admin_token)
             await interaction.response.send_message(msg or "No.", ephemeral=True)
+        elif cmd == "role" and len(params) == 1:
+            assert interaction.guild_id is not None, "Commands must be used in a guild"
+            try:
+                msg = await set_guild_role(user.id, interaction.guild_id, params[0])
+            except ValueError as e:
+                msg = str(e)
+            await interaction.response.send_message(msg, ephemeral=True)
         else:
             await interaction.response.send_message("No.", ephemeral=True)
 
     async def _list(self, interaction: discord.Interaction) -> None:
         """Handle /hawk list — show the calling user's projects."""
+        if await self._check_access(interaction) is None:
+            return
         msg = await list_projects(interaction.user.id)
-        await interaction.response.send_message(msg or "No linked account found.", ephemeral=True)
+        await interaction.response.send_message(msg or "You have no projects.", ephemeral=True)
 
     @app_commands.describe(image="Project PNG image (must use WPlace palette, max 1000x1000)")
     async def _new(self, interaction: discord.Interaction, image: discord.Attachment) -> None:
         """Handle /hawk new — upload a new project image."""
+        if await self._check_access(interaction) is None:
+            return
         await interaction.response.defer(ephemeral=True)
         try:
             image_data = await image.read()
@@ -97,6 +129,8 @@ class HawkBot(discord.Client):
         state: app_commands.Choice[int] | None = None,
     ) -> None:
         """Handle /hawk edit — modify an existing project."""
+        if await self._check_access(interaction) is None:
+            return
         await interaction.response.defer(ephemeral=True)
         try:
             state_value = ProjectState(state.value) if state else None

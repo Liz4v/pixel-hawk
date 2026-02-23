@@ -290,3 +290,13 @@ class TileProject(Model):
     class Meta(Model.Meta):
         table = "tile_project"
         unique_together = (("tile_id", "project_id"),)
+
+
+class GuildConfig(Model):
+    """Per-guild configuration for the Discord bot."""
+
+    guild_id = fields.BigIntField(primary_key=True, generated=False)
+    required_role = fields.CharField(max_length=255)
+
+    class Meta(Model.Meta):
+        table = "guild_config"
