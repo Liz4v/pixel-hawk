@@ -175,7 +175,7 @@ class ProjectInfo(Model):
                 return
             except IntegrityError:
                 continue
-        assert False, f"Failed to save project with unique ID after {max_attempts} attempts"
+        raise RuntimeError(f"Failed to save project with unique ID after {max_attempts} attempts")
 
     async def link_tiles(self) -> int:
         """Create TileInfo and TileProject records for all tiles in this project's rectangle.

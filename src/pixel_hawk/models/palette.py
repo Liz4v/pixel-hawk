@@ -26,7 +26,7 @@ from loguru import logger
 from PIL import Image
 
 # We don't want to deal with too-large images.
-Image.MAX_IMAGE_PIXELS = 1_000_0000
+Image.MAX_IMAGE_PIXELS = 1_000_000
 
 # THIS IS THE OFFICIAL WPLACE PALETTE. It is not expected to change.
 # The first color (FF00FF) is just my transparency placeholder. I don't plan to change it either.

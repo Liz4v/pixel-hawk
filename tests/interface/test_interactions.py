@@ -24,19 +24,18 @@ def _invalidate_config_toml():
 
 class TestHawkBot:
     def test_construction(self):
-        bot = HawkBot("test-admin-token", "hawk")
-        assert bot.admin_token == "test-admin-token"
+        bot = HawkBot("hawk")
         assert bot.command_prefix == "hawk"
         assert bot.tree is not None
 
     def test_command_tree_has_hawk_group(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         commands = bot.tree.get_commands()
         names = [c.name for c in commands]
         assert "hawk" in names
 
     def test_custom_command_prefix(self):
-        bot = HawkBot("test-token", command_prefix="testhawk")
+        bot = HawkBot(command_prefix="testhawk")
         assert bot.command_prefix == "testhawk"
         commands = bot.tree.get_commands()
         names = [c.name for c in commands]
@@ -44,13 +43,13 @@ class TestHawkBot:
         assert "hawk" not in names
 
     async def test_on_ready_logs(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         # on_ready just logs, should not raise
         bot._connection.user = None  # type: ignore[assignment]
         await bot.on_ready()
 
     async def test_setup_hook_syncs_tree(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         bot.tree.sync = AsyncMock()  # type: ignore[method-assign]
         await bot.setup_hook()
         bot.tree.sync.assert_awaited_once()
@@ -83,19 +82,19 @@ class TestMaybeBot:
 
 class TestHawkBotCommands:
     def test_command_tree_has_new(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         hawk = next(c for c in bot.tree.get_commands() if c.name == "hawk")
         names = [c.name for c in hawk.commands]
         assert "new" in names
 
     def test_command_tree_has_edit(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         hawk = next(c for c in bot.tree.get_commands() if c.name == "hawk")
         names = [c.name for c in hawk.commands]
         assert "edit" in names
 
     def test_command_tree_has_delete(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         hawk = next(c for c in bot.tree.get_commands() if c.name == "hawk")
         names = [c.name for c in hawk.commands]
         assert "delete" in names
@@ -130,7 +129,7 @@ def _mock_interaction(*, guild_id=999, user_id=12345, user_name="TestUser", role
 
 class TestCheckAccess:
     async def test_success_returns_person(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction(role_names=["artists"])
         fake_person = MagicMock(spec=Person)
 
@@ -143,7 +142,7 @@ class TestCheckAccess:
         interaction.response.send_message.assert_not_awaited()
 
     async def test_denied_sends_error_and_returns_none(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction(role_names=["everyone"])
 
         with patch(
@@ -165,7 +164,7 @@ class TestCheckAccess:
 
 class TestSaRoleCommand:
     async def test_role_success(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction(guild_id=555)
 
         with patch(
@@ -181,7 +180,7 @@ class TestSaRoleCommand:
         assert msg.kwargs["ephemeral"] is True
 
     async def test_role_not_admin(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
 
         with patch(
@@ -195,7 +194,7 @@ class TestSaRoleCommand:
         assert "Admin access required" in msg.args[0]
 
     async def test_role_missing_param(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
         await bot._sa(interaction, "role")
         msg = interaction.response.send_message.call_args
@@ -207,42 +206,21 @@ class TestSaRoleCommand:
 
 class TestSaOtherCommands:
     async def test_empty_args(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
         await bot._sa(interaction, "")
         msg = interaction.response.send_message.call_args
         assert msg.args[0] == "No."
 
-    async def test_myself_valid_token(self):
-        bot = HawkBot("admin-token-123", "hawk")
+    async def test_myself_returns_no(self):
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
-
-        with patch(
-            "pixel_hawk.interface.interactions.grant_admin",
-            new_callable=AsyncMock,
-            return_value="Admin access granted to TestUser.",
-        ):
-            await bot._sa(interaction, "myself admin-token-123")
-
-        msg = interaction.response.send_message.call_args
-        assert "Admin access granted" in msg.args[0]
-
-    async def test_myself_invalid_token(self):
-        bot = HawkBot("admin-token-123", "hawk")
-        interaction = _mock_interaction()
-
-        with patch(
-            "pixel_hawk.interface.interactions.grant_admin",
-            new_callable=AsyncMock,
-            return_value=None,
-        ):
-            await bot._sa(interaction, "myself wrong-token")
-
+        await bot._sa(interaction, "myself some-token")
         msg = interaction.response.send_message.call_args
         assert msg.args[0] == "No."
 
     async def test_unknown_command(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
         await bot._sa(interaction, "unknown subcommand")
         msg = interaction.response.send_message.call_args
@@ -254,7 +232,7 @@ class TestSaOtherCommands:
 
 class TestNewHandler:
     async def test_denied_returns_early(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
 
         with patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=None):
@@ -263,7 +241,7 @@ class TestNewHandler:
         interaction.response.defer.assert_not_awaited()
 
     async def test_success(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
         attachment = MagicMock(spec=discord.Attachment)
         attachment.read = AsyncMock(return_value=b"png-data")
@@ -280,7 +258,7 @@ class TestNewHandler:
         assert msg.args[0] == "Created!"
 
     async def test_error_msg(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
         attachment = MagicMock(spec=discord.Attachment)
         attachment.read = AsyncMock(return_value=b"bad")
@@ -300,7 +278,7 @@ class TestNewHandler:
         assert "Not a PNG" in msg.args[0]
 
     async def test_palette_error(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
         attachment = MagicMock(spec=discord.Attachment)
         attachment.read = AsyncMock(return_value=b"data")
@@ -320,7 +298,7 @@ class TestNewHandler:
         assert "not in" in msg.args[0].lower() or "palette" in msg.args[0].lower() or "(1, 2, 3)" in msg.args[0]
 
     async def test_unexpected_error(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
         attachment = MagicMock(spec=discord.Attachment)
         attachment.read = AsyncMock(return_value=b"data")
@@ -345,7 +323,7 @@ class TestNewHandler:
 
 class TestEditHandler:
     async def test_denied_returns_early(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
 
         with patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=None):
@@ -354,7 +332,7 @@ class TestEditHandler:
         interaction.response.defer.assert_not_awaited()
 
     async def test_name_only(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
 
         with (
@@ -378,7 +356,7 @@ class TestEditHandler:
         assert msg.args[0] == "Updated!"
 
     async def test_with_image(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
         attachment = MagicMock(spec=discord.Attachment)
         attachment.read = AsyncMock(return_value=b"png-data")
@@ -403,7 +381,7 @@ class TestEditHandler:
         )
 
     async def test_with_state_choice(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
         state_choice = MagicMock()
         state_choice.value = int(ProjectState.PASSIVE)
@@ -427,7 +405,7 @@ class TestEditHandler:
         )
 
     async def test_error_msg(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
 
         with (
@@ -444,7 +422,7 @@ class TestEditHandler:
         assert "not yours" in msg.args[0]
 
     async def test_unexpected_error(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
 
         with (
@@ -466,7 +444,7 @@ class TestEditHandler:
 
 class TestDeleteHandler:
     async def test_denied_returns_early(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
 
         with patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=None):
@@ -475,7 +453,7 @@ class TestDeleteHandler:
         interaction.response.defer.assert_not_awaited()
 
     async def test_success(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
 
         with (
@@ -489,7 +467,7 @@ class TestDeleteHandler:
         assert msg.args[0] == "Deleted!"
 
     async def test_error_msg(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
 
         with (
@@ -506,7 +484,7 @@ class TestDeleteHandler:
         assert "not found" in msg.args[0]
 
     async def test_unexpected_error(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
 
         with (
@@ -528,7 +506,7 @@ class TestDeleteHandler:
 
 class TestListWithAccessCheck:
     async def test_denied_returns_early(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
 
         with patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=None):
@@ -538,7 +516,7 @@ class TestListWithAccessCheck:
         interaction.response.send_message.assert_not_awaited()
 
     async def test_allowed_calls_list_projects(self):
-        bot = HawkBot("test-token", "hawk")
+        bot = HawkBot("hawk")
         interaction = _mock_interaction()
         fake_person = MagicMock(spec=Person)
 

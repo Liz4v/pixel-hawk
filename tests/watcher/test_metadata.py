@@ -365,7 +365,7 @@ async def test_save_as_new_retries_on_collision(test_person, monkeypatch):
 
 
 async def test_save_as_new_exhaustion(test_person, monkeypatch):
-    """Test that save_as_new asserts on exhaustion."""
+    """Test that save_as_new raises RuntimeError on exhaustion."""
     # Create a project at ID 42
     first = ProjectInfo(owner=test_person, name="blocker")
     await first.save_as_new()
@@ -375,7 +375,7 @@ async def test_save_as_new_exhaustion(test_person, monkeypatch):
     monkeypatch.setattr(random, "randint", lambda a, b: occupied_id)
 
     second = ProjectInfo(owner=test_person, name="exhausted")
-    with pytest.raises(AssertionError, match="Failed to save project with unique ID"):
+    with pytest.raises(RuntimeError, match="Failed to save project with unique ID"):
         await second.save_as_new(max_attempts=5)
 
 

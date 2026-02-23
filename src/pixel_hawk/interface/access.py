@@ -1,10 +1,8 @@
 """Admin and guild access service layer for pixel-hawk.
 
-Discord-agnostic functions for admin token generation, admin grants,
-guild role configuration, and guild access checks.
+Discord-agnostic functions for admin grants, guild role configuration,
+and guild access checks.
 """
-
-import uuid
 
 from loguru import logger
 
@@ -26,25 +24,12 @@ def get_command_prefix() -> str:
     return _command_prefix
 
 
-def generate_admin_token() -> str:
-    """Generate a fresh admin UUID and write it to nest/data/admin-me.txt.
+async def grant_admin(discord_id: int, display_name: str) -> str:
+    """Grant admin access to a Discord user. Creates a Person record if needed.
 
-    A new UUID is generated on every startup so old tokens cannot be reused.
+    Callers are responsible for authorization (no token flow — intended for
+    manual use or a future installation flow).
     """
-    path = get_config().data_dir / "admin-me.txt"
-    token = str(uuid.uuid4())
-    path.write_text(f"/{get_command_prefix()} sa myself {token}")
-    return token
-
-
-async def grant_admin(discord_id: int, display_name: str, token: str, expected_token: str) -> str | None:
-    """Core admin-me logic, separated for testability.
-
-    Returns a success message string, or None on invalid token.
-    """
-    if token != expected_token:
-        return None
-
     person = await Person.filter(discord_id=discord_id).first()
     if person is None:
         person = await Person.create(name=display_name, discord_id=discord_id)

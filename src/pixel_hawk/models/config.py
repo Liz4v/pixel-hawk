@@ -144,12 +144,12 @@ def load_config(args: list[str] | None = None) -> Config:
     cfg = Config(home=home_path)
 
     # Initialize all subdirectories
-    cfg.projects_dir.mkdir(parents=True, exist_ok=True)
-    cfg.snapshots_dir.mkdir(parents=True, exist_ok=True)
-    cfg.tiles_dir.mkdir(parents=True, exist_ok=True)
-    cfg.rejected_dir.mkdir(parents=True, exist_ok=True)
-    cfg.logs_dir.mkdir(parents=True, exist_ok=True)
-    cfg.data_dir.mkdir(parents=True, exist_ok=True)
+    cfg.projects_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    cfg.snapshots_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    cfg.tiles_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    cfg.rejected_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    cfg.logs_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    cfg.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     # Generate default config.toml if it doesn't exist
     config_path = home_path / "config.toml"

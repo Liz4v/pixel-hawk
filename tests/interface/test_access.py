@@ -1,11 +1,8 @@
 """Tests for admin and guild access service layer (access.py)."""
 
-import uuid
-
 import pytest
 
-from pixel_hawk.interface.access import ErrorMsg, check_guild_access, generate_admin_token, grant_admin, set_guild_role
-from pixel_hawk.models.config import get_config
+from pixel_hawk.interface.access import ErrorMsg, check_guild_access, grant_admin, set_guild_role
 from pixel_hawk.models.entities import BotAccess, GuildConfig, Person
 
 # BotAccess enum tests
@@ -28,49 +25,12 @@ class TestBotAccess:
         assert access & 0x1
 
 
-# generate_admin_token tests
-
-
-class TestGenerateAdminToken:
-    def test_creates_file(self, setup_config):
-        token = generate_admin_token()
-        path = get_config().data_dir / "admin-me.txt"
-        assert path.exists()
-        assert token in path.read_text()
-
-    def test_returns_valid_uuid4(self, setup_config):
-        token = generate_admin_token()
-        parsed = uuid.UUID(token, version=4)
-        assert str(parsed) == token
-
-    def test_overwrites_on_each_call(self, setup_config):
-        token1 = generate_admin_token()
-        token2 = generate_admin_token()
-        assert token1 != token2
-        # File should contain the latest token
-        path = get_config().data_dir / "admin-me.txt"
-        assert token2 in path.read_text()
-
-    def test_uses_config_command_prefix(self, setup_config):
-        token = generate_admin_token()
-        path = get_config().data_dir / "admin-me.txt"
-        content = path.read_text()
-        assert content.startswith(f"/{get_config().discord.command_prefix} sa myself ")
-        assert token in content
-
-
 # grant_admin tests
 
 
 class TestGrantAdmin:
-    async def test_invalid_token_returns_none(self):
-        result = await grant_admin(12345, "TestUser", "wrong-token", "correct-token")
-        assert result is None
-
-    async def test_valid_token_creates_person(self):
-        token = "test-token-123"
-        result = await grant_admin(99999, "NewUser", token, token)
-        assert result is not None
+    async def test_creates_person(self):
+        result = await grant_admin(99999, "NewUser")
         assert "NewUser" in result
 
         person = await Person.filter(discord_id=99999).first()
@@ -78,10 +38,9 @@ class TestGrantAdmin:
         assert person.name == "NewUser"
         assert person.access & BotAccess.ADMIN
 
-    async def test_valid_token_reuses_existing_person(self):
+    async def test_reuses_existing_person(self):
         await Person.create(name="Existing", discord_id=88888)
-        token = "test-token-456"
-        result = await grant_admin(88888, "Existing", token, token)
+        result = await grant_admin(88888, "Existing")
         assert result is not None
 
         # Should not create a new person
@@ -93,17 +52,15 @@ class TestGrantAdmin:
         assert updated.access & BotAccess.ADMIN
 
     async def test_idempotent_admin_grant(self):
-        token = "test-token-789"
-        await grant_admin(77777, "Idempotent", token, token)
-        await grant_admin(77777, "Idempotent", token, token)
+        await grant_admin(77777, "Idempotent")
+        await grant_admin(77777, "Idempotent")
 
         person = await Person.get(discord_id=77777)
         assert person.access & BotAccess.ADMIN
 
     async def test_preserves_existing_access_flags(self):
         await Person.create(name="Flagged", discord_id=66666, access=0x1)
-        token = "test-token-flags"
-        await grant_admin(66666, "Flagged", token, token)
+        await grant_admin(66666, "Flagged")
 
         updated = await Person.get(discord_id=66666)
         assert updated.access & BotAccess.ADMIN

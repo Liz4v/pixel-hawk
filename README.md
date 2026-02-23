@@ -115,14 +115,12 @@ bot_token = "your-bot-token"
 If no token is configured, the bot is silently skipped. The `command_prefix` setting changes the slash command group name (default: `hawk`).
 
 **Guild setup:**
-1. Start the bot — it prints a one-time admin token to the console and saves it to `nest/data/admin-me.txt`
-2. Run `/hawk sa myself <token>` to grant yourself admin access
-3. Run `/hawk sa role <role_name>` to set the required Discord role for the server — users with this role can use the bot and are auto-enrolled on first command
+1. Grant admin access to a Person record in the database (a proper setup flow is planned)
+2. Run `/hawk sa role <role_name>` to set the required Discord role for the server — users with this role can use the bot and are auto-enrolled on first command
 
 Commands are blocked until a role is configured. Admins always bypass the role check.
 
 **Commands:**
-- `/hawk sa myself <token>` — Grant admin access using a one-time UUID
 - `/hawk sa role <name>` — Set the required Discord role for this server (admin only)
 - `/hawk list` — List all your projects with state, completion stats, 24h progress/regress, and WPlace links (ephemeral, visible only to you)
 - `/hawk new` — Upload a new project image

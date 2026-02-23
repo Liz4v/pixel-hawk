@@ -17,18 +17,17 @@ from loguru import logger
 from ..models.config import get_config
 from ..models.entities import Person, ProjectState
 from ..models.palette import ColorsNotInPalette
-from .access import ErrorMsg, check_guild_access, generate_admin_token, grant_admin, set_guild_role
+from .access import ErrorMsg, check_guild_access, set_guild_role
 from .commands import delete_project, edit_project, list_projects, new_project
 
 
 class HawkBot(discord.Client):
     """Discord client for pixel-hawk with slash command support."""
 
-    def __init__(self, admin_token: str, command_prefix: str):
+    def __init__(self, command_prefix: str):
         intents = discord.Intents.default()
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
-        self.admin_token = admin_token
         self.command_prefix = command_prefix
         self._register_commands()
 
@@ -41,6 +40,15 @@ class HawkBot(discord.Client):
         hawk_group.command(name="edit", description="Edit an existing project")(self._edit)
         hawk_group.command(name="delete", description="Delete a project")(self._delete)
         self.tree.add_command(hawk_group)
+
+        @self.tree.error
+        async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+            if isinstance(error, app_commands.CommandOnCooldown):
+                await interaction.response.send_message(
+                    f"Try again in {error.retry_after:.0f}s.", ephemeral=True
+                )
+            else:
+                raise error
 
     async def _check_access(self, interaction: discord.Interaction) -> Person | None:
         """Check guild role access. Returns Person on success, sends denial and returns None on failure."""
@@ -65,10 +73,7 @@ class HawkBot(discord.Client):
         cmd, *params = parts
         user = interaction.user
         logger.info(f"SA from {user.name} (https://discord.com/users/{user.id}): {cmd} {params}")
-        if cmd == "myself" and len(params) == 1:
-            msg = await grant_admin(user.id, user.name, params[0], self.admin_token)
-            await interaction.response.send_message(msg or "No.", ephemeral=True)
-        elif cmd == "role" and len(params) == 1:
+        if cmd == "role" and len(params) == 1:
             assert interaction.guild_id is not None, "Commands must be used in a guild"
             try:
                 msg = await set_guild_role(user.id, interaction.guild_id, params[0])
@@ -78,6 +83,7 @@ class HawkBot(discord.Client):
         else:
             await interaction.response.send_message("No.", ephemeral=True)
 
+    @app_commands.checks.cooldown(rate=2, per=5.0)
     async def _list(self, interaction: discord.Interaction) -> None:
         """Handle /hawk list — show the calling user's projects."""
         if await self._check_access(interaction) is None:
@@ -85,6 +91,7 @@ class HawkBot(discord.Client):
         msg = await list_projects(interaction.user.id)
         await interaction.response.send_message(msg or "You have no projects.", ephemeral=True)
 
+    @app_commands.checks.cooldown(rate=1, per=10.0)
     @app_commands.describe(image="Project PNG image (must use WPlace palette, max 1000x1000)")
     async def _new(self, interaction: discord.Interaction, image: discord.Attachment) -> None:
         """Handle /hawk new — upload a new project image."""
@@ -101,6 +108,7 @@ class HawkBot(discord.Client):
             msg = "An error occurred while creating the project."
         await interaction.followup.send(msg or "No linked account found.", ephemeral=True)
 
+    @app_commands.checks.cooldown(rate=1, per=10.0)
     @app_commands.describe(
         project_id="Project ID (4-digit number)",
         image="Replacement project PNG image (resets tracking stats)",
@@ -148,6 +156,7 @@ class HawkBot(discord.Client):
             msg = "An error occurred while editing the project."
         await interaction.followup.send(msg or "No linked account found.", ephemeral=True)
 
+    @app_commands.checks.cooldown(rate=2, per=5.0)
     @app_commands.describe(project_id="Project ID (4-digit number)")
     async def _delete(self, interaction: discord.Interaction, project_id: int) -> None:
         """Handle /hawk delete — permanently remove a project."""
@@ -180,10 +189,7 @@ async def maybe_bot():
         yield
         return
 
-    admin_token = generate_admin_token()
-    logger.info(f"Admin token: {admin_token} (see nest/data/admin-me.txt)")
-
-    bot = HawkBot(admin_token, get_config().discord.command_prefix)
+    bot = HawkBot(get_config().discord.command_prefix)
     asyncio.create_task(bot.start(token))
     yield
     await bot.close()
