@@ -117,6 +117,7 @@ This project embraces core principles from PEP 20 ("The Zen of Python"):
 - The project is in early stages: public APIs and internals may change. Prefer simplicity, clarity, and small, focused edits.
 - Follow existing idioms: use `NamedTuple`/`dataclass`-like shapes, type hints, and explicit resource management.
 - Type annotations: Python 3.14 provides deferred evaluation of annotations by default. Use unquoted type annotations (e.g., `def foo() -> Rectangle:` not `def foo() -> 'Rectangle':`). Forward references and self-references work without quotes.
+- Avoid unnecessary type unions: prefer falsy defaults over `None` to eliminate `| None` annotations. Use `""` instead of `None` for strings, `0` for numbers, `()` or `[]` for collections — whenever the falsy value isn't meaningful. Similarly, prefer `NOT NULL` database columns with sensible defaults over nullable columns. Only use `None`/nullable when the absence of a value is semantically distinct from the falsy value.
 - Preserve logging via `loguru` rather than replacing with ad-hoc prints.
 - Async patterns:
   - The project is fully async. Use `async def` for I/O-bound functions. Use `asyncio.to_thread` for blocking PIL/filesystem operations.
