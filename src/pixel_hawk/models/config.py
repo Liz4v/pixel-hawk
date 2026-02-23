@@ -8,6 +8,7 @@ Can be overridden with --nest CLI flag or HAWK_NEST environment variable.
 Precedence: CLI flag > env var > default
 """
 
+import dataclasses
 import functools
 import os
 import sys
@@ -22,6 +23,32 @@ class DiscordSettings:
 
     bot_token: str = ""
     command_prefix: str = "hawk"
+
+
+# Maps TOML section names to their settings dataclass.
+_CONFIG_SECTIONS: dict[str, type] = {"discord": DiscordSettings}
+
+
+def generate_default_config() -> str:
+    """Generate config.toml content with defaults and documentation from dataclass docstrings."""
+    lines: list[str] = []
+    for section, cls in _CONFIG_SECTIONS.items():
+        if cls.__doc__:
+            for doc_line in cls.__doc__.strip().splitlines():
+                lines.append(f"# {doc_line.strip()}")
+        lines.append(f"[{section}]")
+        for f in fields(cls):
+            if f.default is dataclasses.MISSING:
+                continue
+            val = f.default
+            if isinstance(val, str):
+                lines.append(f'{f.name} = "{val}"')
+            elif isinstance(val, bool):
+                lines.append(f'{f.name} = {"true" if val else "false"}')
+            elif isinstance(val, (int, float)):
+                lines.append(f"{f.name} = {val}")
+        lines.append("")
+    return "\n".join(lines)
 
 
 @dataclass
@@ -123,6 +150,11 @@ def load_config(args: list[str] | None = None) -> Config:
     cfg.rejected_dir.mkdir(parents=True, exist_ok=True)
     cfg.logs_dir.mkdir(parents=True, exist_ok=True)
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate default config.toml if it doesn't exist
+    config_path = home_path / "config.toml"
+    if not config_path.exists():
+        config_path.write_text(generate_default_config())
 
     return cfg
 

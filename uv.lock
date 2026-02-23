@@ -1,6 +1,6 @@
 version = 1
 revision = 3
-requires-python = ">=3.14"
+requires-python = "==3.14.*"
 
 [[package]]
 name = "aerich"
@@ -697,7 +697,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiosqlite" },
     { name = "anyio" },
-    { name = "iso8601", marker = "python_full_version < '4'" },
+    { name = "iso8601" },
     { name = "pypika-tortoise" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f3/b0/2b3962847aad793d32646c6e43e7fab6f845f34a5502da5722fe704ec847/tortoise_orm-1.1.5.tar.gz", hash = "sha256:d4074a7c34a8445fcca19ec865189d80ea7a00b29e4b12778460fcab67a5ce74", size = 375804, upload-time = "2026-02-19T21:01:18.429Z" }

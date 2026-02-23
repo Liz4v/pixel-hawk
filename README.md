@@ -197,11 +197,9 @@ The install script detects the current user, repo location, and `uv` path, then 
 
 Pushes to `main` are automatically deployed via a self-hosted GitHub Actions runner (see `.github/workflows/deploy.yml`).
 
-After installation, configure the Discord bot by copying `config.example.toml`:
+After installation, configure the Discord bot by editing the auto-generated `nest/config.toml` in the nest directory, and restart the service:
 
 ```bash
-cp config.example.toml nest/config.toml
-# Edit nest/config.toml with your bot token
 sudo systemctl restart pixel-hawk
 ```
 
