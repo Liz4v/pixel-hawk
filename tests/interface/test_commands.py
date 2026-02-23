@@ -17,11 +17,19 @@ from pixel_hawk.interface.commands import (
     new_project,
     parse_filename,
 )
-from pixel_hawk.watcher import projects
 from pixel_hawk.models.config import get_config
+from pixel_hawk.models.entities import (
+    BotAccess,
+    DiffStatus,
+    HistoryChange,
+    Person,
+    ProjectInfo,
+    ProjectState,
+    TileProject,
+)
 from pixel_hawk.models.geometry import Point, Rectangle, Size
-from pixel_hawk.models.entities import BotAccess, DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState, TileProject
 from pixel_hawk.models.palette import PALETTE, ColorsNotInPalette
+from pixel_hawk.watcher import projects
 
 # BotAccess enum tests
 
@@ -399,11 +407,11 @@ class TestParseCoords:
         assert _parse_coords("5_7,0 0") == (5, 7, 0, 0)
 
     def test_wrong_count(self):
-        with pytest.raises(ValueError, match="expected tx_ty_px_py"):
+        with pytest.raises(ValueError, match="Invalid coordinates"):
             _parse_coords("5_7_0")
 
     def test_non_numeric(self):
-        with pytest.raises(ValueError, match="integers"):
+        with pytest.raises(ValueError, match="Invalid coordinates"):
             _parse_coords("a_b_c_d")
 
     def test_tile_out_of_range(self):
@@ -413,10 +421,6 @@ class TestParseCoords:
     def test_pixel_out_of_range(self):
         with pytest.raises(ValueError, match="out of range"):
             _parse_coords("0_0_1000_0")
-
-    def test_negative_values(self):
-        with pytest.raises(ValueError, match="out of range"):
-            _parse_coords("-1_0_0_0")
 
 
 # new_project tests

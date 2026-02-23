@@ -14,10 +14,10 @@ import discord
 from discord import app_commands
 from loguru import logger
 
-from .commands import edit_project, generate_admin_token, grant_admin, list_projects, new_project
 from ..models.config import get_config
 from ..models.entities import ProjectState
 from ..models.palette import ColorsNotInPalette
+from .commands import edit_project, generate_admin_token, grant_admin, list_projects, new_project
 
 
 class HawkBot(discord.Client):
@@ -78,7 +78,7 @@ class HawkBot(discord.Client):
     @app_commands.describe(
         project_id="Project ID (4-digit number)",
         name="New project name",
-        coords="Coordinates as tx_ty_px_py (e.g. 5_7_0_0)",
+        coords="Coordinates as Tx,Ty,Px,Py. 4 numbers separated by whatever.",
         state="Project state",
     )
     @app_commands.choices(

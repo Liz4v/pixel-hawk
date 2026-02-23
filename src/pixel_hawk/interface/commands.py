@@ -14,8 +14,8 @@ from loguru import logger
 from PIL import Image
 
 from ..models.config import get_config
-from ..models.geometry import Point
 from ..models.entities import BotAccess, DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState
+from ..models.geometry import Point
 from ..models.palette import PALETTE
 from ..watcher.projects import Project, count_cached_tiles
 
@@ -67,6 +67,7 @@ _ENDS_WITH_RE = re.compile(
 _BEGINS_WITH_RE = re.compile(
     r"^(?P<tx>\d+)(?P<sep>[ ._-])(?P<ty>\d+)(?P=sep)(?P<px>\d+)(?P=sep)(?P<py>\d+)[ ._-](?P<name>.+)$"
 )
+_POSINT_RE = re.compile(r"\d+")
 
 
 def parse_filename(filename: str) -> tuple[str | None, tuple[int, int, int, int] | None]:
@@ -84,15 +85,12 @@ def parse_filename(filename: str) -> tuple[str | None, tuple[int, int, int, int]
 
 
 def _parse_coords(coords_str: str) -> tuple[int, int, int, int]:
-    """Parse a tx_ty_px_py coordinate string. Accepts ``_``, ``,`` or space as separators."""
-    parts = coords_str.replace(",", " ").replace("_", " ").split()
+    """Parse a tx_ty_px_py coordinate string. Accepts any and all separators."""
+    parts = _POSINT_RE.findall(coords_str)
     if len(parts) != 4:
-        raise ValueError("Invalid coordinates: expected tx_ty_px_py (e.g. 5_7_0_0)")
-    try:
-        tx, ty, px, py = (int(p) for p in parts)
-    except ValueError:
-        raise ValueError("Invalid coordinates: all values must be integers")
-    if not (0 <= tx < 2048 and 0 <= ty < 2048 and 0 <= px < 1000 and 0 <= py < 1000):
+        raise ValueError("Invalid coordinates: expected tx, ty, px, py (e.g. 1234 567 890 123)")
+    tx, ty, px, py = (int(p) for p in parts)
+    if tx > 2047 or ty > 2047 or px > 999 or py > 999:
         raise ValueError(f"Coordinates out of range: {tx}_{ty}_{px}_{py} (tile 0-2047, pixel 0-999)")
     return tx, ty, px, py
 
