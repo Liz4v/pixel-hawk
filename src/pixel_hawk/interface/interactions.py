@@ -18,6 +18,7 @@ from ..models.config import get_config
 from ..models.entities import Person, ProjectState
 from ..models.palette import ColorsNotInPalette
 from .commands import (
+    ErrorMsg,
     check_guild_access,
     edit_project,
     generate_admin_token,
@@ -57,7 +58,7 @@ class HawkBot(discord.Client):
         role_names = [r.name for r in member.roles]
         try:
             return await check_guild_access(guild_id, member.id, member.name, role_names)
-        except ValueError as e:
+        except ErrorMsg as e:
             await interaction.response.send_message(str(e), ephemeral=True)
             return None
 
@@ -78,7 +79,7 @@ class HawkBot(discord.Client):
             assert interaction.guild_id is not None, "Commands must be used in a guild"
             try:
                 msg = await set_guild_role(user.id, interaction.guild_id, params[0])
-            except ValueError as e:
+            except ErrorMsg as e:
                 msg = str(e)
             await interaction.response.send_message(msg, ephemeral=True)
         else:
@@ -100,7 +101,7 @@ class HawkBot(discord.Client):
         try:
             image_data = await image.read()
             msg = await new_project(interaction.user.id, image_data, image.filename)
-        except (ValueError, ColorsNotInPalette) as e:
+        except (ErrorMsg, ColorsNotInPalette) as e:
             msg = str(e)
         except Exception as e:
             logger.error(f"Error in /hawk new: {e}")
@@ -135,7 +136,7 @@ class HawkBot(discord.Client):
         try:
             state_value = ProjectState(state.value) if state else None
             msg = await edit_project(interaction.user.id, project_id, name=name, coords=coords, state=state_value)
-        except ValueError as e:
+        except ErrorMsg as e:
             msg = str(e)
         except Exception as e:
             logger.error(f"Error in /hawk edit: {e}")

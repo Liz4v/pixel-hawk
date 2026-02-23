@@ -9,6 +9,7 @@ from PIL import Image
 
 from pixel_hawk.interface.commands import (
     DISCORD_MESSAGE_LIMIT,
+    ErrorMsg,
     _parse_coords,
     check_guild_access,
     edit_project,
@@ -410,19 +411,19 @@ class TestParseCoords:
         assert _parse_coords("5_7,0 0") == (5, 7, 0, 0)
 
     def test_wrong_count(self):
-        with pytest.raises(ValueError, match="Invalid coordinates"):
+        with pytest.raises(ErrorMsg, match="Invalid coordinates"):
             _parse_coords("5_7_0")
 
     def test_non_numeric(self):
-        with pytest.raises(ValueError, match="Invalid coordinates"):
+        with pytest.raises(ErrorMsg, match="Invalid coordinates"):
             _parse_coords("a_b_c_d")
 
     def test_tile_out_of_range(self):
-        with pytest.raises(ValueError, match="out of range"):
+        with pytest.raises(ErrorMsg, match="out of range"):
             _parse_coords("2048_0_0_0")
 
     def test_pixel_out_of_range(self):
-        with pytest.raises(ValueError, match="out of range"):
+        with pytest.raises(ErrorMsg, match="out of range"):
             _parse_coords("0_0_1000_0")
 
 
@@ -436,12 +437,12 @@ class TestNewProject:
 
     async def test_not_png_raises(self):
         await Person.create(name="Alice", discord_id=10001)
-        with pytest.raises(ValueError, match="Not a PNG"):
+        with pytest.raises(ErrorMsg, match="Not a PNG"):
             await new_project(10001, b"not a png file", "test.png")
 
     async def test_too_large_raises(self):
         await Person.create(name="Bob", discord_id=10002)
-        with pytest.raises(ValueError, match="too large"):
+        with pytest.raises(ErrorMsg, match="too large"):
             await new_project(10002, _make_test_png(1001, 500), "test.png")
 
     async def test_bad_palette_raises(self):
@@ -523,7 +524,7 @@ class TestEditProject:
 
     async def test_project_not_found(self):
         await Person.create(name="Alice", discord_id=20001)
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(ErrorMsg, match="not found"):
             await edit_project(20001, 9999, name="test")
 
     async def test_not_owner(self):
@@ -531,7 +532,7 @@ class TestEditProject:
         await Person.create(name="Other", discord_id=20003)
         info = await ProjectInfo.from_rect(RECT, owner.id, "owned project")
 
-        with pytest.raises(ValueError, match="not yours"):
+        with pytest.raises(ErrorMsg, match="not yours"):
             await edit_project(20003, info.id, name="stolen")
 
     async def test_set_name(self):
@@ -550,7 +551,7 @@ class TestEditProject:
         await ProjectInfo.from_rect(RECT, person.id, "existing")
         info2 = await ProjectInfo.from_rect(RECT, person.id, "other")
 
-        with pytest.raises(ValueError, match="already have"):
+        with pytest.raises(ErrorMsg, match="already have"):
             await edit_project(20005, info2.id, name="existing")
 
     async def test_set_coords_renames_pending_file(self):
@@ -602,7 +603,7 @@ class TestEditProject:
         await new_project(20009, _make_test_png(), "image.png")
         info = await ProjectInfo.filter(owner=person).first()
 
-        with pytest.raises(ValueError, match="set coordinates first"):
+        with pytest.raises(ErrorMsg, match="set coordinates first"):
             await edit_project(20009, info.id, state=ProjectState.ACTIVE)
 
     async def test_activate_with_coords(self):
@@ -622,7 +623,7 @@ class TestEditProject:
         person = await Person.create(name="Ivy", discord_id=20011)
         info = await ProjectInfo.from_rect(RECT, person.id, "test")
 
-        with pytest.raises(ValueError, match="No changes"):
+        with pytest.raises(ErrorMsg, match="No changes"):
             await edit_project(20011, info.id)
 
     async def test_all_at_once(self):
@@ -799,17 +800,17 @@ class TestGuildConfig:
 
 class TestSetGuildRole:
     async def test_no_person_raises(self):
-        with pytest.raises(ValueError, match="Admin access required"):
+        with pytest.raises(ErrorMsg, match="Admin access required"):
             await set_guild_role(99999, 200001, "artists")
 
     async def test_non_admin_raises(self):
         await Person.create(name="User", discord_id=40001, access=0)
-        with pytest.raises(ValueError, match="Admin access required"):
+        with pytest.raises(ErrorMsg, match="Admin access required"):
             await set_guild_role(40001, 200001, "artists")
 
     async def test_allowed_only_raises(self):
         await Person.create(name="Allowed", discord_id=40002, access=int(BotAccess.ALLOWED))
-        with pytest.raises(ValueError, match="Admin access required"):
+        with pytest.raises(ErrorMsg, match="Admin access required"):
             await set_guild_role(40002, 200001, "artists")
 
     async def test_admin_sets_role(self):
@@ -833,7 +834,7 @@ class TestSetGuildRole:
 
 class TestCheckGuildAccess:
     async def test_no_config_denies(self):
-        with pytest.raises(ValueError, match="not been configured"):
+        with pytest.raises(ErrorMsg, match="not been configured"):
             await check_guild_access(300001, 50001, "User", ["artists"])
 
     async def test_has_role_auto_creates_person(self):
@@ -857,13 +858,13 @@ class TestCheckGuildAccess:
 
     async def test_missing_role_denies(self):
         await GuildConfig.create(guild_id=300005, required_role="artists")
-        with pytest.raises(ValueError, match="artists"):
+        with pytest.raises(ErrorMsg, match="artists"):
             await check_guild_access(300005, 50005, "User", ["everyone", "bots"])
 
     async def test_missing_role_denies_existing_person(self):
         await GuildConfig.create(guild_id=300006, required_role="artists")
         await Person.create(name="Existing", discord_id=50006, access=int(BotAccess.ALLOWED))
-        with pytest.raises(ValueError, match="artists"):
+        with pytest.raises(ErrorMsg, match="artists"):
             await check_guild_access(300006, 50006, "Existing", ["everyone"])
 
     async def test_admin_bypasses_no_config(self):

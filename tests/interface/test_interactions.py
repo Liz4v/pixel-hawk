@@ -4,12 +4,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 
-from pixel_hawk.models.config import get_config
-from pixel_hawk.models.entities import Person
+from pixel_hawk.interface.commands import ErrorMsg
 from pixel_hawk.interface.interactions import (
     HawkBot,
     maybe_bot,
 )
+from pixel_hawk.models.config import get_config
+from pixel_hawk.models.entities import Person
 
 
 def _invalidate_config_toml():
@@ -105,7 +106,7 @@ def _mock_interaction(*, guild_id=999, user_id=12345, user_name="TestUser", role
     member.id = user_id
     member.name = user_name
     roles = []
-    for name in (role_names or []):
+    for name in role_names or []:
         role = MagicMock(spec=discord.Role)
         role.name = name
         roles.append(role)
@@ -129,7 +130,9 @@ class TestCheckAccess:
         interaction = _mock_interaction(role_names=["artists"])
         fake_person = MagicMock(spec=Person)
 
-        with patch("pixel_hawk.interface.interactions.check_guild_access", new_callable=AsyncMock, return_value=fake_person):
+        with patch(
+            "pixel_hawk.interface.interactions.check_guild_access", new_callable=AsyncMock, return_value=fake_person
+        ):
             result = await bot._check_access(interaction)
 
         assert result is fake_person
@@ -142,7 +145,7 @@ class TestCheckAccess:
         with patch(
             "pixel_hawk.interface.interactions.check_guild_access",
             new_callable=AsyncMock,
-            side_effect=ValueError("You need the **artists** role"),
+            side_effect=ErrorMsg("You need the **artists** role"),
         ):
             result = await bot._check_access(interaction)
 
@@ -180,7 +183,7 @@ class TestSaRoleCommand:
         with patch(
             "pixel_hawk.interface.interactions.set_guild_role",
             new_callable=AsyncMock,
-            side_effect=ValueError("Admin access required."),
+            side_effect=ErrorMsg("Admin access required."),
         ):
             await bot._sa(interaction, "role painters")
 
@@ -216,7 +219,9 @@ class TestListWithAccessCheck:
 
         with (
             patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=fake_person),
-            patch("pixel_hawk.interface.interactions.list_projects", new_callable=AsyncMock, return_value="Projects here"),
+            patch(
+                "pixel_hawk.interface.interactions.list_projects", new_callable=AsyncMock, return_value="Projects here"
+            ),
         ):
             await bot._list(interaction)
 

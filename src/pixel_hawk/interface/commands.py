@@ -19,6 +19,11 @@ from ..models.geometry import Point
 from ..models.palette import PALETTE
 from ..watcher.projects import Project, count_cached_tiles
 
+
+class ErrorMsg(Exception):
+    """An error whose message is intended to be displayed to the user."""
+
+
 _command_prefix: str | None = None
 
 
@@ -64,7 +69,7 @@ async def set_guild_role(discord_id: int, guild_id: int, role_name: str) -> str:
     """Set the required role for a guild. Caller must be an admin."""
     person = await Person.filter(discord_id=discord_id).first()
     if person is None or not (person.access & BotAccess.ADMIN):
-        raise ValueError("Admin access required.")
+        raise ErrorMsg("Admin access required.")
 
     await GuildConfig.update_or_create(defaults={"required_role": role_name}, guild_id=guild_id)
     logger.info(f"{person.name}: Set required role for guild {guild_id} to '{role_name}'")
@@ -74,7 +79,7 @@ async def set_guild_role(discord_id: int, guild_id: int, role_name: str) -> str:
 async def check_guild_access(guild_id: int, discord_id: int, display_name: str, role_names: list[str]) -> Person:
     """Check if a user has access in the given guild. Returns the Person (auto-created if needed).
 
-    Raises ValueError if access is denied.
+    Raises ErrorMsg if access is denied.
     """
     person = await Person.filter(discord_id=discord_id).first()
     if person and person.access & BotAccess.ADMIN:
@@ -82,10 +87,10 @@ async def check_guild_access(guild_id: int, discord_id: int, display_name: str, 
 
     config = await GuildConfig.filter(guild_id=guild_id).first()
     if config is None:
-        raise ValueError("This server has not been configured. An admin must set a role first.")
+        raise ErrorMsg("This server has not been configured. An admin must set a role first.")
 
     if config.required_role not in role_names:
-        raise ValueError(f"You need the **{config.required_role}** role to use this bot.")
+        raise ErrorMsg(f"You need the **{config.required_role}** role to use this bot.")
 
     if person is None:
         person = await Person.create(name=display_name, discord_id=discord_id, access=int(BotAccess.ALLOWED))
@@ -122,10 +127,10 @@ def _parse_coords(coords_str: str) -> tuple[int, int, int, int]:
     """Parse a tx_ty_px_py coordinate string. Accepts any and all separators."""
     parts = _POSINT_RE.findall(coords_str)
     if len(parts) != 4:
-        raise ValueError("Invalid coordinates: expected tx, ty, px, py (e.g. 1234 567 890 123)")
+        raise ErrorMsg("Invalid coordinates: expected tx, ty, px, py (e.g. 1234 567 890 123)")
     tx, ty, px, py = (int(p) for p in parts)
     if tx > 2047 or ty > 2047 or px > 999 or py > 999:
-        raise ValueError(f"Coordinates out of range: {tx}_{ty}_{px}_{py} (tile 0-2047, pixel 0-999)")
+        raise ErrorMsg(f"Coordinates out of range: {tx}_{ty}_{px}_{py} (tile 0-2047, pixel 0-999)")
     return tx, ty, px, py
 
 
@@ -171,16 +176,16 @@ async def new_project(discord_id: int, image_data: bytes, filename: str) -> str 
         return None
 
     if not image_data.startswith(PNG_HEADER):
-        raise ValueError("Not a PNG file.")
+        raise ErrorMsg("Not a PNG file.")
 
     try:
         async with PALETTE.aopen_bytes(image_data) as image:
             width, height = image.size
     except Image.DecompressionBombError:
-        raise ValueError("Image too large. Maximum 1000px.")
+        raise ErrorMsg("Image too large. Maximum 1000px.")
 
     if width > 1000 or height > 1000:
-        raise ValueError(f"Image too large ({width}x{height}). Maximum 1000px.")
+        raise ErrorMsg(f"Image too large ({width}x{height}). Maximum 1000px.")
 
     inferred_name, inferred_coords = parse_filename(filename)
 
@@ -250,9 +255,9 @@ async def edit_project(
 
     info = await ProjectInfo.filter(id=project_id).prefetch_related("owner").first()
     if info is None:
-        raise ValueError(f"Project {project_id:04} not found.")
+        raise ErrorMsg(f"Project {project_id:04} not found.")
     if info.owner.id != person.id:
-        raise ValueError(f"Project {project_id:04} is not yours.")
+        raise ErrorMsg(f"Project {project_id:04} is not yours.")
 
     changes: list[str] = []
     coords_changed = False
@@ -260,7 +265,7 @@ async def edit_project(
     if name is not None:
         existing = await ProjectInfo.filter(owner_id=person.id, name=name).exclude(id=project_id).first()
         if existing:
-            raise ValueError(f"You already have a project named '{name}'.")
+            raise ErrorMsg(f"You already have a project named '{name}'.")
         info.name = name
         changes.append(f"Name: {name}")
 
@@ -276,12 +281,12 @@ async def edit_project(
 
     if state is not None:
         if state in (ProjectState.ACTIVE, ProjectState.PASSIVE) and info.state == ProjectState.CREATING:
-            raise ValueError(f"Cannot activate: set coordinates first with `/{get_command_prefix()} edit`.")
+            raise ErrorMsg(f"Cannot activate: set coordinates first with `/{get_command_prefix()} edit`.")
         info.state = state
         changes.append(f"State: {state.name}")
 
     if not changes:
-        raise ValueError("No changes specified.")
+        raise ErrorMsg("No changes specified.")
 
     await info.save()
 
