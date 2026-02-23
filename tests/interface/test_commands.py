@@ -12,6 +12,7 @@ from pixel_hawk.interface.commands import (
     ErrorMsg,
     _parse_coords,
     check_guild_access,
+    delete_project,
     edit_project,
     generate_admin_token,
     grant_admin,
@@ -642,6 +643,261 @@ class TestEditProject:
         assert reloaded.name == "sonic"
         assert reloaded.state == ProjectState.ACTIVE
         assert reloaded.x == 5000
+
+
+# Conflict detection tests
+
+
+class TestCoordConflict:
+    async def test_new_project_rejects_duplicate_coords(self):
+        await Person.create(name="Alice", discord_id=60001)
+        await new_project(60001, _make_test_png(), "5_7_0_0.png")
+
+        with pytest.raises(ErrorMsg, match="already have project"):
+            await new_project(60001, _make_test_png(), "5_7_0_0.png")
+
+    async def test_new_project_allows_inactive_coords(self):
+        person = await Person.create(name="Bob", discord_id=60002)
+        await new_project(60002, _make_test_png(), "5_7_0_0.png")
+        info = await ProjectInfo.filter(owner=person).first()
+        info.state = ProjectState.INACTIVE
+        await info.save()
+
+        result = await new_project(60002, _make_test_png(), "5_7_0_0.png")
+        assert result is not None
+        assert "activated" in result
+
+    async def test_new_project_allows_different_user_same_coords(self):
+        await Person.create(name="Carol", discord_id=60003)
+        await Person.create(name="Dave", discord_id=60004)
+        await new_project(60003, _make_test_png(), "5_7_0_0.png")
+
+        result = await new_project(60004, _make_test_png(), "5_7_0_0.png")
+        assert result is not None
+        assert "activated" in result
+
+    async def test_edit_coords_rejects_conflict(self):
+        person = await Person.create(name="Eve", discord_id=60005)
+        await new_project(60005, _make_test_png(), "5_7_0_0.png")
+        await new_project(60005, _make_test_png(), "10_20_0_0.png")
+        info2 = await ProjectInfo.filter(owner=person, x=10000, y=20000).first()
+
+        with pytest.raises(ErrorMsg, match="already have project"):
+            await edit_project(60005, info2.id, coords="5_7_0_0")
+
+    async def test_new_project_rejects_duplicate_name(self):
+        await Person.create(name="Fay", discord_id=60006)
+        await new_project(60006, _make_test_png(), "image.png")
+
+        with pytest.raises(ErrorMsg, match="already have a project named"):
+            await new_project(60006, _make_test_png(), "image.png")
+
+
+# edit_project with image tests
+
+
+class TestEditProjectImage:
+    async def test_image_replaces_file(self):
+        person = await Person.create(name="Alice", discord_id=70001)
+        await new_project(70001, _make_test_png(10, 10), "5_7_0_0.png")
+        info = await ProjectInfo.filter(owner=person).first()
+
+        # Use a different size so the PNG bytes are guaranteed to differ
+        new_png = _make_test_png(10, 8)
+        result = await edit_project(70001, info.id, image_data=new_png, image_filename="whatever.png")
+
+        assert result is not None
+        assert "Image" in result
+        new_data = (get_config().projects_dir / str(person.id) / info.filename).read_bytes()
+        assert new_data == new_png
+
+    async def test_image_resets_tracking(self):
+        person = await Person.create(name="Bob", discord_id=70002)
+        await new_project(70002, _make_test_png(), "5_7_0_0.png")
+        info = await ProjectInfo.filter(owner=person).first()
+
+        info.max_completion_percent = 42.0
+        info.max_completion_pixels = 100
+        info.last_check = round(time.time())
+        info.total_progress = 500
+        info.total_regress = 50
+        await info.save()
+
+        await edit_project(70002, info.id, image_data=_make_test_png(), image_filename="x.png")
+
+        reloaded = await ProjectInfo.get(id=info.id)
+        assert reloaded.max_completion_percent == 0.0
+        assert reloaded.max_completion_pixels == 0
+        assert reloaded.last_check == 0
+        # Lifetime totals preserved
+        assert reloaded.total_progress == 500
+        assert reloaded.total_regress == 50
+
+    async def test_image_with_coord_change(self):
+        person = await Person.create(name="Carol", discord_id=70003)
+        await new_project(70003, _make_test_png(), "5_7_0_0.png")
+        info = await ProjectInfo.filter(owner=person).first()
+
+        result = await edit_project(
+            70003, info.id, image_data=_make_test_png(20, 20), image_filename="10_20_0_0.png",
+        )
+
+        assert result is not None
+        assert "Coords" in result
+        assert "Image" in result
+
+        reloaded = await ProjectInfo.get(id=info.id)
+        assert reloaded.x == 10000
+        assert reloaded.y == 20000
+        assert reloaded.width == 20
+        assert reloaded.height == 20
+
+        canonical = get_config().projects_dir / str(person.id) / reloaded.filename
+        assert canonical.exists()
+
+    async def test_image_on_creating_with_coords_activates(self):
+        person = await Person.create(name="Dave", discord_id=70004)
+        await new_project(70004, _make_test_png(), "image.png")
+        info = await ProjectInfo.filter(owner=person).first()
+        assert info.state == ProjectState.CREATING
+
+        result = await edit_project(
+            70004, info.id, image_data=_make_test_png(15, 15), image_filename="5_7_0_0.png",
+        )
+
+        assert result is not None
+        reloaded = await ProjectInfo.get(id=info.id)
+        assert reloaded.state == ProjectState.ACTIVE
+        assert reloaded.width == 15
+        assert reloaded.height == 15
+
+        tile_links = await TileProject.filter(project_id=info.id).count()
+        assert tile_links > 0
+
+    async def test_image_dimension_change_relinks_tiles(self):
+        person = await Person.create(name="Eve", discord_id=70005)
+        await new_project(70005, _make_test_png(10, 10), "5_7_0_0.png")
+        info = await ProjectInfo.filter(owner=person).first()
+
+        old_tile_count = await TileProject.filter(project_id=info.id).count()
+
+        # Larger image spans more tiles
+        await edit_project(
+            70005, info.id, image_data=_make_test_png(500, 500), image_filename="same.png",
+        )
+
+        reloaded = await ProjectInfo.get(id=info.id)
+        assert reloaded.width == 500
+        assert reloaded.height == 500
+        new_tile_count = await TileProject.filter(project_id=info.id).count()
+        assert new_tile_count >= old_tile_count
+
+    async def test_image_explicit_coords_override_filename(self):
+        person = await Person.create(name="Fay", discord_id=70006)
+        await new_project(70006, _make_test_png(), "5_7_0_0.png")
+        info = await ProjectInfo.filter(owner=person).first()
+
+        # Filename says 10_20, explicit coords say 30_40
+        await edit_project(
+            70006, info.id,
+            image_data=_make_test_png(), image_filename="10_20_0_0.png", coords="30_40_0_0",
+        )
+
+        reloaded = await ProjectInfo.get(id=info.id)
+        assert reloaded.x == 30000
+        assert reloaded.y == 40000
+
+    async def test_image_deletes_snapshot(self):
+        person = await Person.create(name="Gina", discord_id=70007)
+        await new_project(70007, _make_test_png(), "5_7_0_0.png")
+        info = await ProjectInfo.filter(owner=person).first()
+
+        snapshot_dir = get_config().snapshots_dir / str(person.id)
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        snapshot = snapshot_dir / info.filename
+        snapshot.write_bytes(b"fake snapshot")
+        assert snapshot.exists()
+
+        await edit_project(70007, info.id, image_data=_make_test_png(), image_filename="x.png")
+        assert not snapshot.exists()
+
+
+# delete_project tests
+
+
+class TestDeleteProject:
+    async def test_no_person_returns_none(self):
+        result = await delete_project(99999, 1)
+        assert result is None
+
+    async def test_project_not_found(self):
+        await Person.create(name="Alice", discord_id=80001)
+        with pytest.raises(ErrorMsg, match="not found"):
+            await delete_project(80001, 9999)
+
+    async def test_not_owner(self):
+        owner = await Person.create(name="Owner", discord_id=80002)
+        await Person.create(name="Other", discord_id=80003)
+        info = await ProjectInfo.from_rect(RECT, owner.id, "owned project")
+
+        with pytest.raises(ErrorMsg, match="not yours"):
+            await delete_project(80003, info.id)
+
+    async def test_deletes_active_project(self):
+        person = await Person.create(name="Bob", discord_id=80004)
+        await new_project(80004, _make_test_png(), "5_7_0_0.png")
+        info = await ProjectInfo.filter(owner=person).first()
+        project_id = info.id
+
+        project_file = get_config().projects_dir / str(person.id) / info.filename
+        assert project_file.exists()
+
+        result = await delete_project(80004, project_id)
+        assert result is not None
+        assert "deleted" in result.lower()
+
+        # DB records gone
+        assert await ProjectInfo.filter(id=project_id).count() == 0
+        assert await TileProject.filter(project_id=project_id).count() == 0
+
+        # File gone
+        assert not project_file.exists()
+
+    async def test_deletes_creating_project(self):
+        person = await Person.create(name="Carol", discord_id=80005)
+        await new_project(80005, _make_test_png(), "image.png")
+        info = await ProjectInfo.filter(owner=person).first()
+        project_id = info.id
+
+        result = await delete_project(80005, project_id)
+        assert result is not None
+        assert await ProjectInfo.filter(id=project_id).count() == 0
+
+    async def test_deletes_snapshot(self):
+        person = await Person.create(name="Dave", discord_id=80006)
+        await new_project(80006, _make_test_png(), "5_7_0_0.png")
+        info = await ProjectInfo.filter(owner=person).first()
+
+        snapshot_dir = get_config().snapshots_dir / str(person.id)
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        snapshot = snapshot_dir / info.filename
+        snapshot.write_bytes(b"fake snapshot")
+
+        await delete_project(80006, info.id)
+        assert not snapshot.exists()
+
+    async def test_updates_person_totals(self):
+        person = await Person.create(name="Eve", discord_id=80007)
+        await new_project(80007, _make_test_png(), "5_7_0_0.png")
+        info = await ProjectInfo.filter(owner=person).first()
+
+        person = await Person.get(id=person.id)
+        assert person.active_projects_count == 1
+
+        await delete_project(80007, info.id)
+
+        person = await Person.get(id=person.id)
+        assert person.active_projects_count == 0
 
 
 # Initial diff tests

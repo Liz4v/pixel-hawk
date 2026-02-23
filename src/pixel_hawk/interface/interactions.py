@@ -20,6 +20,7 @@ from ..models.palette import ColorsNotInPalette
 from .commands import (
     ErrorMsg,
     check_guild_access,
+    delete_project,
     edit_project,
     generate_admin_token,
     grant_admin,
@@ -47,6 +48,7 @@ class HawkBot(discord.Client):
         hawk_group.command(name="list", description="List your projects")(self._list)
         hawk_group.command(name="new", description="Upload a new project image")(self._new)
         hawk_group.command(name="edit", description="Edit an existing project")(self._edit)
+        hawk_group.command(name="delete", description="Delete a project")(self._delete)
         self.tree.add_command(hawk_group)
 
     async def _check_access(self, interaction: discord.Interaction) -> Person | None:
@@ -110,6 +112,7 @@ class HawkBot(discord.Client):
 
     @app_commands.describe(
         project_id="Project ID (4-digit number)",
+        image="Replacement project PNG image (resets tracking stats)",
         name="New project name",
         coords="Coordinates as Tx,Ty,Px,Py. 4 numbers separated by whatever.",
         state="Project state",
@@ -125,6 +128,7 @@ class HawkBot(discord.Client):
         self,
         interaction: discord.Interaction,
         project_id: int,
+        image: discord.Attachment | None = None,
         name: str | None = None,
         coords: str | None = None,
         state: app_commands.Choice[int] | None = None,
@@ -134,13 +138,34 @@ class HawkBot(discord.Client):
             return
         await interaction.response.defer(ephemeral=True)
         try:
+            image_data = await image.read() if image else None
+            image_filename = image.filename if image else None
             state_value = ProjectState(state.value) if state else None
-            msg = await edit_project(interaction.user.id, project_id, name=name, coords=coords, state=state_value)
-        except ErrorMsg as e:
+            msg = await edit_project(
+                interaction.user.id, project_id,
+                image_data=image_data, image_filename=image_filename,
+                name=name, coords=coords, state=state_value,
+            )
+        except (ErrorMsg, ColorsNotInPalette) as e:
             msg = str(e)
         except Exception as e:
             logger.error(f"Error in /hawk edit: {e}")
             msg = "An error occurred while editing the project."
+        await interaction.followup.send(msg or "No linked account found.", ephemeral=True)
+
+    @app_commands.describe(project_id="Project ID (4-digit number)")
+    async def _delete(self, interaction: discord.Interaction, project_id: int) -> None:
+        """Handle /hawk delete — permanently remove a project."""
+        if await self._check_access(interaction) is None:
+            return
+        await interaction.response.defer(ephemeral=True)
+        try:
+            msg = await delete_project(interaction.user.id, project_id)
+        except ErrorMsg as e:
+            msg = str(e)
+        except Exception as e:
+            logger.error(f"Error in /hawk delete: {e}")
+            msg = "An error occurred while deleting the project."
         await interaction.followup.send(msg or "No linked account found.", ephemeral=True)
 
     async def setup_hook(self) -> None:

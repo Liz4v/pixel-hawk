@@ -194,3 +194,57 @@ async def test_project_tiles_multiple_tiles():
     assert len(links) == 2
     linked_tile_ids = {link.tile_id for link in links}
     assert linked_tile_ids == {tile_a.id, tile_b.id}
+
+
+# --- reset_tracking ---
+
+
+async def test_reset_tracking_clears_percentages():
+    """reset_tracking clears percentage-based fields but preserves lifetime totals."""
+    person = await Person.create(name="tester")
+    rect = Rectangle.from_point_size(Point(0, 0), Size(100, 100))
+    info = await ProjectInfo.from_rect(rect, person.id, "proj")
+
+    info.last_check = 1000
+    info.last_snapshot = 1000
+    info.max_completion_pixels = 500
+    info.max_completion_percent = 50.0
+    info.max_completion_time = 1000
+    info.largest_regress_pixels = 20
+    info.largest_regress_time = 900
+    info.recent_rate_pixels_per_hour = 10.0
+    info.recent_rate_window_start = 800
+    info.total_progress = 300
+    info.total_regress = 30
+    info.has_missing_tiles = False
+    info.last_log_message = "some message"
+
+    info.reset_tracking()
+
+    assert info.last_check == 0
+    assert info.last_snapshot == 0
+    assert info.max_completion_pixels == 0
+    assert info.max_completion_percent == 0.0
+    assert info.max_completion_time == 0
+    assert info.largest_regress_pixels == 0
+    assert info.largest_regress_time == 0
+    assert info.recent_rate_pixels_per_hour == 0.0
+    assert info.recent_rate_window_start == 0
+    assert info.has_missing_tiles is True
+    assert info.last_log_message == ""
+    # Lifetime totals preserved
+    assert info.total_progress == 300
+    assert info.total_regress == 30
+
+
+async def test_unlink_tiles_adjusts_heat():
+    """unlink_tiles should set heat to 0 on tiles with no remaining projects."""
+    tile = await _create_tile(6, 6, heat=999)
+    person = await Person.create(name="tester")
+    rect = Rectangle.from_point_size(Point(6000, 6000), Size(100, 100))
+    info = await ProjectInfo.from_rect(rect, person.id, "proj")
+    await TileProject.create(tile=tile, project=info)
+
+    await info.unlink_tiles()
+    await tile.refresh_from_db()
+    assert tile.heat == 0

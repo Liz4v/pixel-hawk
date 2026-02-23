@@ -130,6 +130,23 @@ class ProjectInfo(Model):
     # Reverse relation (defined by TileProject.project FK with related_name="project_tiles")
     project_tiles: fields.ReverseRelation[TileProject]
 
+    def reset_tracking(self) -> None:
+        """Reset percentage-based tracking fields after a target image change.
+
+        Preserves lifetime counters (total_progress, total_regress).
+        """
+        self.last_check = 0
+        self.last_snapshot = 0
+        self.max_completion_pixels = 0
+        self.max_completion_percent = 0.0
+        self.max_completion_time = 0
+        self.largest_regress_pixels = 0
+        self.largest_regress_time = 0
+        self.recent_rate_pixels_per_hour = 0.0
+        self.recent_rate_window_start = 0
+        self.has_missing_tiles = True
+        self.last_log_message = ""
+
     @property
     def rectangle(self) -> Rectangle:
         assert self.state != ProjectState.CREATING, "CREATING projects have no coordinates"
@@ -178,11 +195,17 @@ class ProjectInfo(Model):
         return created_count
 
     async def unlink_tiles(self) -> int:
-        """Delete all TileProject records for this project.
+        """Delete all TileProject records for this project and adjust tile heat.
 
         Returns the number of records deleted.
         """
-        return await TileProject.filter(project_id=self.id).delete()
+        tile_ids = await TileProject.filter(project_id=self.id).values_list("tile_id", flat=True)
+        deleted = await TileProject.filter(project_id=self.id).delete()
+        for tile_id in tile_ids:
+            tile_info = await TileInfo.filter(id=tile_id).first()
+            if tile_info:
+                await tile_info.adjust_project_heat()
+        return deleted
 
     @classmethod
     async def from_rect(
