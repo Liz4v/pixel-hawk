@@ -187,15 +187,19 @@ class ProjectInfo(Model):
         Returns the number of new TileProject records created.
         """
         created_count = 0
+        is_active = self.state == ProjectState.ACTIVE
         for tile in self.rectangle.tiles:
             tile_id = TileInfo.tile_id(tile.x, tile.y)
-            await TileInfo.get_or_create(
+            tile_info, _ = await TileInfo.get_or_create(
                 id=tile_id,
-                defaults={"x": tile.x, "y": tile.y, "heat": 999, "last_checked": 0, "last_update": 0, "etag": ""},
+                defaults={"x": tile.x, "y": tile.y, "heat": 0, "last_checked": 0, "last_update": 0, "etag": ""},
             )
             _, created = await TileProject.get_or_create(tile_id=tile_id, project_id=self.id)
             if created:
                 created_count += 1
+            if is_active and tile_info.heat == 0:
+                tile_info.heat = 999
+                await tile_info.save(update_fields=["heat"])
         return created_count
 
     async def unlink_tiles(self) -> int:
@@ -210,6 +214,14 @@ class ProjectInfo(Model):
             if tile_info:
                 await tile_info.adjust_project_heat()
         return deleted
+
+    async def adjust_linked_tiles_heat(self) -> None:
+        """Re-evaluate heat on all tiles linked to this project. Call after state changes are saved."""
+        tile_ids = await TileProject.filter(project_id=self.id).values_list("tile_id", flat=True)
+        for tile_id in tile_ids:
+            tile_info = await TileInfo.filter(id=tile_id).first()
+            if tile_info:
+                await tile_info.adjust_project_heat()
 
     @classmethod
     async def from_rect(
@@ -301,9 +313,9 @@ class TileInfo(Model):
         return Tile(self.x, self.y)
 
     async def adjust_project_heat(self) -> None:
-        """Verifies if the special heat 0 is consistent with the presence or absence of a linked Project."""
-        has_projects = await self.tile_projects.all().exists()
-        if not has_projects:
+        """Verifies if the special heat 0 is consistent with the presence or absence of an ACTIVE project."""
+        has_active = await TileProject.filter(tile_id=self.id, project__state=ProjectState.ACTIVE).exists()
+        if not has_active:
             if self.heat != 0:
                 self.heat = 0
                 await self.save(update_fields=["heat"])

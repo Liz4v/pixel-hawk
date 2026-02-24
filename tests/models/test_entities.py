@@ -1,4 +1,4 @@
-"""Tests for TileInfo.adjust_project_heat and reverse relation annotations."""
+"""Tests for TileInfo.adjust_project_heat, tile linking, and reverse relation annotations."""
 
 from pixel_hawk.models.entities import Person, ProjectInfo, ProjectState, TileInfo, TileProject
 from pixel_hawk.models.geometry import Point, Rectangle, Size
@@ -43,11 +43,11 @@ async def test_no_projects_from_temperature_sets_zero():
     assert tile.heat == 0
 
 
-# --- Has linked projects ---
+# --- Has linked ACTIVE projects ---
 
 
-async def test_has_projects_heat_zero_promotes_to_burning():
-    """Tile at heat 0 with linked projects should be promoted to 999."""
+async def test_has_active_projects_heat_zero_promotes_to_burning():
+    """Tile at heat 0 with an ACTIVE project should be promoted to 999."""
     tile = await _create_tile(0, 0, heat=0)
     await _link_project(tile)
     await tile.adjust_project_heat()
@@ -55,8 +55,8 @@ async def test_has_projects_heat_zero_promotes_to_burning():
     assert tile.heat == 999
 
 
-async def test_has_projects_heat_nonzero_unchanged():
-    """Tile at a non-zero heat with linked projects should stay unchanged."""
+async def test_has_active_projects_heat_nonzero_unchanged():
+    """Tile at a non-zero heat with an ACTIVE project should stay unchanged."""
     tile = await _create_tile(0, 0, heat=5)
     await _link_project(tile)
     await tile.adjust_project_heat()
@@ -64,13 +64,53 @@ async def test_has_projects_heat_nonzero_unchanged():
     assert tile.heat == 5
 
 
-async def test_has_projects_heat_burning_unchanged():
-    """Tile already burning with linked projects should stay at 999."""
+async def test_has_active_projects_heat_burning_unchanged():
+    """Tile already burning with an ACTIVE project should stay at 999."""
     tile = await _create_tile(0, 0, heat=999)
     await _link_project(tile)
     await tile.adjust_project_heat()
     await tile.refresh_from_db()
     assert tile.heat == 999
+
+
+# --- Has linked projects, but none ACTIVE ---
+
+
+async def test_only_passive_project_sets_heat_zero():
+    """Tile linked only to a PASSIVE project should have heat set to 0."""
+    tile = await _create_tile(0, 0, heat=999)
+    info = await _link_project(tile)
+    info.state = ProjectState.PASSIVE
+    await info.save()
+    await tile.adjust_project_heat()
+    await tile.refresh_from_db()
+    assert tile.heat == 0
+
+
+async def test_only_inactive_project_sets_heat_zero():
+    """Tile linked only to an INACTIVE project should have heat set to 0."""
+    tile = await _create_tile(0, 0, heat=5)
+    info = await _link_project(tile)
+    info.state = ProjectState.INACTIVE
+    await info.save()
+    await tile.adjust_project_heat()
+    await tile.refresh_from_db()
+    assert tile.heat == 0
+
+
+async def test_mixed_active_and_passive_keeps_heat():
+    """Tile with one ACTIVE and one PASSIVE project should stay hot."""
+    tile = await _create_tile(0, 0, heat=5)
+    await _link_project(tile)  # ACTIVE
+    person2 = await Person.create(name="other")
+    rect = Rectangle.from_point_size(Point(0, 0), Size(100, 100))
+    passive = await ProjectInfo.from_rect(rect, person2.id, "passive")
+    passive.state = ProjectState.PASSIVE
+    await passive.save()
+    await TileProject.create(tile=tile, project=passive)
+    await tile.adjust_project_heat()
+    await tile.refresh_from_db()
+    assert tile.heat == 5
 
 
 # --- Reverse relation: Person.projects ---
@@ -248,3 +288,106 @@ async def test_unlink_tiles_adjusts_heat():
     await info.unlink_tiles()
     await tile.refresh_from_db()
     assert tile.heat == 0
+
+
+async def test_link_tiles_promotes_existing_heat_zero_tile():
+    """link_tiles for an ACTIVE project should promote an existing tile from heat 0 to 999."""
+    tile = await _create_tile(7, 7, heat=0)
+    person = await Person.create(name="tester")
+    rect = Rectangle.from_point_size(Point(7000, 7000), Size(100, 100))
+    info = await ProjectInfo.from_rect(rect, person.id, "proj")
+
+    await info.link_tiles()
+    await tile.refresh_from_db()
+    assert tile.heat == 999
+
+
+async def test_link_tiles_preserves_nonzero_heat():
+    """link_tiles should not change the heat of an existing tile that already has a non-zero heat."""
+    tile = await _create_tile(8, 8, heat=5)
+    person = await Person.create(name="tester")
+    # Link a first project manually so heat=5 is valid
+    rect = Rectangle.from_point_size(Point(8000, 8000), Size(100, 100))
+    first = await ProjectInfo.from_rect(rect, person.id, "first")
+    await TileProject.create(tile=tile, project=first)
+
+    # Link a second project via link_tiles
+    second = await ProjectInfo.from_rect(rect, person.id, "second")
+    await second.link_tiles()
+    await tile.refresh_from_db()
+    assert tile.heat == 5
+
+
+async def test_link_tiles_passive_does_not_promote():
+    """link_tiles for a PASSIVE project should not promote tiles from heat 0."""
+    tile = await _create_tile(9, 9, heat=0)
+    person = await Person.create(name="tester")
+    rect = Rectangle.from_point_size(Point(9000, 9000), Size(100, 100))
+    info = await ProjectInfo.from_rect(rect, person.id, "proj")
+    info.state = ProjectState.PASSIVE
+    await info.save()
+
+    await info.link_tiles()
+    await tile.refresh_from_db()
+    assert tile.heat == 0
+
+
+async def test_link_tiles_creates_new_tile_at_zero_for_passive():
+    """link_tiles for a PASSIVE project should create new tiles at heat 0."""
+    person = await Person.create(name="tester")
+    rect = Rectangle.from_point_size(Point(10000, 10000), Size(100, 100))
+    info = await ProjectInfo.from_rect(rect, person.id, "proj")
+    info.state = ProjectState.PASSIVE
+    await info.save()
+
+    await info.link_tiles()
+    tile_id = TileInfo.tile_id(10, 10)
+    tile = await TileInfo.get(id=tile_id)
+    assert tile.heat == 0
+
+
+# --- adjust_linked_tiles_heat (state transitions) ---
+
+
+async def test_adjust_linked_tiles_heat_active_to_inactive():
+    """Deactivating the sole ACTIVE project on a tile should set heat to 0."""
+    person = await Person.create(name="tester")
+    rect = Rectangle.from_point_size(Point(11000, 11000), Size(100, 100))
+    info = await ProjectInfo.from_rect(rect, person.id, "proj")
+    await info.link_tiles()
+
+    tile_id = TileInfo.tile_id(11, 11)
+    tile = await TileInfo.get(id=tile_id)
+    assert tile.heat == 999
+
+    info.state = ProjectState.INACTIVE
+    await info.save()
+    await info.adjust_linked_tiles_heat()
+
+    await tile.refresh_from_db()
+    assert tile.heat == 0
+
+
+async def test_adjust_linked_tiles_heat_inactive_to_active():
+    """Reactivating a project should promote its tiles from heat 0."""
+    person = await Person.create(name="tester")
+    rect = Rectangle.from_point_size(Point(12000, 12000), Size(100, 100))
+    info = await ProjectInfo.from_rect(rect, person.id, "proj")
+    await info.link_tiles()
+
+    # Deactivate
+    info.state = ProjectState.INACTIVE
+    await info.save()
+    await info.adjust_linked_tiles_heat()
+
+    tile_id = TileInfo.tile_id(12, 12)
+    tile = await TileInfo.get(id=tile_id)
+    assert tile.heat == 0
+
+    # Reactivate
+    info.state = ProjectState.ACTIVE
+    await info.save()
+    await info.adjust_linked_tiles_heat()
+
+    await tile.refresh_from_db()
+    assert tile.heat == 999

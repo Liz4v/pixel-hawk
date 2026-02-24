@@ -255,7 +255,7 @@ async def edit_project(
             info.width = width
             info.height = height
 
-        needs_relink = (new_point is not None or dims_changed) and info.state != ProjectState.CREATING
+        needs_relink = (new_point is not None or dims_changed) and info.state in (ProjectState.ACTIVE, ProjectState.PASSIVE)
         changes.append(f"Image: {width}x{height}")
 
         # Write new image and clean up snapshot (inside narrowed block for type safety)
@@ -270,7 +270,7 @@ async def edit_project(
     elif new_point is not None:
         await _check_coord_conflict(person.id, new_point.x, new_point.y, exclude_id=info.id)
         _set_coords(info, person.id, new_point.x, new_point.y)
-        needs_relink = True
+        needs_relink = info.state in (ProjectState.ACTIVE, ProjectState.PASSIVE)
         changes.append(f"Coords: {new_point}")
 
     if needs_relink:
@@ -302,8 +302,18 @@ async def edit_project(
 
     await info.save()
 
-    if state is not None and state != original_state and not needs_relink:
-        await person.update_totals()
+    if state is not None and state != original_state:
+        _LINKED = (ProjectState.ACTIVE, ProjectState.PASSIVE)
+        was_linked = original_state in _LINKED
+        now_linked = state in _LINKED
+        if was_linked and not now_linked:
+            await info.unlink_tiles()
+        elif not was_linked and now_linked:
+            await info.link_tiles()
+        elif was_linked and now_linked:
+            await info.adjust_linked_tiles_heat()
+        if not needs_relink:
+            await person.update_totals()
 
     if (needs_relink or image_data is not None) and info.state == ProjectState.ACTIVE:
         status = await _try_initial_diff(info)

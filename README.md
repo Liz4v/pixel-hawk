@@ -83,10 +83,12 @@ uv run hawk
 
 ### Project states
 
-- **ACTIVE**: Tiles are queued for monitoring; diffs run when tiles change (default)
-- **PASSIVE**: Not queued, but diffs run when overlapping tiles are checked for other projects
-- **INACTIVE**: Completely excluded from monitoring
-- **CREATING**: Newly uploaded via Discord, not yet configured with coordinates
+Every project has a state that controls how it interacts with the tile polling system:
+
+- **ACTIVE** (default): The project's tiles are linked and queued for polling. When a tile changes, pixel-hawk diffs it against the project image and logs progress. This is the normal operating state. User tile quotas only count tiles with ACTIVE projects.
+- **PASSIVE**: Tiles are linked but not queued on their own. If another ACTIVE project (usually from a different user) shares the same tiles, the passive project piggybacks on those polls and gets diffed too. Useful for low-priority tracking without adding polling overhead.
+- **INACTIVE**: Tiles are unlinked entirely. The project is stored in the database but completely excluded from monitoring. No polling, no diffing, no bandwidth cost. Reactivating re-links tiles.
+- **CREATING**: A newly uploaded image that hasn't been assigned coordinates yet. No tiles are linked. Setting coordinates auto-transitions the project to ACTIVE.
 
 ### Where data lives
 
