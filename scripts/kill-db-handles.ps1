@@ -1,4 +1,5 @@
 # Kill processes holding dangling handles to the pixel-hawk database.
+# Aerich sometimes doesn't let go of the database after you Ctrl+C.
 # Requires handle.exe (Sysinternals) on PATH or in the same directory.
 
 $db = "pixel-hawk.db"

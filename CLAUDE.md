@@ -7,7 +7,7 @@ pixel-hawk is a change tracker for WPlace paint projects. It polls WPlace tile i
 - **Requires:** Python >= 3.14 (see `pyproject.toml`)
 - **Console script:** `hawk = "pixel_hawk.main:main"`
 - **Main package:** `src/pixel_hawk`
-- **Key dependencies:** `loguru`, `pillow`, `httpx`, `tortoise-orm` (SQLite via `aiosqlite`), `humanize`
+- **Key dependencies:** `loguru`, `pillow`, `httpx`, `tortoise-orm` (SQLite via `aiosqlite`), `humanize`, `discord.py`
 - **Linting:** `ruff` configured with `line-length = 120`
 
 ## Where to look for further context
@@ -41,6 +41,7 @@ uv run hawk
   - `projects/{person_id}/` — project PNG files organized by person ID (coordinate-only filenames: `{tx}_{ty}_{px}_{py}.png`; CREATING projects use `new_{id}.png`)
   - `tiles/` — cached tiles from WPlace
   - `snapshots/{person_id}/` — canvas state snapshots, same structure as projects (coordinate-only filenames)
+  - `rejected/` — project files that failed to import (invalid palette, etc.)
   - `logs/` — application logs
   - `data/` — SQLite database (`pixel-hawk.db`) with Person, ProjectInfo, HistoryChange, TileInfo, TileProject, GuildConfig, and WatchMessage tables
 - **Design rationale:** The default `./nest` location allows running pixel-hawk from the project root during development, keeping all data files easily accessible for inspection from IDE and AI agents. This simplifies debugging, testing, and data analysis without requiring path configuration.
@@ -57,9 +58,9 @@ uv run hawk
 - `TileChecker` (in `watcher/ingest.py`) manages tile monitoring: creates and owns an `httpx.AsyncClient`, selects tiles via `QueueSystem`, calls `has_tile_changed()` to fetch from WPlace backend, queries affected projects via `TileProject` junction table, and constructs `Project` objects on demand for diffing.
 - `has_tile_changed()` (in `watcher/ingest.py`) requests tiles from the WPlace tile backend using `httpx` and updates a cached paletted PNG if there are changes.
 - **Initial diff on project creation/edit**: When `new_project()` or `edit_project()` links tiles, `_try_initial_diff()` checks if any tiles are already cached via `count_cached_tiles()`. If so, it immediately runs `Project(info).run_diff()` and includes the formatted status in the response. Partial tile coverage is noted (e.g., "2/4 tiles cached"). If no tiles are cached, the diff is deferred to the polling loop.
-- `Person` (in `models/entities.py`) represents users with auto-increment ID. Tracks `watched_tiles_count` (unique tiles across all active projects) and `active_projects_count`. Both updated via `update_totals()` on startup. `BotAccess` IntFlag controls permissions: `ADMIN` bypasses guild checks, `ALLOWED` (auto-granted via guild role) marks legitimate users.
-- `GuildConfig` (in `models/entities.py`) stores per-guild bot configuration. `guild_id` (Discord snowflake) is the primary key, `required_role` is the Discord role name users must have. Configured via `/hawk sa role <name>`. When no GuildConfig exists for a guild, all non-admin commands are blocked.
-- **Guild access flow**: User commands (`/hawk new`, `/hawk edit`, `/hawk list`) call `_check_access()` in `interactions.py`, which delegates to `check_guild_access()` in `access.py`. Admins bypass all checks. Non-admins must have the guild's configured role; if they do and have no `Person` record, one is auto-created with `BotAccess.ALLOWED`.
+- `Person` (in `models/entities.py`) represents users with auto-increment ID. Tracks `watched_tiles_count` (unique tiles across all active projects) and `active_projects_count`. Both updated via `update_totals()` on startup. Has per-user quota limits (`max_active_projects`, `max_watched_tiles`) enforced on project creation/edit. `BotAccess` IntFlag controls permissions: `ADMIN` bypasses guild checks, `ALLOWED` (auto-granted via guild role) marks legitimate users.
+- `GuildConfig` (in `models/entities.py`) stores per-guild bot configuration. `guild_id` (Discord snowflake) is the primary key, `required_role` is the Discord role name users must have. Has guild-level quota ceilings (`max_active_projects`, `max_watched_tiles`) that cap per-user quotas. Configured via `/hawkadmin role <name>`. When no GuildConfig exists for a guild, all non-admin commands are blocked.
+- **Guild access flow**: User commands (`/hawk new`, `/hawk edit`, `/hawk list`) call `_check_access()` in `interactions.py`, which delegates to `check_guild_access()` in `access.py`. Admins bypass all checks. Non-admins must have the guild's configured role; if they do and have no `Person` record, one is auto-created with `BotAccess.ALLOWED`. Admin commands live in a separate command group (`/hawkadmin`).
 - `ProjectState` IntEnum (in `models/entities.py`) defines project states: ACTIVE (0), PASSIVE (10), INACTIVE (20), CREATING (30). Setting coordinates on a CREATING project auto-transitions it to ACTIVE.
 - `ProjectInfo` (in `models/entities.py`) is a pure Tortoise ORM model with owner FK (Person), name (stored in DB), and state. IDs are randomly assigned (1 to 9999) via `save_as_new()`, which retries on collision (EAFP pattern). Tracks completion history, progress/regress statistics, and rates. Persists to SQLite in `data/pixel-hawk.db`. The `filename` property is state-aware: returns `new_{id}.png` for CREATING projects, coordinate-only `{tx}_{ty}_{px}_{py}.png` otherwise. The `rectangle` property asserts the project is not CREATING.
 - `HistoryChange` (in `models/entities.py`) records every diff event per project with pixel counts, completion percentage, and progress/regress deltas.
@@ -79,7 +80,7 @@ uv run hawk
 ### Models (`src/pixel_hawk/models/`) — data layer
 - `config.py` — `DiscordSettings` dataclass, `Config` dataclass, `load_config()`, `get_config()`, CONFIG singleton
 - `db.py` — database async context manager (`database()`), Tortoise ORM config, Aerich integration, `rebuild_table()` migration utility
-- `entities.py` — `Person` (user model with watched_tiles_count, active_projects_count, update_totals()), `ProjectState` IntEnum (ACTIVE/PASSIVE/INACTIVE), `ProjectInfo` (pure Tortoise model with owner FK, random ID via `save_as_new()`), `HistoryChange` (diff event log), `DiffStatus` IntEnum, `TileInfo` (tile metadata: coordinates, heat, timestamps, etag), `TileProject` (tile-project junction table), `GuildConfig` (per-guild bot configuration: required role name), `WatchMessage` (persistent Discord watch messages, message_id as PK)
+- `entities.py` — `Person` (user model with watched_tiles_count, active_projects_count, update_totals(), per-user quota limits), `ProjectState` IntEnum (ACTIVE/PASSIVE/INACTIVE/CREATING), `ProjectInfo` (pure Tortoise model with owner FK, random ID via `save_as_new()`), `HistoryChange` (diff event log), `DiffStatus` IntEnum, `TileInfo` (tile metadata: coordinates, heat, timestamps, etag), `TileProject` (tile-project junction table), `GuildConfig` (per-guild bot configuration: required role name, quota ceilings), `WatchMessage` (persistent Discord watch messages, message_id as PK)
 - `geometry.py` — `Tile`, `Point`, `Size`, `Rectangle` helpers (tile math)
 - `palette.py` — palette enforcement + `PALETTE` singleton + `AsyncImage[T]` (deferred async I/O handle)
 
@@ -92,13 +93,13 @@ uv run hawk
 ### Interface (`src/pixel_hawk/interface/`) — user-facing
 - `commands.py` — project management service layer: `new_project()` (project creation from uploaded image), `edit_project()` (project modification), `delete_project()` (project deletion with watch cleanup), `list_projects()` (project listing with stats, 24h changes, Discord message truncation), `_try_initial_diff()` (immediate diff when tiles are cached), coordinate/filename parsing helpers
 - `watch.py` — living watch message service layer: `format_watch_message()` (comprehensive Discord markdown stats), `create_watch()` / `remove_watch()` (CRUD with ownership validation), `save_watch_message()` (persistence after Discord send), `get_watches_for_projects()` (batch query for update loop), `delete_watches_for_project()` (cleanup helper)
-- `access.py` — admin and guild access service layer: `ErrorMsg` (user-facing exception), `grant_admin()` (admin grant, callers responsible for authorization), `set_guild_role()` (per-guild role configuration), `check_guild_access()` (role-based access gate with auto-creation)
-- `interactions.py` — Discord bot wiring: `HawkBot` (slash commands under configurable command group, default `/hawk`), `_check_access()` (guild role gate on user commands), `maybe_bot()` (lifecycle context manager, yields bot instance or None), `update_watches()` (edits live Discord messages, auto-cleans on 404/403). Dispatches to `commands.py` and `watch.py` service functions
+- `access.py` — admin and guild access service layer: `ErrorMsg` (user-facing exception), `grant_admin()` (admin grant, callers responsible for authorization), `set_guild_role()` (per-guild role configuration), `check_guild_access()` (role-based access gate with auto-creation), `set_user_quotas()` / `set_guild_quotas()` (quota management with guild ceiling enforcement), `get_command_prefix()` (cached config access)
+- `interactions.py` — Discord bot wiring: `HawkBot` (user commands under `/hawk` group, admin commands under `/hawkadmin` group), `_check_access()` (guild role gate on user commands), `maybe_bot()` (lifecycle context manager, yields bot instance or None), `update_watches()` (edits live Discord messages, auto-cleans on 404/403). Dispatches to `commands.py`, `watch.py`, and `access.py` service functions
 
 ### Scripts and CI
-- `scripts/rebuild.py` — Idempotent database rebuild from filesystem artifacts (projects, tiles, snapshots)
 - `scripts/install-service.sh` — Generates and installs systemd service unit (detects user, paths, uv dynamically)
-- `.github/workflows/deploy.yml` — Auto-deploy on push to main via self-hosted runner (stop → pull → sync → start)
+- `scripts/kill-db-handles.ps1` — Windows utility to kill processes holding dangling handles to the SQLite database (requires Sysinternals `handle.exe`)
+- `.github/workflows/deploy.yaml` — Auto-deploy on push to main via self-hosted runner (stop → pull → sync → start)
 
 ## Architecture conventions
 

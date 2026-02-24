@@ -25,7 +25,7 @@ pixel-hawk supports multiple users tracking the same or different coordinates:
 - **ProjectInfo table** stores project metadata with owner foreign key
 - **Unique constraint** on (owner_id, name) prevents duplicate names per user
 - **Watched tiles tracking** counts unique tiles and active projects per person via `update_totals()`
-- **State management** (ACTIVE/PASSIVE/INACTIVE IntEnum) for quota enforcement
+- **State management** (ACTIVE/PASSIVE/INACTIVE/CREATING IntEnum) for quota enforcement
 
 ### Queue system
 
@@ -86,6 +86,7 @@ uv run hawk
 - **ACTIVE**: Tiles are queued for monitoring; diffs run when tiles change (default)
 - **PASSIVE**: Not queued, but diffs run when overlapping tiles are checked for other projects
 - **INACTIVE**: Completely excluded from monitoring
+- **CREATING**: Newly uploaded via Discord, not yet configured with coordinates
 
 ### Where data lives
 
@@ -97,6 +98,7 @@ All pixel-hawk data lives in a unified directory structure under `nest` (default
 - **`data/pixel-hawk.db`** — SQLite database (Person, ProjectInfo, HistoryChange, TileInfo, TileProject, GuildConfig, WatchMessage tables)
 - **`tiles/`** — Cached tiles from WPlace backend
 - **`snapshots/{person_id}/`** — Canvas state snapshots organized by person (same structure as projects)
+- **`rejected/`** — Project files that failed to import (invalid palette, etc.)
 - **`logs/`** — Application logs (`pixel-hawk.log` with 10 MB rotation and 7-day retention)
 
 **Development workflow:** The default `./nest` location is designed to work seamlessly when running pixel-hawk from the project root directory during development. This keeps all data files easily accessible for inspection from your IDE and AI agents, making debugging and analysis straightforward.
@@ -117,18 +119,22 @@ If no token is configured, the bot is silently skipped. The `command_prefix` set
 
 **Guild setup:**
 1. Grant admin access to a Person record in the database (a proper setup flow is planned)
-2. Run `/hawk sa role <role_name>` to set the required Discord role for the server — users with this role can use the bot and are auto-enrolled on first command
+2. Run `/hawkadmin role <role_name>` to set the required Discord role for the server — users with this role can use the bot and are auto-enrolled on first command
 
 Commands are blocked until a role is configured. Admins always bypass the role check.
 
-**Commands:**
-- `/hawk sa role <name>` — Set the required Discord role for this server (admin only)
+**User commands** (under `/hawk` group):
 - `/hawk list` — List all your projects with state, completion stats, 24h progress/regress, and WPlace links (ephemeral, visible only to you)
 - `/hawk new` — Upload a new project image
-- `/hawk edit` — Edit an existing project (name, coordinates, state)
+- `/hawk edit` — Edit an existing project (name, coordinates, state, image)
 - `/hawk delete` — Permanently delete a project
 - `/hawk watch <project_id>` — Post a live-updating status message for a project. The message auto-updates with current stats (completion %, pixel counts, rate, ETA, 24h activity, lifetime totals) every time the watcher detects changes. One watch per project per channel.
 - `/hawk unwatch <project_id>` — Stop watching a project in this channel and delete the watch message
+
+**Admin commands** (under `/hawkadmin` group, requires Discord administrator permission):
+- `/hawkadmin role <name>` — Set the required Discord role for this server
+- `/hawkadmin quota <user> [projects] [tiles]` — View or set per-user quota limits (enforces guild ceilings)
+- `/hawkadmin guildquota [projects] [tiles]` — View or set guild-level quota ceilings
 
 ## Database schema
 
@@ -137,6 +143,8 @@ Commands are blocked until a role is configured. Admins always bypass the role c
 - `name`: User name
 - `discord_id`: Optional Discord user ID (unique)
 - `access`: Bitmask for bot-level access control (`BotAccess` IntFlag)
+- `max_active_projects`: Per-user quota limit (default 50)
+- `max_watched_tiles`: Per-user quota limit (default 10)
 - `watched_tiles_count`: Cached count of unique tiles watched
 - `active_projects_count`: Cached count of active projects
 - Both counts updated via `update_totals()` on startup
@@ -145,7 +153,7 @@ Commands are blocked until a role is configured. Admins always bypass the role c
 - `id`: Randomly assigned primary key (1 to 9999). Assigned by `save_as_new()` with collision retry.
 - `owner_id`: Foreign key to Person
 - `name`: Human-readable project name
-- `state`: ACTIVE (0) / PASSIVE (10) / INACTIVE (20) IntEnum
+- `state`: ACTIVE (0) / PASSIVE (10) / INACTIVE (20) / CREATING (30) IntEnum
 - `x, y, width, height`: Bounding rectangle
 - `filename`: Property that returns `{tx}_{ty}_{px}_{py}.png`
 - Unique constraint on `(owner_id, name)`
@@ -174,22 +182,14 @@ Commands are blocked until a role is configured. Admins always bypass the role c
 ### GuildConfig table (`guild_config`)
 - `guild_id`: Discord guild snowflake (primary key, not auto-generated)
 - `required_role`: Name of the Discord role required to use bot commands in this guild
+- `max_active_projects`: Guild-level quota ceiling (default 50)
+- `max_watched_tiles`: Guild-level quota ceiling (default 10)
 
 ### WatchMessage table (`watch_message`)
 - `message_id`: Discord message snowflake (primary key, not auto-generated)
 - `project_id`: Foreign key to ProjectInfo (CASCADE delete)
 - `channel_id`: Discord channel snowflake
 - Unique constraint on `(project_id, channel_id)` — one watch per project per channel
-
-## Rebuilding the database
-
-If the SQLite database is lost or corrupted, you can rebuild it from filesystem artifacts:
-
-```powershell
-uv run python scripts/rebuild.py
-```
-
-This reconstructs Person, ProjectInfo, TileInfo, and TileProject records by scanning the `projects/` and `tiles/` directories. The script is idempotent — safe to re-run on an existing database. Person and project names will use placeholders; historical data (HistoryChange records, rate tracking) is permanently lost.
 
 ## Deployment (Linux/systemd)
 
@@ -203,7 +203,7 @@ bash scripts/install-service.sh
 
 The install script detects the current user, repo location, and `uv` path, then generates and installs a systemd service unit. It is idempotent — safe to re-run after updates.
 
-Pushes to `main` are automatically deployed via a self-hosted GitHub Actions runner (see `.github/workflows/deploy.yml`).
+Pushes to `main` are automatically deployed via a self-hosted GitHub Actions runner (see `.github/workflows/deploy.yaml`).
 
 After installation, configure the Discord bot by editing the auto-generated `nest/config.toml` in the nest directory, and restart the service:
 

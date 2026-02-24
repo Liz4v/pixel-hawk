@@ -19,13 +19,13 @@ async def format_watch_message(info: ProjectInfo) -> str:
     Queries the latest HistoryChange internally.
     """
     state = ProjectState(info.state)
-    lines = [f"## {info.name} (`{info.id:04}`)"]
+    lines = [f"## `{info.id:04}`: {info.name}"]
 
     if state == ProjectState.CREATING:
         lines.append("Status: **CREATING** \u2014 awaiting coordinates")
         return "\n".join(lines)
 
-    lines.append(info.rectangle.to_link())
+    lines.append(f"<{info.rectangle.to_link()}>")
     lines.append(f"State: **{state.name}**")
 
     if state == ProjectState.INACTIVE:
