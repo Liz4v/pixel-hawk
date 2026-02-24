@@ -342,3 +342,15 @@ class GuildConfig(Model):
 
     class Meta(Model.Meta):
         table = "guild_config"
+
+
+class WatchMessage(Model):
+    """A Discord message that auto-updates with project stats on every diff."""
+
+    message_id = fields.BigIntField(primary_key=True, generated=False)
+    project = fields.ForeignKeyField("models.ProjectInfo", related_name="watch_messages")
+    channel_id = fields.BigIntField()
+
+    class Meta(Model.Meta):
+        table = "watch_message"
+        unique_together = (("project_id", "channel_id"),)

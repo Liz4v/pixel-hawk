@@ -18,6 +18,7 @@ from ..models.geometry import Point, Rectangle, Size
 from ..models.palette import PALETTE
 from ..watcher.projects import Project, count_cached_tiles
 from .access import ErrorMsg, get_command_prefix
+from .watch import delete_watches_for_project
 
 _ENTIRELY_RE = re.compile(r"^(?P<tx>\d+)(?P<sep>[ ._-])(?P<ty>\d+)(?P=sep)(?P<px>\d+)(?P=sep)(?P<py>\d+)$")
 _ENDS_WITH_RE = re.compile(
@@ -330,6 +331,7 @@ async def delete_project(discord_id: int, project_id: int) -> str | None:
     snapshot_dir = get_config().snapshots_dir / str(person.id)
 
     await info.unlink_tiles()
+    await delete_watches_for_project(info.id)
     await asyncio.to_thread(lambda: (person_dir / info.filename).unlink(missing_ok=True))
     await asyncio.to_thread(lambda: (snapshot_dir / info.filename).unlink(missing_ok=True))
     await info.delete()

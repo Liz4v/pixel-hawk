@@ -4,7 +4,7 @@ Optional Discord bot that runs alongside the polling loop. Reads credentials
 from config.toml at the nest root. If config.toml is missing or has no bot_token,
 the bot is silently skipped.
 
-Dispatches slash commands to service functions in commands.py.
+Dispatches slash commands to service functions in commands.py and watch.py.
 """
 
 import asyncio
@@ -19,6 +19,7 @@ from ..models.entities import Person, ProjectState
 from ..models.palette import ColorsNotInPalette
 from .access import ErrorMsg, check_guild_access, set_guild_quotas, set_guild_role, set_user_quotas
 from .commands import delete_project, edit_project, list_projects, new_project
+from .watch import create_watch, format_watch_message, get_watches_for_projects, remove_watch, save_watch_message
 
 
 class HawkBot(discord.Client):
@@ -38,6 +39,8 @@ class HawkBot(discord.Client):
         hawk_group.command(name="new", description="Upload a new project image")(self._new)
         hawk_group.command(name="edit", description="Edit an existing project")(self._edit)
         hawk_group.command(name="delete", description="Delete a project")(self._delete)
+        hawk_group.command(name="watch", description="Post a live-updating status message for a project")(self._watch)
+        hawk_group.command(name="unwatch", description="Stop watching a project in this channel")(self._unwatch)
         self.tree.add_command(hawk_group)
 
         admin_group = app_commands.Group(
@@ -211,6 +214,71 @@ class HawkBot(discord.Client):
             msg = "An error occurred while deleting the project."
         await interaction.followup.send(msg or "No linked account found.", ephemeral=True)
 
+    @app_commands.checks.cooldown(rate=1, per=10.0)
+    @app_commands.describe(project_id="Project ID (4-digit number)")
+    async def _watch(self, interaction: discord.Interaction, project_id: int) -> None:
+        """Handle /hawk watch — post a live-updating project status message."""
+        if await self._check_access(interaction) is None:
+            return
+        channel_id = interaction.channel_id
+        assert channel_id is not None, "Commands must be used in a channel"
+        try:
+            guild_id = interaction.guild_id
+            assert guild_id is not None, "Commands must be used in a guild"
+            content, info_id = await create_watch(interaction.user.id, project_id, channel_id, guild_id)
+        except ErrorMsg as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
+        await interaction.response.send_message(content)
+        sent = await interaction.original_response()
+        await save_watch_message(info_id, channel_id, sent.id)
+
+    @app_commands.checks.cooldown(rate=2, per=5.0)
+    @app_commands.describe(project_id="Project ID (4-digit number)")
+    async def _unwatch(self, interaction: discord.Interaction, project_id: int) -> None:
+        """Handle /hawk unwatch — stop watching a project in this channel."""
+        if await self._check_access(interaction) is None:
+            return
+        channel_id = interaction.channel_id
+        assert channel_id is not None, "Commands must be used in a channel"
+        try:
+            message_id = await remove_watch(interaction.user.id, project_id, channel_id)
+        except ErrorMsg as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
+        channel = interaction.channel
+        assert isinstance(channel, discord.TextChannel), "Commands must be used in a text channel"
+        try:
+            msg = await channel.fetch_message(message_id)
+            await msg.delete()
+        except (discord.NotFound, discord.Forbidden):
+            pass
+        await interaction.response.send_message(
+            f"Stopped watching project **{project_id:04}** in this channel.", ephemeral=True
+        )
+
+    async def update_watches(self, project_ids: list[int]) -> None:
+        """Edit all watch messages for the given diffed projects with fresh stats."""
+        watches = await get_watches_for_projects(project_ids)
+        for watch in watches:
+            try:
+                content = await format_watch_message(watch.project)
+                channel = self.get_channel(watch.channel_id)
+                if not isinstance(channel, discord.TextChannel):
+                    channel = await self.fetch_channel(watch.channel_id)
+                assert isinstance(channel, discord.TextChannel)
+                msg = await channel.fetch_message(watch.message_id)
+                await msg.edit(content=content)
+                logger.debug(f"Updated watch: project={watch.project.id:04} channel={watch.channel_id}")
+            except discord.NotFound:
+                logger.info(f"Watch message gone (404): project={watch.project.id:04} channel={watch.channel_id}")
+                await watch.delete()
+            except discord.Forbidden:
+                logger.info(f"Watch message inaccessible (403): project={watch.project.id:04} channel={watch.channel_id}")
+                await watch.delete()
+            except Exception as e:
+                logger.warning(f"Failed to update watch for project {watch.project.id:04}: {e}")
+
     async def setup_hook(self) -> None:
         await self.tree.sync()
         logger.info("Discord bot command tree synced")
@@ -221,14 +289,18 @@ class HawkBot(discord.Client):
 
 @contextlib.asynccontextmanager
 async def maybe_bot():
-    """Start the Discord bot if a token is configured, otherwise silently skip."""
+    """Start the Discord bot if a token is configured, otherwise silently skip.
+
+    Yields the HawkBot instance (or None if no token). The caller can use the
+    bot reference to edit watch messages from the polling loop.
+    """
     token = get_config().discord.bot_token
     if not token:
         logger.debug("No Discord bot token in config.toml, skipping bot")
-        yield
+        yield None
         return
 
     bot = HawkBot(get_config().discord.command_prefix)
     asyncio.create_task(bot.start(token))
-    yield
+    yield bot
     await bot.close()

@@ -57,13 +57,16 @@ class TileChecker:
 
         return [Project(info) for info in infos]
 
-    async def check_next_tile(self) -> None:
-        """Check one tile for changes using queue-based selection and update affected projects."""
+    async def check_next_tile(self) -> list[int]:
+        """Check one tile for changes using queue-based selection and update affected projects.
+
+        Returns project IDs that were diffed (empty if tile unchanged or no tile selected).
+        """
         # Select next tile from database via QueueSystem
         tile_info = await self.queue_system.select_next_tile()
         if not tile_info:
             logger.warning("No next tile returned by the queue system. No active projects?")
-            return
+            return []
 
         # Check tile (mutates tile_info fields: last_checked, last_update, etag)
         changed = await self.has_tile_changed(tile_info)
@@ -74,11 +77,13 @@ class TileChecker:
         if changed:
             for proj in projects:
                 await proj.run_diff()
-        else:
-            untouched = tile_info.last_checked - tile_info.last_update
-            logger.debug(f"Tile {tile_info.tile}: Unchanged for {untouched}s ({naturaldelta(untouched)})")
-            for proj in projects:
-                await proj.run_nochange()
+            return [proj.info.id for proj in projects]
+
+        untouched = tile_info.last_checked - tile_info.last_update
+        logger.debug(f"Tile {tile_info.tile}: Unchanged for {untouched}s ({naturaldelta(untouched)})")
+        for proj in projects:
+            await proj.run_nochange()
+        return []
 
     async def has_tile_changed(self, tile_info: TileInfo) -> bool:
         """Downloads the indicated tile from the server and updates the cache.

@@ -16,6 +16,7 @@ pixel-hawk polls WPlace tile images, stitches cached tiles, and diffs them again
 - Diffs updated tiles against project images
 - Tracks watched tiles per person with overlap deduplication
 - Logs pixel placement progress with owner attribution
+- Updates persistent Discord "watch" messages with live project stats after each diff
 
 ### Multi-user architecture
 
@@ -93,7 +94,7 @@ All pixel-hawk data lives in a unified directory structure under `nest` (default
 - **`projects/{person_id}/`** — Project PNG files organized by person ID
   - Example: `projects/1/0_0_500_500.png` for person_id=1
   - Filenames are coordinates only: `{tx}_{ty}_{px}_{py}.png`
-- **`data/pixel-hawk.db`** — SQLite database (Person, ProjectInfo, HistoryChange, TileInfo, TileProject, GuildConfig tables)
+- **`data/pixel-hawk.db`** — SQLite database (Person, ProjectInfo, HistoryChange, TileInfo, TileProject, GuildConfig, WatchMessage tables)
 - **`tiles/`** — Cached tiles from WPlace backend
 - **`snapshots/{person_id}/`** — Canvas state snapshots organized by person (same structure as projects)
 - **`logs/`** — Application logs (`pixel-hawk.log` with 10 MB rotation and 7-day retention)
@@ -125,6 +126,9 @@ Commands are blocked until a role is configured. Admins always bypass the role c
 - `/hawk list` — List all your projects with state, completion stats, 24h progress/regress, and WPlace links (ephemeral, visible only to you)
 - `/hawk new` — Upload a new project image
 - `/hawk edit` — Edit an existing project (name, coordinates, state)
+- `/hawk delete` — Permanently delete a project
+- `/hawk watch <project_id>` — Post a live-updating status message for a project. The message auto-updates with current stats (completion %, pixel counts, rate, ETA, 24h activity, lifetime totals) every time the watcher detects changes. One watch per project per channel.
+- `/hawk unwatch <project_id>` — Stop watching a project in this channel and delete the watch message
 
 ## Database schema
 
@@ -170,6 +174,12 @@ Commands are blocked until a role is configured. Admins always bypass the role c
 ### GuildConfig table (`guild_config`)
 - `guild_id`: Discord guild snowflake (primary key, not auto-generated)
 - `required_role`: Name of the Discord role required to use bot commands in this guild
+
+### WatchMessage table (`watch_message`)
+- `message_id`: Discord message snowflake (primary key, not auto-generated)
+- `project_id`: Foreign key to ProjectInfo (CASCADE delete)
+- `channel_id`: Discord channel snowflake
+- Unique constraint on `(project_id, channel_id)` — one watch per project per channel
 
 ## Rebuilding the database
 

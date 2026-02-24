@@ -7,7 +7,7 @@ import discord
 from pixel_hawk.interface.access import ErrorMsg
 from pixel_hawk.interface.interactions import HawkBot, maybe_bot
 from pixel_hawk.models.config import get_config
-from pixel_hawk.models.entities import Person, ProjectState
+from pixel_hawk.models.entities import Person, ProjectState, WatchMessage
 from pixel_hawk.models.palette import ColorsNotInPalette
 
 
@@ -636,3 +636,318 @@ class TestListWithAccessCheck:
 
         interaction.response.send_message.assert_awaited_once()
         assert "Projects here" in interaction.response.send_message.call_args.args[0]
+
+
+# Command tree: watch/unwatch
+
+
+class TestWatchCommandTree:
+    def test_command_tree_has_watch(self):
+        bot = HawkBot("hawk")
+        hawk = next(c for c in bot.tree.get_commands() if c.name == "hawk")
+        names = [c.name for c in hawk.commands]
+        assert "watch" in names
+
+    def test_command_tree_has_unwatch(self):
+        bot = HawkBot("hawk")
+        hawk = next(c for c in bot.tree.get_commands() if c.name == "hawk")
+        names = [c.name for c in hawk.commands]
+        assert "unwatch" in names
+
+
+# _watch handler tests
+
+
+class TestWatchHandler:
+    async def test_denied_returns_early(self):
+        bot = HawkBot("hawk")
+        interaction = _mock_interaction()
+
+        with patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=None):
+            await bot._watch(interaction, 1234)
+
+        interaction.response.send_message.assert_not_awaited()
+
+    async def test_error_msg(self):
+        bot = HawkBot("hawk")
+        interaction = _mock_interaction()
+        interaction.channel_id = 500
+
+        with (
+            patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=MagicMock()),
+            patch(
+                "pixel_hawk.interface.interactions.create_watch",
+                new_callable=AsyncMock,
+                side_effect=ErrorMsg("not found"),
+            ),
+        ):
+            await bot._watch(interaction, 9999)
+
+        msg = interaction.response.send_message.call_args
+        assert "not found" in msg.args[0]
+        assert msg.kwargs["ephemeral"] is True
+
+    async def test_success(self):
+        bot = HawkBot("hawk")
+        interaction = _mock_interaction()
+        interaction.channel_id = 500
+        sent_msg = MagicMock()
+        sent_msg.id = 12345
+        interaction.original_response = AsyncMock(return_value=sent_msg)
+
+        with (
+            patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=MagicMock()),
+            patch(
+                "pixel_hawk.interface.interactions.create_watch",
+                new_callable=AsyncMock,
+                return_value=("Stats here", 42),
+            ),
+            patch(
+                "pixel_hawk.interface.interactions.save_watch_message", new_callable=AsyncMock
+            ) as mock_save,
+        ):
+            await bot._watch(interaction, 42)
+
+        # Non-ephemeral message sent
+        msg = interaction.response.send_message.call_args
+        assert msg.args[0] == "Stats here"
+        assert "ephemeral" not in msg.kwargs or msg.kwargs.get("ephemeral") is not True
+        # Watch message saved
+        mock_save.assert_awaited_once_with(42, 500, 12345)
+
+
+# _unwatch handler tests
+
+
+class TestUnwatchHandler:
+    async def test_denied_returns_early(self):
+        bot = HawkBot("hawk")
+        interaction = _mock_interaction()
+
+        with patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=None):
+            await bot._unwatch(interaction, 1234)
+
+        interaction.response.send_message.assert_not_awaited()
+
+    async def test_error_msg(self):
+        bot = HawkBot("hawk")
+        interaction = _mock_interaction()
+        interaction.channel_id = 500
+
+        with (
+            patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=MagicMock()),
+            patch(
+                "pixel_hawk.interface.interactions.remove_watch",
+                new_callable=AsyncMock,
+                side_effect=ErrorMsg("not being watched"),
+            ),
+        ):
+            await bot._unwatch(interaction, 9999)
+
+        msg = interaction.response.send_message.call_args
+        assert "not being watched" in msg.args[0]
+        assert msg.kwargs["ephemeral"] is True
+
+    async def test_success(self):
+        bot = HawkBot("hawk")
+        interaction = _mock_interaction()
+        interaction.channel_id = 500
+        channel = MagicMock(spec=discord.TextChannel)
+        fetched_msg = MagicMock()
+        fetched_msg.delete = AsyncMock()
+        channel.fetch_message = AsyncMock(return_value=fetched_msg)
+        interaction.channel = channel
+
+        with (
+            patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=MagicMock()),
+            patch(
+                "pixel_hawk.interface.interactions.remove_watch",
+                new_callable=AsyncMock,
+                return_value=555,
+            ),
+        ):
+            await bot._unwatch(interaction, 42)
+
+        # Old message deleted
+        channel.fetch_message.assert_awaited_once_with(555)
+        fetched_msg.delete.assert_awaited_once()
+        # Confirmation sent ephemeral
+        msg = interaction.response.send_message.call_args
+        assert "Stopped watching" in msg.args[0]
+        assert msg.kwargs["ephemeral"] is True
+
+
+# update_watches tests
+
+
+class TestUpdateWatches:
+    async def test_edits_messages(self):
+        bot = HawkBot("hawk")
+        mock_channel = MagicMock(spec=discord.TextChannel)
+        mock_msg = MagicMock()
+        mock_msg.edit = AsyncMock()
+        mock_channel.fetch_message = AsyncMock(return_value=mock_msg)
+        bot.get_channel = MagicMock(return_value=mock_channel)
+
+        watch = MagicMock(spec=WatchMessage)
+        watch.project = MagicMock()
+        watch.project.id = 1
+        watch.channel_id = 100
+        watch.message_id = 200
+        watch.delete = AsyncMock()
+
+        with (
+            patch(
+                "pixel_hawk.interface.interactions.get_watches_for_projects",
+                new_callable=AsyncMock,
+                return_value=[watch],
+            ),
+            patch(
+                "pixel_hawk.interface.interactions.format_watch_message",
+                new_callable=AsyncMock,
+                return_value="Updated stats",
+            ),
+        ):
+            await bot.update_watches([1])
+
+        mock_msg.edit.assert_awaited_once_with(content="Updated stats")
+
+    async def test_deletes_watch_on_not_found(self):
+        bot = HawkBot("hawk")
+        mock_channel = MagicMock(spec=discord.TextChannel)
+        mock_channel.fetch_message = AsyncMock(side_effect=discord.NotFound(MagicMock(), "gone"))
+        bot.get_channel = MagicMock(return_value=mock_channel)
+
+        watch = MagicMock(spec=WatchMessage)
+        watch.project = MagicMock()
+        watch.project.id = 1
+        watch.channel_id = 100
+        watch.message_id = 200
+        watch.delete = AsyncMock()
+
+        with (
+            patch(
+                "pixel_hawk.interface.interactions.get_watches_for_projects",
+                new_callable=AsyncMock,
+                return_value=[watch],
+            ),
+            patch(
+                "pixel_hawk.interface.interactions.format_watch_message",
+                new_callable=AsyncMock,
+                return_value="x",
+            ),
+        ):
+            await bot.update_watches([1])
+
+        watch.delete.assert_awaited_once()
+
+    async def test_deletes_watch_on_forbidden(self):
+        bot = HawkBot("hawk")
+        mock_channel = MagicMock(spec=discord.TextChannel)
+        mock_channel.fetch_message = AsyncMock(side_effect=discord.Forbidden(MagicMock(), "nope"))
+        bot.get_channel = MagicMock(return_value=mock_channel)
+
+        watch = MagicMock(spec=WatchMessage)
+        watch.project = MagicMock()
+        watch.project.id = 1
+        watch.channel_id = 100
+        watch.message_id = 200
+        watch.delete = AsyncMock()
+
+        with (
+            patch(
+                "pixel_hawk.interface.interactions.get_watches_for_projects",
+                new_callable=AsyncMock,
+                return_value=[watch],
+            ),
+            patch(
+                "pixel_hawk.interface.interactions.format_watch_message",
+                new_callable=AsyncMock,
+                return_value="x",
+            ),
+        ):
+            await bot.update_watches([1])
+
+        watch.delete.assert_awaited_once()
+
+    async def test_handles_unexpected_error(self):
+        bot = HawkBot("hawk")
+        bot.get_channel = MagicMock(side_effect=RuntimeError("boom"))
+
+        watch = MagicMock(spec=WatchMessage)
+        watch.project = MagicMock()
+        watch.project.id = 1
+        watch.channel_id = 100
+        watch.message_id = 200
+        watch.delete = AsyncMock()
+
+        with (
+            patch(
+                "pixel_hawk.interface.interactions.get_watches_for_projects",
+                new_callable=AsyncMock,
+                return_value=[watch],
+            ),
+            patch(
+                "pixel_hawk.interface.interactions.format_watch_message",
+                new_callable=AsyncMock,
+                return_value="x",
+            ),
+        ):
+            # Should not raise
+            await bot.update_watches([1])
+
+        watch.delete.assert_not_awaited()
+
+    async def test_fetches_channel_when_not_cached(self):
+        bot = HawkBot("hawk")
+        mock_channel = MagicMock(spec=discord.TextChannel)
+        mock_msg = MagicMock()
+        mock_msg.edit = AsyncMock()
+        mock_channel.fetch_message = AsyncMock(return_value=mock_msg)
+        bot.get_channel = MagicMock(return_value=None)  # Not cached
+        bot.fetch_channel = AsyncMock(return_value=mock_channel)
+
+        watch = MagicMock(spec=WatchMessage)
+        watch.project = MagicMock()
+        watch.project.id = 1
+        watch.channel_id = 100
+        watch.message_id = 200
+        watch.delete = AsyncMock()
+
+        with (
+            patch(
+                "pixel_hawk.interface.interactions.get_watches_for_projects",
+                new_callable=AsyncMock,
+                return_value=[watch],
+            ),
+            patch(
+                "pixel_hawk.interface.interactions.format_watch_message",
+                new_callable=AsyncMock,
+                return_value="Stats",
+            ),
+        ):
+            await bot.update_watches([1])
+
+        bot.fetch_channel.assert_awaited_once_with(100)
+        mock_msg.edit.assert_awaited_once()
+
+
+# maybe_bot yields bot
+
+
+class TestMaybeBotYieldsBot:
+    async def test_yields_none_without_config(self, setup_config):
+        async with maybe_bot() as bot:
+            assert bot is None
+
+    async def test_yields_bot_with_config(self, setup_config):
+        config_path = get_config().home / "config.toml"
+        config_path.write_text('[discord]\nbot_token = "fake-token"\n')
+        _invalidate_config_toml()
+
+        with (
+            patch.object(HawkBot, "start", new_callable=AsyncMock),
+            patch.object(HawkBot, "close", new_callable=AsyncMock),
+        ):
+            async with maybe_bot() as bot:
+                assert isinstance(bot, HawkBot)

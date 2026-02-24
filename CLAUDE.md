@@ -42,7 +42,7 @@ uv run hawk
   - `tiles/` — cached tiles from WPlace
   - `snapshots/{person_id}/` — canvas state snapshots, same structure as projects (coordinate-only filenames)
   - `logs/` — application logs
-  - `data/` — SQLite database (`pixel-hawk.db`) with Person, ProjectInfo, HistoryChange, TileInfo, TileProject, and GuildConfig tables
+  - `data/` — SQLite database (`pixel-hawk.db`) with Person, ProjectInfo, HistoryChange, TileInfo, TileProject, GuildConfig, and WatchMessage tables
 - **Design rationale:** The default `./nest` location allows running pixel-hawk from the project root during development, keeping all data files easily accessible for inspection from IDE and AI agents. This simplifies debugging, testing, and data analysis without requiring path configuration.
 - Access configuration via `get_config()` from `models/config.py`
 - CONFIG singleton is lazily initialized on first access
@@ -66,7 +66,8 @@ uv run hawk
 - Business logic for ProjectInfo lives in `watcher/metadata.py` as standalone functions (functional service layer). Functions take `ProjectInfo` as first parameter and mutate fields in place. Log messages include owner name for multi-user attribution.
 - `Project` (in `watcher/projects.py`) is loaded from database via `Project.from_info(info)` classmethod. Constructor takes only `ProjectInfo` and derives `path` and `rect` from it. Files must use the project's palette. Invalid files cause from_info() to return None with warning logged. `run_diff()` returns a `HistoryChange` record.
 - `PALETTE` (in `models/palette.py`) enforces and converts images to the project palette (first color treated as transparent). Provides `AsyncImage[T]` for deferred async I/O, and `aopen_file`/`aopen_bytes` methods for async image loading.
-- `Main` (in `main.py`) uses two-phase initialization: sync `__init__` followed by `async start()` to initialize `TileChecker` and refresh person-level statistics. Database lifecycle managed via `async with database():` context manager. No in-memory project loading — project discovery happens on demand in `TileChecker._get_projects_for_tile()`. Runs the polling loop: `TileChecker.check_next_tile()` handles tile selection, checking, project querying, and diffing.
+- `WatchMessage` (in `models/entities.py`) tracks persistent Discord messages that auto-update with project stats. Uses the Discord message snowflake as primary key (`message_id`). Unique constraint on `(project_id, channel_id)` enforces one watch per project per channel. FK to ProjectInfo with CASCADE delete.
+- `Main` (in `main.py`) uses two-phase initialization: sync `__init__` followed by `async start()` to initialize `TileChecker` and refresh person-level statistics. Database lifecycle managed via `async with database(), maybe_bot() as bot:` context managers. No in-memory project loading — project discovery happens on demand in `TileChecker._get_projects_for_tile()`. Runs the polling loop: `TileChecker.check_next_tile()` returns diffed project IDs, which are passed to `HawkBot.update_watches()` to edit live Discord messages.
 - Queue system tracks tile metadata (last checked, last modified). Redistribution runs automatically when the queue iterator exhausts (one full cycle), reassigning heat values based on last_update recency. Updates are optimistic: only tiles whose heat differs from the target are written.
 
 ## File/Module map (where to look)
@@ -78,7 +79,7 @@ uv run hawk
 ### Models (`src/pixel_hawk/models/`) — data layer
 - `config.py` — `DiscordSettings` dataclass, `Config` dataclass, `load_config()`, `get_config()`, CONFIG singleton
 - `db.py` — database async context manager (`database()`), Tortoise ORM config, Aerich integration, `rebuild_table()` migration utility
-- `entities.py` — `Person` (user model with watched_tiles_count, active_projects_count, update_totals()), `ProjectState` IntEnum (ACTIVE/PASSIVE/INACTIVE), `ProjectInfo` (pure Tortoise model with owner FK, random ID via `save_as_new()`), `HistoryChange` (diff event log), `DiffStatus` IntEnum, `TileInfo` (tile metadata: coordinates, heat, timestamps, etag), `TileProject` (tile-project junction table), `GuildConfig` (per-guild bot configuration: required role name)
+- `entities.py` — `Person` (user model with watched_tiles_count, active_projects_count, update_totals()), `ProjectState` IntEnum (ACTIVE/PASSIVE/INACTIVE), `ProjectInfo` (pure Tortoise model with owner FK, random ID via `save_as_new()`), `HistoryChange` (diff event log), `DiffStatus` IntEnum, `TileInfo` (tile metadata: coordinates, heat, timestamps, etag), `TileProject` (tile-project junction table), `GuildConfig` (per-guild bot configuration: required role name), `WatchMessage` (persistent Discord watch messages, message_id as PK)
 - `geometry.py` — `Tile`, `Point`, `Size`, `Rectangle` helpers (tile math)
 - `palette.py` — palette enforcement + `PALETTE` singleton + `AsyncImage[T]` (deferred async I/O handle)
 
@@ -86,12 +87,13 @@ uv run hawk
 - `queues.py` — `QueueSystem`, temperature-based tile queues with Zipf distribution, tile metadata tracking
 - `metadata.py` — functional service layer for ProjectInfo business logic (pixel counting, snapshot comparison, rate tracking, owner-attributed logging)
 - `projects.py` — `Project` model (async diffs, snapshots, database-first loading via from_info()), `stitch_tiles()` (async canvas assembly), `count_cached_tiles()` (tile cache check)
-- `ingest.py` — `TileChecker` (tile monitoring orchestration, owns `httpx.AsyncClient`, query-driven project lookups via `TileProject`), `has_tile_changed()` (async tile download)
+- `ingest.py` — `TileChecker` (tile monitoring orchestration, owns `httpx.AsyncClient`, query-driven project lookups via `TileProject`), `has_tile_changed()` (async tile download). `check_next_tile()` returns `list[int]` of diffed project IDs (empty list if no changes)
 
 ### Interface (`src/pixel_hawk/interface/`) — user-facing
-- `commands.py` — project management service layer: `new_project()` (project creation from uploaded image), `edit_project()` (project modification), `delete_project()` (project deletion), `list_projects()` (project listing with stats, 24h changes, Discord message truncation), `_try_initial_diff()` (immediate diff when tiles are cached), coordinate/filename parsing helpers
+- `commands.py` — project management service layer: `new_project()` (project creation from uploaded image), `edit_project()` (project modification), `delete_project()` (project deletion with watch cleanup), `list_projects()` (project listing with stats, 24h changes, Discord message truncation), `_try_initial_diff()` (immediate diff when tiles are cached), coordinate/filename parsing helpers
+- `watch.py` — living watch message service layer: `format_watch_message()` (comprehensive Discord markdown stats), `create_watch()` / `remove_watch()` (CRUD with ownership validation), `save_watch_message()` (persistence after Discord send), `get_watches_for_projects()` (batch query for update loop), `delete_watches_for_project()` (cleanup helper)
 - `access.py` — admin and guild access service layer: `ErrorMsg` (user-facing exception), `grant_admin()` (admin grant, callers responsible for authorization), `set_guild_role()` (per-guild role configuration), `check_guild_access()` (role-based access gate with auto-creation)
-- `interactions.py` — Discord bot wiring: `HawkBot` (slash commands under configurable command group, default `/hawk`), `_check_access()` (guild role gate on user commands), `maybe_bot()` (lifecycle context manager). Dispatches to `commands.py` service functions
+- `interactions.py` — Discord bot wiring: `HawkBot` (slash commands under configurable command group, default `/hawk`), `_check_access()` (guild role gate on user commands), `maybe_bot()` (lifecycle context manager, yields bot instance or None), `update_watches()` (edits live Discord messages, auto-cleans on 404/403). Dispatches to `commands.py` and `watch.py` service functions
 
 ### Scripts and CI
 - `scripts/rebuild.py` — Idempotent database rebuild from filesystem artifacts (projects, tiles, snapshots)
@@ -131,7 +133,7 @@ This project embraces core principles from PEP 20 ("The Zen of Python"):
 - Time and date: prefer `round(time.time())` for timestamps to get integer seconds, which simplifies metadata and logging. Avoid using raw `time.time()` as well as `datetime` to keep things simple and consistent.
 - Project state: `ProjectInfo` persists to SQLite via Tortoise ORM (`await info.save()`). New projects must use `save_as_new()` (or `from_rect()` which calls it) to assign a random ID — do not use `ProjectInfo.create()` directly. `Project` objects are constructed on demand (not cached in memory) when `TileChecker` needs to diff affected projects. `Project.info` (not `.metadata`) holds the `ProjectInfo` instance. Business logic uses functional service layer: `metadata.process_diff(info, ...)` instead of `info.process_diff(...)`.
 - Multi-user workflow: Each Person has an auto-increment ID. ProjectInfo has a randomly assigned ID (via `save_as_new()`) and an owner FK to Person. Directory structure is `projects/{person_id}/{filename}` where filename is state-dependent (`new_{id}.png` for CREATING, coordinate-only otherwise). Names are stored in the database only. Watched tiles are tracked per person with overlap deduplication.
-- Error handling: prefer non-fatal logging (warnings/debug) and avoid raising unexpected exceptions in the polling loop. Use `ErrorMsg` (in `commands.py`) for errors whose message is intended to be displayed to the user; `interactions.py` catches `ErrorMsg` and sends it as an ephemeral Discord response.
+- Error handling: prefer non-fatal logging (warnings/debug) and avoid raising unexpected exceptions in the polling loop. Use `ErrorMsg` (in `access.py`) for errors whose message is intended to be displayed to the user; `interactions.py` catches `ErrorMsg` and sends it as an ephemeral Discord response.
 - Defensive programming: Use assertions for "shouldn't happen" cases that indicate logic errors. These should be tested to ensure they catch bugs during development. Example: `assert condition, "clear error message"` for invariants that must hold.
 - File size management:
   - If a Python file exceeds 400 lines, review it for simplification and deduplication opportunities; if that's insufficient, review it to split it into two modules; if splitting is not appropriate, add a comment at the top documenting that these approaches were attempted and why they were not viable.
