@@ -2,9 +2,8 @@
 
 import pytest
 
-from pixel_hawk.models.geometry import Point, Rectangle, Size
 from pixel_hawk.models.entities import DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState
-from pixel_hawk.models.palette import PALETTE
+from pixel_hawk.models.geometry import Point, Rectangle, Size
 
 
 @pytest.fixture
