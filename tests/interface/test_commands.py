@@ -873,3 +873,81 @@ class TestInitialDiffEditProject:
         assert result is not None
         assert "new" in result
         assert "complete" not in result.lower()
+
+
+# Quota enforcement tests
+
+
+class TestQuotaEnforcement:
+    # --- new_project enforcement ---
+
+    async def test_new_active_exceeds_project_limit(self):
+        await Person.create(name="Limited", discord_id=90001, max_active_projects=1)
+        await new_project(90001, _make_test_png(), "5_7_0_0.png")
+
+        with pytest.raises(ErrorMsg, match="limit of 1 projects"):
+            await new_project(90001, _make_test_png(), "10_20_0_0.png")
+
+    async def test_new_creating_exceeds_project_limit(self):
+        await Person.create(name="Limited", discord_id=90002, max_active_projects=1)
+        await new_project(90002, _make_test_png(), "image.png")
+
+        with pytest.raises(ErrorMsg, match="limit of 1 projects"):
+            await new_project(90002, _make_test_png(), "image2.png")
+
+    async def test_new_active_exceeds_tile_limit(self):
+        await Person.create(name="NoTiles", discord_id=90003, max_watched_tiles=0)
+
+        with pytest.raises(ErrorMsg, match="watched tiles"):
+            await new_project(90003, _make_test_png(), "5_7_0_0.png")
+
+    async def test_new_creating_skips_tile_check(self):
+        await Person.create(name="NoTiles", discord_id=90004, max_watched_tiles=0, max_active_projects=50)
+        result = await new_project(90004, _make_test_png(), "image.png")
+        assert result is not None
+        assert "created" in result
+
+    async def test_new_active_within_limits(self):
+        await Person.create(name="Plenty", discord_id=90005, max_active_projects=50, max_watched_tiles=100)
+        result = await new_project(90005, _make_test_png(), "5_7_0_0.png")
+        assert result is not None
+        assert "activated" in result
+
+    # --- edit_project enforcement ---
+
+    async def test_edit_creating_to_active_exceeds_tile_limit(self):
+        await Person.create(name="Limited", discord_id=90006, max_active_projects=50, max_watched_tiles=0)
+        await new_project(90006, _make_test_png(), "image.png")
+        info = await ProjectInfo.filter(owner__discord_id=90006).first()
+
+        with pytest.raises(ErrorMsg, match="watched tiles"):
+            await edit_project(90006, info.id, coords="5_7_0_0")
+
+    async def test_edit_coords_change_exceeds_tile_limit(self):
+        person = await Person.create(name="Limited", discord_id=90007, max_active_projects=50, max_watched_tiles=1)
+        await new_project(90007, _make_test_png(), "5_7_0_0.png")
+        info = await ProjectInfo.filter(owner=person).first()
+
+        # Change to coords spanning more tiles than allowed
+        with pytest.raises(ErrorMsg, match="watched tiles"):
+            await edit_project(90007, info.id, coords="5_7_990_0", image_data=_make_test_png(100, 10))
+
+    async def test_edit_reactivate_passive_exceeds_tile_limit(self):
+        person = await Person.create(name="Limited", discord_id=90008, max_active_projects=50, max_watched_tiles=0)
+        info = await ProjectInfo.from_rect(RECT, person.id, "test", state=ProjectState.PASSIVE)
+
+        with pytest.raises(ErrorMsg, match="watched tiles"):
+            await edit_project(90008, info.id, state=ProjectState.ACTIVE)
+
+    async def test_edit_state_change_updates_totals(self):
+        person = await Person.create(name="User", discord_id=90009)
+        await new_project(90009, _make_test_png(), "5_7_0_0.png")
+
+        person = await Person.get(id=person.id)
+        assert person.active_projects_count == 1
+
+        info = await ProjectInfo.filter(owner=person).first()
+        await edit_project(90009, info.id, state=ProjectState.INACTIVE)
+
+        person = await Person.get(id=person.id)
+        assert person.active_projects_count == 0

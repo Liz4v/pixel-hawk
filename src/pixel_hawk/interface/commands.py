@@ -14,7 +14,7 @@ from PIL import Image
 
 from ..models.config import get_config
 from ..models.entities import DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState
-from ..models.geometry import Point
+from ..models.geometry import Point, Rectangle, Size
 from ..models.palette import PALETTE
 from ..watcher.projects import Project, count_cached_tiles
 from .access import ErrorMsg, get_command_prefix
@@ -117,6 +117,28 @@ async def _check_coord_conflict(owner_id: int, x: int, y: int, *, exclude_id: in
         )
 
 
+async def _check_quotas(
+    person: Person, rect: Rectangle | None = None, *, is_new_project: bool = False, exclude_project_id: int = 0,
+) -> None:
+    """Pre-check per-user quotas. Raises ErrorMsg if the operation would exceed limits."""
+    if is_new_project:
+        total = await person.projects.all().count()
+        if total >= person.max_active_projects:
+            raise ErrorMsg(f"You've reached your limit of {person.max_active_projects} projects.")
+
+    if rect is not None:
+        tiles = set()
+        for project in await person.projects.filter(state=ProjectState.ACTIVE).all():
+            if project.id == exclude_project_id:
+                continue
+            tiles.update(project.rectangle.tiles)
+        tiles.update(rect.tiles)
+        if len(tiles) > person.max_watched_tiles:
+            raise ErrorMsg(
+                f"This would use {len(tiles)} watched tiles, exceeding your limit of {person.max_watched_tiles}."
+            )
+
+
 async def new_project(discord_id: int, image_data: bytes, filename: str) -> str | None:
     """Create a new project from an uploaded image. Returns None if no Person linked."""
     person = await Person.filter(discord_id=discord_id).first()
@@ -129,10 +151,12 @@ async def new_project(discord_id: int, image_data: bytes, filename: str) -> str 
     if inferred_coords:
         point = Point.from4(*inferred_coords)
         await _check_coord_conflict(person.id, point.x, point.y)
+        await _check_quotas(person, Rectangle.from_point_size(point, Size(width, height)), is_new_project=True)
         state = ProjectState.ACTIVE
     else:
         point = Point(0, 0)
         state = ProjectState.CREATING
+        await _check_quotas(person, is_new_project=True)
 
     now = round(time.time())
     info = ProjectInfo(
@@ -199,6 +223,7 @@ async def edit_project(
     if info.owner.id != person.id:
         raise ErrorMsg(f"Project {project_id:04} is not yours.")
 
+    original_state = info.state
     changes: list[str] = []
     needs_relink = False
 
@@ -248,6 +273,8 @@ async def edit_project(
         changes.append(f"Coords: {new_point}")
 
     if needs_relink:
+        exclude_id = info.id if original_state == ProjectState.ACTIVE else 0
+        await _check_quotas(person, info.rectangle, exclude_project_id=exclude_id)
         await info.unlink_tiles()
         await info.link_tiles()
         await person.update_totals()
@@ -264,6 +291,8 @@ async def edit_project(
     if state is not None:
         if state in (ProjectState.ACTIVE, ProjectState.PASSIVE) and info.state == ProjectState.CREATING:
             raise ErrorMsg(f"Cannot activate: set coordinates first with `/{get_command_prefix()} edit`.")
+        if state == ProjectState.ACTIVE and original_state != ProjectState.ACTIVE and not needs_relink:
+            await _check_quotas(person, info.rectangle)
         info.state = state
         changes.append(f"State: {state.name}")
 
@@ -271,6 +300,9 @@ async def edit_project(
         raise ErrorMsg("No changes specified.")
 
     await info.save()
+
+    if state is not None and state != original_state and not needs_relink:
+        await person.update_totals()
 
     if (needs_relink or image_data is not None) and info.state == ProjectState.ACTIVE:
         status = await _try_initial_diff(info)
