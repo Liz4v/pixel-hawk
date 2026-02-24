@@ -2,7 +2,16 @@
 
 import pytest
 
-from pixel_hawk.interface.access import ErrorMsg, check_guild_access, grant_admin, set_guild_role
+from pixel_hawk.interface.access import (
+    ErrorMsg,
+    check_guild_access,
+    get_guild_quotas,
+    get_user_quotas,
+    grant_admin,
+    set_guild_quotas,
+    set_guild_role,
+    set_user_quotas,
+)
 from pixel_hawk.models.entities import BotAccess, GuildConfig, Person
 
 # BotAccess enum tests
@@ -202,3 +211,129 @@ class TestCheckGuildAccess:
         await Person.create(name="Admin", discord_id=50008, access=int(BotAccess.ADMIN))
         person = await check_guild_access(300008, 50008, "Admin", ["everyone"])
         assert person.access & BotAccess.ADMIN
+
+
+# get_user_quotas tests
+
+
+class TestGetUserQuotas:
+    async def test_unknown_user_raises(self):
+        with pytest.raises(ErrorMsg, match="not found"):
+            await get_user_quotas(99999)
+
+    async def test_default_quotas(self):
+        await Person.create(name="User", discord_id=60001)
+        result = await get_user_quotas(60001)
+        assert "50" in result
+        assert "10" in result
+
+    async def test_custom_quotas(self):
+        await Person.create(name="User", discord_id=60002, max_active_projects=5, max_watched_tiles=100)
+        result = await get_user_quotas(60002)
+        assert "5" in result
+        assert "100" in result
+
+
+# set_user_quotas tests
+
+
+class TestSetUserQuotas:
+    async def test_non_admin_raises(self):
+        await Person.create(name="User", discord_id=70001, access=0)
+        await Person.create(name="Target", discord_id=70002)
+        with pytest.raises(ErrorMsg, match="Admin access required"):
+            await set_user_quotas(70001, 70002, guild_id=500001, projects=5, tiles=100)
+
+    async def test_target_not_found_raises(self):
+        await Person.create(name="Admin", discord_id=70003, access=int(BotAccess.ADMIN))
+        with pytest.raises(ErrorMsg, match="not found"):
+            await set_user_quotas(70003, 99999, guild_id=500001, projects=5, tiles=None)
+
+    async def test_admin_sets_quotas(self):
+        await Person.create(name="Admin", discord_id=70004, access=int(BotAccess.ADMIN))
+        await Person.create(name="Target", discord_id=70005)
+        result = await set_user_quotas(70004, 70005, guild_id=500001, projects=10, tiles=200)
+        assert "10" in result
+        target = await Person.get(discord_id=70005)
+        assert target.max_active_projects == 10
+        assert target.max_watched_tiles == 200
+
+    async def test_no_args_returns_view(self):
+        await Person.create(name="Admin", discord_id=70008, access=int(BotAccess.ADMIN))
+        await Person.create(name="Target", discord_id=70009)
+        result = await set_user_quotas(70008, 70009, guild_id=500001, projects=None, tiles=None)
+        assert "50" in result  # Default quota
+
+    async def test_exceeds_guild_projects_ceiling(self):
+        await Person.create(name="Admin", discord_id=70010, access=int(BotAccess.ADMIN))
+        await Person.create(name="Target", discord_id=70011)
+        await GuildConfig.create(guild_id=500002, required_role="artists", max_active_projects=20)
+        with pytest.raises(ErrorMsg, match="Exceeds guild ceiling"):
+            await set_user_quotas(70010, 70011, guild_id=500002, projects=25, tiles=None)
+
+    async def test_exceeds_guild_tiles_ceiling(self):
+        await Person.create(name="Admin", discord_id=70012, access=int(BotAccess.ADMIN))
+        await Person.create(name="Target", discord_id=70013)
+        await GuildConfig.create(guild_id=500003, required_role="artists", max_watched_tiles=5)
+        with pytest.raises(ErrorMsg, match="Exceeds guild ceiling"):
+            await set_user_quotas(70012, 70013, guild_id=500003, projects=None, tiles=15)
+
+    async def test_within_guild_ceiling_succeeds(self):
+        await Person.create(name="Admin", discord_id=70014, access=int(BotAccess.ADMIN))
+        await Person.create(name="Target", discord_id=70015)
+        await GuildConfig.create(guild_id=500004, required_role="artists", max_active_projects=30)
+        result = await set_user_quotas(70014, 70015, guild_id=500004, projects=25, tiles=None)
+        assert "25" in result
+
+
+# get_guild_quotas tests
+
+
+class TestGetGuildQuotas:
+    async def test_not_found_raises(self):
+        with pytest.raises(ErrorMsg, match="not been configured"):
+            await get_guild_quotas(999999)
+
+    async def test_defaults_shown(self):
+        await GuildConfig.create(guild_id=600001, required_role="artists")
+        result = await get_guild_quotas(600001)
+        assert "50" in result
+        assert "10" in result
+
+    async def test_custom_shown(self):
+        await GuildConfig.create(guild_id=600002, required_role="artists", max_active_projects=100, max_watched_tiles=25)
+        result = await get_guild_quotas(600002)
+        assert "100" in result
+        assert "25" in result
+
+
+# set_guild_quotas tests
+
+
+class TestSetGuildQuotas:
+    async def test_non_admin_raises(self):
+        await Person.create(name="User", discord_id=80001, access=0)
+        await GuildConfig.create(guild_id=700001, required_role="artists")
+        with pytest.raises(ErrorMsg, match="Admin access required"):
+            await set_guild_quotas(80001, 700001, projects=100, tiles=50)
+
+    async def test_no_guild_raises(self):
+        await Person.create(name="Admin", discord_id=80002, access=int(BotAccess.ADMIN))
+        with pytest.raises(ErrorMsg, match="not been configured"):
+            await set_guild_quotas(80002, 999999, projects=100, tiles=50)
+
+    async def test_admin_sets_quotas(self):
+        await Person.create(name="Admin", discord_id=80003, access=int(BotAccess.ADMIN))
+        await GuildConfig.create(guild_id=700002, required_role="artists")
+        result = await set_guild_quotas(80003, 700002, projects=100, tiles=50)
+        assert "100" in result
+        assert "50" in result
+        guild = await GuildConfig.get(guild_id=700002)
+        assert guild.max_active_projects == 100
+        assert guild.max_watched_tiles == 50
+
+    async def test_no_args_returns_view(self):
+        await Person.create(name="Admin", discord_id=80004, access=int(BotAccess.ADMIN))
+        await GuildConfig.create(guild_id=700003, required_role="artists")
+        result = await set_guild_quotas(80004, 700003, projects=None, tiles=None)
+        assert "50" in result  # Default

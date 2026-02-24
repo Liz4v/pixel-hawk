@@ -54,6 +54,10 @@ class Person(Model):
     discord_id = fields.BigIntField(null=True, unique=True)
     access = fields.IntField(default=0)  # BotAccess bitmask
 
+    # Quota limits
+    max_active_projects = fields.IntField(default=50)
+    max_watched_tiles = fields.IntField(default=10)
+
     # Calculated properties
     watched_tiles_count = fields.IntField(default=0)
     active_projects_count = fields.IntField(default=0)
@@ -331,6 +335,10 @@ class GuildConfig(Model):
 
     guild_id = fields.BigIntField(primary_key=True, generated=False)
     required_role = fields.CharField(max_length=255)
+
+    # Guild-level quota ceilings (enforced when setting per-user quotas)
+    max_active_projects = fields.IntField(default=50)
+    max_watched_tiles = fields.IntField(default=10)
 
     class Meta(Model.Meta):
         table = "guild_config"

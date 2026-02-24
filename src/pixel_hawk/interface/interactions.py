@@ -17,7 +17,7 @@ from loguru import logger
 from ..models.config import get_config
 from ..models.entities import Person, ProjectState
 from ..models.palette import ColorsNotInPalette
-from .access import ErrorMsg, check_guild_access, set_guild_role
+from .access import ErrorMsg, check_guild_access, set_guild_quotas, set_guild_role, set_user_quotas
 from .commands import delete_project, edit_project, list_projects, new_project
 
 
@@ -32,14 +32,23 @@ class HawkBot(discord.Client):
         self._register_commands()
 
     def _register_commands(self) -> None:
-        """Register all slash commands under the command group."""
+        """Register all slash commands under the command groups."""
         hawk_group = app_commands.Group(name=self.command_prefix, description="Pixel Hawk commands")
-        hawk_group.command(name="sa", description="Admin commands")(self._sa)
         hawk_group.command(name="list", description="List your projects")(self._list)
         hawk_group.command(name="new", description="Upload a new project image")(self._new)
         hawk_group.command(name="edit", description="Edit an existing project")(self._edit)
         hawk_group.command(name="delete", description="Delete a project")(self._delete)
         self.tree.add_command(hawk_group)
+
+        admin_group = app_commands.Group(
+            name=f"{self.command_prefix}admin",
+            description="Pixel Hawk admin commands",
+            default_permissions=discord.Permissions(administrator=True),
+        )
+        admin_group.command(name="role", description="Set the required role for this server")(self._admin_role)
+        admin_group.command(name="quota", description="View or set per-user quotas")(self._admin_quota)
+        admin_group.command(name="guildquota", description="View or set guild quota ceilings")(self._admin_guildquota)
+        self.tree.add_command(admin_group)
 
         @self.tree.error
         async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
@@ -63,25 +72,55 @@ class HawkBot(discord.Client):
             await interaction.response.send_message(str(e), ephemeral=True)
             return None
 
-    @app_commands.describe(args="Subcommand and arguments")
-    async def _sa(self, interaction: discord.Interaction, args: str) -> None:
-        """Dispatch /hawk sa subcommands."""
-        parts = args.split()
-        if not parts:
-            await interaction.response.send_message("No.", ephemeral=True)
-            return
-        cmd, *params = parts
+    @app_commands.describe(name="Role name required to use this bot in this server")
+    async def _admin_role(self, interaction: discord.Interaction, name: str) -> None:
+        """Handle /hawkadmin role — set the required role for this guild."""
+        assert interaction.guild_id is not None, "Commands must be used in a guild"
         user = interaction.user
-        logger.info(f"SA from {user.name} (https://discord.com/users/{user.id}): {cmd} {params}")
-        if cmd == "role" and len(params) == 1:
-            assert interaction.guild_id is not None, "Commands must be used in a guild"
-            try:
-                msg = await set_guild_role(user.id, interaction.guild_id, params[0])
-            except ErrorMsg as e:
-                msg = str(e)
-            await interaction.response.send_message(msg, ephemeral=True)
-        else:
-            await interaction.response.send_message("No.", ephemeral=True)
+        logger.info(f"Admin role from {user.name} (https://discord.com/users/{user.id}): {name}")
+        try:
+            msg = await set_guild_role(user.id, interaction.guild_id, name)
+        except ErrorMsg as e:
+            msg = str(e)
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    @app_commands.describe(
+        user="Discord user to view/set quotas for",
+        projects="Max active projects",
+        tiles="Max watched tiles",
+    )
+    async def _admin_quota(
+        self, interaction: discord.Interaction, user: discord.User,
+        projects: int | None = None, tiles: int | None = None,
+    ) -> None:
+        """Handle /hawkadmin quota — view or set per-user quotas."""
+        assert interaction.guild_id is not None, "Commands must be used in a guild"
+        caller = interaction.user
+        logger.info(f"Admin quota from {caller.name}: user={user.id} projects={projects} tiles={tiles}")
+        try:
+            msg = await set_user_quotas(caller.id, user.id, guild_id=interaction.guild_id,
+                                        projects=projects, tiles=tiles)
+        except ErrorMsg as e:
+            msg = str(e)
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    @app_commands.describe(
+        projects="Max active projects ceiling for this server",
+        tiles="Max watched tiles ceiling for this server",
+    )
+    async def _admin_guildquota(
+        self, interaction: discord.Interaction,
+        projects: int | None = None, tiles: int | None = None,
+    ) -> None:
+        """Handle /hawkadmin guildquota — view or set guild quota ceilings."""
+        assert interaction.guild_id is not None, "Commands must be used in a guild"
+        caller = interaction.user
+        logger.info(f"Admin guildquota from {caller.name}: projects={projects} tiles={tiles}")
+        try:
+            msg = await set_guild_quotas(caller.id, interaction.guild_id, projects=projects, tiles=tiles)
+        except ErrorMsg as e:
+            msg = str(e)
+        await interaction.response.send_message(msg, ephemeral=True)
 
     @app_commands.checks.cooldown(rate=2, per=5.0)
     async def _list(self, interaction: discord.Interaction) -> None:

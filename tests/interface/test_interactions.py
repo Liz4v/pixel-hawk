@@ -99,6 +99,45 @@ class TestHawkBotCommands:
         names = [c.name for c in hawk.commands]
         assert "delete" in names
 
+    def test_command_tree_has_no_sa(self):
+        bot = HawkBot("hawk")
+        hawk = next(c for c in bot.tree.get_commands() if c.name == "hawk")
+        names = [c.name for c in hawk.commands]
+        assert "sa" not in names
+
+    def test_admin_group_exists(self):
+        bot = HawkBot("hawk")
+        names = [c.name for c in bot.tree.get_commands()]
+        assert "hawkadmin" in names
+
+    def test_admin_group_has_role(self):
+        bot = HawkBot("hawk")
+        admin = next(c for c in bot.tree.get_commands() if c.name == "hawkadmin")
+        names = [c.name for c in admin.commands]
+        assert "role" in names
+
+    def test_admin_group_has_quota(self):
+        bot = HawkBot("hawk")
+        admin = next(c for c in bot.tree.get_commands() if c.name == "hawkadmin")
+        names = [c.name for c in admin.commands]
+        assert "quota" in names
+
+    def test_admin_group_has_guildquota(self):
+        bot = HawkBot("hawk")
+        admin = next(c for c in bot.tree.get_commands() if c.name == "hawkadmin")
+        names = [c.name for c in admin.commands]
+        assert "guildquota" in names
+
+    def test_admin_group_has_administrator_permissions(self):
+        bot = HawkBot("hawk")
+        admin = next(c for c in bot.tree.get_commands() if c.name == "hawkadmin")
+        assert admin.default_permissions == discord.Permissions(administrator=True)
+
+    def test_custom_prefix_admin_group(self):
+        bot = HawkBot("testhawk")
+        names = [c.name for c in bot.tree.get_commands()]
+        assert "testhawkadmin" in names
+
 
 def _mock_interaction(*, guild_id=999, user_id=12345, user_name="TestUser", role_names=None):
     """Create a mock discord.Interaction with a Member user."""
@@ -159,10 +198,10 @@ class TestCheckAccess:
         assert msg.kwargs["ephemeral"] is True
 
 
-# _sa role subcommand tests
+# Admin role command tests
 
 
-class TestSaRoleCommand:
+class TestAdminRoleCommand:
     async def test_role_success(self):
         bot = HawkBot("hawk")
         interaction = _mock_interaction(guild_id=555)
@@ -172,7 +211,7 @@ class TestSaRoleCommand:
             new_callable=AsyncMock,
             return_value="Required role set to **painters** for this server.",
         ):
-            await bot._sa(interaction, "role painters")
+            await bot._admin_role(interaction, "painters")
 
         interaction.response.send_message.assert_awaited_once()
         msg = interaction.response.send_message.call_args
@@ -188,43 +227,110 @@ class TestSaRoleCommand:
             new_callable=AsyncMock,
             side_effect=ErrorMsg("Admin access required."),
         ):
-            await bot._sa(interaction, "role painters")
+            await bot._admin_role(interaction, "painters")
 
         msg = interaction.response.send_message.call_args
         assert "Admin access required" in msg.args[0]
 
-    async def test_role_missing_param(self):
+
+# Admin quota command tests
+
+
+class TestAdminQuotaCommand:
+    async def test_view_quotas(self):
         bot = HawkBot("hawk")
         interaction = _mock_interaction()
-        await bot._sa(interaction, "role")
+        target_user = MagicMock(spec=discord.User)
+        target_user.id = 99999
+
+        with patch(
+            "pixel_hawk.interface.interactions.set_user_quotas",
+            new_callable=AsyncMock,
+            return_value="**User** quotas:\n  Active projects: 0 / 50",
+        ):
+            await bot._admin_quota(interaction, target_user)
+
         msg = interaction.response.send_message.call_args
-        assert msg.args[0] == "No."
+        assert "50" in msg.args[0]
 
-
-# _sa other subcommand tests
-
-
-class TestSaOtherCommands:
-    async def test_empty_args(self):
+    async def test_set_quotas(self):
         bot = HawkBot("hawk")
         interaction = _mock_interaction()
-        await bot._sa(interaction, "")
-        msg = interaction.response.send_message.call_args
-        assert msg.args[0] == "No."
+        target_user = MagicMock(spec=discord.User)
+        target_user.id = 99999
 
-    async def test_myself_returns_no(self):
+        with patch(
+            "pixel_hawk.interface.interactions.set_user_quotas",
+            new_callable=AsyncMock,
+            return_value="Updated quotas for **User**:\n  Active projects limit: 10",
+        ):
+            await bot._admin_quota(interaction, target_user, projects=10)
+
+        msg = interaction.response.send_message.call_args
+        assert "10" in msg.args[0]
+
+    async def test_error_msg(self):
         bot = HawkBot("hawk")
         interaction = _mock_interaction()
-        await bot._sa(interaction, "myself some-token")
-        msg = interaction.response.send_message.call_args
-        assert msg.args[0] == "No."
+        target_user = MagicMock(spec=discord.User)
+        target_user.id = 99999
 
-    async def test_unknown_command(self):
+        with patch(
+            "pixel_hawk.interface.interactions.set_user_quotas",
+            new_callable=AsyncMock,
+            side_effect=ErrorMsg("User not found."),
+        ):
+            await bot._admin_quota(interaction, target_user)
+
+        msg = interaction.response.send_message.call_args
+        assert "not found" in msg.args[0]
+
+
+# Admin guildquota command tests
+
+
+class TestAdminGuildQuotaCommand:
+    async def test_view_guild_quotas(self):
         bot = HawkBot("hawk")
         interaction = _mock_interaction()
-        await bot._sa(interaction, "unknown subcommand")
+
+        with patch(
+            "pixel_hawk.interface.interactions.set_guild_quotas",
+            new_callable=AsyncMock,
+            return_value="Guild quota ceilings:\n  Max active projects: 50\n  Max watched tiles: 10",
+        ):
+            await bot._admin_guildquota(interaction)
+
         msg = interaction.response.send_message.call_args
-        assert msg.args[0] == "No."
+        assert "50" in msg.args[0]
+
+    async def test_set_guild_quotas(self):
+        bot = HawkBot("hawk")
+        interaction = _mock_interaction()
+
+        with patch(
+            "pixel_hawk.interface.interactions.set_guild_quotas",
+            new_callable=AsyncMock,
+            return_value="Updated guild quota ceilings:\n  Max active projects: 100",
+        ):
+            await bot._admin_guildquota(interaction, projects=100)
+
+        msg = interaction.response.send_message.call_args
+        assert "100" in msg.args[0]
+
+    async def test_error_msg(self):
+        bot = HawkBot("hawk")
+        interaction = _mock_interaction()
+
+        with patch(
+            "pixel_hawk.interface.interactions.set_guild_quotas",
+            new_callable=AsyncMock,
+            side_effect=ErrorMsg("This server has not been configured."),
+        ):
+            await bot._admin_guildquota(interaction)
+
+        msg = interaction.response.send_message.call_args
+        assert "not been configured" in msg.args[0]
 
 
 # _new handler tests

@@ -1,7 +1,7 @@
 import pytest
 from loguru import logger
 
-import pixel_hawk.interface.commands
+import pixel_hawk.interface.access
 import pixel_hawk.models.config
 from pixel_hawk.models.config import Config
 from pixel_hawk.models.db import database
@@ -28,7 +28,7 @@ def setup_config(tmp_path, monkeypatch):
 
     # Cleanup: Reset CONFIG and cached command_prefix after test
     pixel_hawk.models.config.CONFIG = None
-    pixel_hawk.interface.commands._command_prefix = None
+    pixel_hawk.interface.access._command_prefix = None
 
 
 @pytest.fixture(autouse=True)

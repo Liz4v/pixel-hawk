@@ -53,6 +53,98 @@ async def set_guild_role(discord_id: int, guild_id: int, role_name: str) -> str:
     return f"Required role set to **{role_name}** for this server."
 
 
+async def get_user_quotas(discord_id: int) -> str:
+    """Format current quota usage for a Discord user. Raises ErrorMsg if not found."""
+    person = await Person.filter(discord_id=discord_id).first()
+    if person is None:
+        raise ErrorMsg("User not found.")
+    return (
+        f"**{person.name}** quotas:\n"
+        f"  Active projects: {person.active_projects_count} / {person.max_active_projects}\n"
+        f"  Watched tiles: {person.watched_tiles_count} / {person.max_watched_tiles}"
+    )
+
+
+async def set_user_quotas(
+    admin_discord_id: int, target_discord_id: int, *, guild_id: int, projects: int | None, tiles: int | None
+) -> str:
+    """Set quota limits for a user. Caller must be admin.
+
+    Enforces guild ceilings: requested values cannot exceed the guild's maximums.
+    When both projects and tiles are None, returns current quotas (view mode).
+    """
+    if projects is None and tiles is None:
+        return await get_user_quotas(target_discord_id)
+
+    admin = await Person.filter(discord_id=admin_discord_id).first()
+    if admin is None or not (admin.access & BotAccess.ADMIN):
+        raise ErrorMsg("Admin access required.")
+
+    person = await Person.filter(discord_id=target_discord_id).first()
+    if person is None:
+        raise ErrorMsg("User not found.")
+
+    guild = await GuildConfig.filter(guild_id=guild_id).first()
+    changes: list[str] = []
+
+    if projects is not None:
+        if guild and projects > guild.max_active_projects:
+            raise ErrorMsg(f"Exceeds guild ceiling of {guild.max_active_projects} active projects.")
+        person.max_active_projects = projects
+        changes.append(f"Active projects limit: {projects}")
+
+    if tiles is not None:
+        if guild and tiles > guild.max_watched_tiles:
+            raise ErrorMsg(f"Exceeds guild ceiling of {guild.max_watched_tiles} watched tiles.")
+        person.max_watched_tiles = tiles
+        changes.append(f"Watched tiles limit: {tiles}")
+
+    await person.save()
+    logger.info(f"{admin.name}: Set quotas for {person.name}: {', '.join(changes)}")
+    return f"Updated quotas for **{person.name}**:\n" + "\n".join(f"  {c}" for c in changes)
+
+
+async def get_guild_quotas(guild_id: int) -> str:
+    """Format current guild quota ceilings. Raises ErrorMsg if not found."""
+    guild = await GuildConfig.filter(guild_id=guild_id).first()
+    if guild is None:
+        raise ErrorMsg("This server has not been configured.")
+    return (
+        f"Guild quota ceilings:\n"
+        f"  Max active projects: {guild.max_active_projects}\n"
+        f"  Max watched tiles: {guild.max_watched_tiles}"
+    )
+
+
+async def set_guild_quotas(admin_discord_id: int, guild_id: int, *, projects: int | None, tiles: int | None) -> str:
+    """Set guild-level quota ceilings. Caller must be admin.
+
+    When both projects and tiles are None, returns current ceilings (view mode).
+    """
+    if projects is None and tiles is None:
+        return await get_guild_quotas(guild_id)
+
+    admin = await Person.filter(discord_id=admin_discord_id).first()
+    if admin is None or not (admin.access & BotAccess.ADMIN):
+        raise ErrorMsg("Admin access required.")
+
+    guild = await GuildConfig.filter(guild_id=guild_id).first()
+    if guild is None:
+        raise ErrorMsg("This server has not been configured. Set a role first.")
+
+    changes: list[str] = []
+    if projects is not None:
+        guild.max_active_projects = projects
+        changes.append(f"Max active projects: {projects}")
+    if tiles is not None:
+        guild.max_watched_tiles = tiles
+        changes.append(f"Max watched tiles: {tiles}")
+
+    await guild.save()
+    logger.info(f"{admin.name}: Set guild {guild_id} quotas: {', '.join(changes)}")
+    return "Updated guild quota ceilings:\n" + "\n".join(f"  {c}" for c in changes)
+
+
 async def check_guild_access(guild_id: int, discord_id: int, display_name: str, role_names: list[str]) -> Person:
     """Check if a user has access in the given guild. Returns the Person (auto-created if needed).
 
