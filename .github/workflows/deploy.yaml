@@ -1,3 +1,15 @@
+# Auto-deploy to a single self-hosted runner on push to main.
+#
+# Assumptions specific to this setup:
+#   - Single self-hosted runner with passwordless sudo for the service
+#   - pixel-hawk is managed as a systemd service (see scripts/install-service.sh)
+#   - No rolling deploys or health checks — one production host
+#
+# The following GitHub Actions repository variables must be set:
+#   DEPLOY_DIR         — absolute path to the repo clone (e.g. /home/user/pixel_hawk)
+#   SERVICE_NAME       — systemd service name (e.g. pixel-hawk)
+#   UV_PYTHON_INSTALL_DIR — where uv caches Python (e.g. /home/user/uv-python)
+
 name: Deploy
 
 on:
@@ -6,26 +18,28 @@ on:
 
 defaults:
   run:
-    working-directory: ~/pixel-hawk
+    working-directory: ${{ vars.DEPLOY_DIR }}
 
 jobs:
   deploy:
     runs-on: self-hosted
     steps:
       - name: Stop service
-        run: sudo systemctl stop pixel-hawk
+        run: sudo systemctl stop ${{ vars.SERVICE_NAME }}
 
       - name: Pull latest
         run: git pull
 
       - name: Sync dependencies
         run: uv sync --quiet
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ vars.UV_PYTHON_INSTALL_DIR }}
 
       - name: Run migrations
         run: uv run aerich upgrade
 
       - name: Start service
-        run: sudo systemctl start pixel-hawk
+        run: sudo systemctl start ${{ vars.SERVICE_NAME }}
 
       - name: Verify
-        run: sleep 3 && sudo systemctl is-active pixel-hawk
+        run: sleep 3 && sudo systemctl is-active ${{ vars.SERVICE_NAME }}
