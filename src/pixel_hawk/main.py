@@ -11,11 +11,11 @@ import asyncio
 
 from loguru import logger
 
-from .config import get_config
-from .db import database
-from .ingest import TileChecker
-from .interactions import maybe_bot
-from .models import Person
+from .models.config import get_config
+from .models.db import database
+from .watcher.ingest import TileChecker
+from .interface.interactions import maybe_bot
+from .models.entities import Person
 
 # Polling cycle period: 60φ = 30(1 + √5) ≈ 97.08 seconds
 # Chosen to be maximally dissonant with 27s and 30s periods
@@ -26,6 +26,7 @@ class Main:
     def __init__(self):
         """Initialize the main application (sync setup only). Call start() to load projects."""
         self.tile_checker = TileChecker()
+        self.bot = None
         cfg = get_config()
         # Set up logging
         log_file = cfg.logs_dir / "pixel-hawk.log"
@@ -39,7 +40,8 @@ class Main:
     async def main(self):
         """Async entry point for pixel-hawk."""
         # Initialize database and run main loop
-        async with database(), maybe_bot():
+        async with database(), maybe_bot() as bot:
+            self.bot = bot
             await self.start()
             consecutive_errors = 0
             logger.info(f"Starting polling loop ({POLLING_CYCLE_SECONDS:.1f}s cycle, 60φ = 30(1+√5))...")
@@ -74,7 +76,9 @@ class Main:
 
     async def poll_once(self) -> None:
         """Run a cycle of the main polling loop."""
-        await self.tile_checker.check_next_tile()
+        proj_ids = await self.tile_checker.check_next_tile()
+        if proj_ids and self.bot:
+            await self.bot.update_watches(proj_ids)
 
 
 def main():

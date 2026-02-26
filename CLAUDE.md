@@ -7,7 +7,7 @@ pixel-hawk is a change tracker for WPlace paint projects. It polls WPlace tile i
 - **Requires:** Python >= 3.14 (see `pyproject.toml`)
 - **Console script:** `hawk = "pixel_hawk.main:main"`
 - **Main package:** `src/pixel_hawk`
-- **Key dependencies:** `loguru`, `pillow`, `httpx`, `tortoise-orm` (SQLite via `aiosqlite`), `humanize`
+- **Key dependencies:** `loguru`, `pillow`, `httpx`, `tortoise-orm` (SQLite via `aiosqlite`), `humanize`, `discord.py`
 - **Linting:** `ruff` configured with `line-length = 120`
 
 ## Where to look for further context
@@ -34,17 +34,18 @@ uv run hawk
 
 ## Configuration and data directories
 
-- Configuration managed through `src/pixel_hawk/config.py`
+- Configuration managed through `src/pixel_hawk/models/config.py`
 - Default nest: `./nest` (current working directory)
 - Configurable via CLI flag `--nest` or environment variable `HAWK_NEST`
 - All data lives under nest with organized subdirectories:
-  - `projects/{person_id}/` — project PNG files organized by person ID (coordinate-only filenames: `{tx}_{ty}_{px}_{py}.png`)
+  - `projects/{person_id}/` — project PNG files organized by person ID (coordinate-only filenames: `{tx}_{ty}_{px}_{py}.png`; CREATING projects use `new_{id}.png`)
   - `tiles/` — cached tiles from WPlace
   - `snapshots/{person_id}/` — canvas state snapshots, same structure as projects (coordinate-only filenames)
+  - `rejected/` — project files that failed to import (invalid palette, etc.)
   - `logs/` — application logs
-  - `data/` — SQLite database (`pixel-hawk.db`) with Person, ProjectInfo, HistoryChange, TileInfo, and TileProject tables
+  - `data/` — SQLite database (`pixel-hawk.db`) with Person, ProjectInfo, HistoryChange, TileInfo, TileProject, GuildConfig, and WatchMessage tables
 - **Design rationale:** The default `./nest` location allows running pixel-hawk from the project root during development, keeping all data files easily accessible for inspection from IDE and AI agents. This simplifies debugging, testing, and data analysis without requiring path configuration.
-- Access configuration via `get_config()` from `config.py`
+- Access configuration via `get_config()` from `models/config.py`
 - CONFIG singleton is lazily initialized on first access
 - All subdirectories auto-created by `load_config()` on startup
 
@@ -53,34 +54,55 @@ uv run hawk
 - **Multi-user, query-driven architecture**: Projects are stored in SQLite and discovered on demand via database queries — no in-memory project index. Multiple users can track the same or different coordinates. Projects are keyed by (owner_id, name) with unique constraint.
 - The application is fully async, built on `asyncio`. The entry point (`main()`) calls `asyncio.run()` on the async main loop. Blocking I/O (PIL image operations, filesystem access) is offloaded via `asyncio.to_thread`.
 - The application runs in a unified ~97 second polling loop (60φ = 30(1+√5), chosen to avoid resonance with WPlace's internal timers) that checks tiles.
-- Tile polling uses intelligent temperature-based queue system: `QueueSystem` (in `queues.py`) maintains burning and temperature queues with Zipf distribution sizing. Tiles are selected round-robin across queues, with least-recently-checked tile selected from each queue.
-- `TileChecker` (in `ingest.py`) manages tile monitoring: creates and owns an `httpx.AsyncClient`, selects tiles via `QueueSystem`, calls `has_tile_changed()` to fetch from WPlace backend, queries affected projects via `TileProject` junction table, and constructs `Project` objects on demand for diffing.
-- `has_tile_changed()` (in `ingest.py`) requests tiles from the WPlace tile backend using `httpx` and updates a cached paletted PNG if there are changes.
-- `Person` (in `models.py`) represents users with auto-increment ID. Tracks `watched_tiles_count` (unique tiles across all active projects) and `active_projects_count`. Both updated via `update_totals()` on startup.
-- `ProjectState` IntEnum (in `models.py`) defines project states: ACTIVE (0), PASSIVE (10), INACTIVE (20).
-- `ProjectInfo` (in `models.py`) is a pure Tortoise ORM model with owner FK (Person), name (stored in DB), and state. IDs are randomly assigned (1 to 9999) via `save_as_new()`, which retries on collision (EAFP pattern). Tracks completion history, progress/regress statistics, and rates. Persists to SQLite in `data/pixel-hawk.db`. The `filename` property returns coordinate-only format: `{tx}_{ty}_{px}_{py}.png`.
-- `HistoryChange` (in `models.py`) records every diff event per project with pixel counts, completion percentage, and progress/regress deltas.
-- Business logic for ProjectInfo lives in `metadata.py` as standalone functions (functional service layer). Functions take `ProjectInfo` as first parameter and mutate fields in place. Log messages include owner name for multi-user attribution.
-- `Project` (in `projects.py`) is loaded from database via `Project.from_info(info)` classmethod. Filenames are coordinate-only: `{tx}_{ty}_{px}_{py}.png` (tile x, tile y, pixel x 0-999, pixel y 0-999). Files must use the project's palette. Invalid files cause from_info() to return None with warning logged.
-- `PALETTE` (in `palette.py`) enforces and converts images to the project palette (first color treated as transparent). Provides `AsyncImage[T]` for deferred async I/O, and `aopen_file`/`aopen_bytes` methods for async image loading.
-- `Main` (in `main.py`) uses two-phase initialization: sync `__init__` followed by `async start()` to initialize `TileChecker` and refresh person-level statistics. Database lifecycle managed via `async with database():` context manager. No in-memory project loading — project discovery happens on demand in `TileChecker._get_projects_for_tile()`. Runs the polling loop: `TileChecker.check_next_tile()` handles tile selection, checking, project querying, and diffing.
+- Tile polling uses intelligent temperature-based queue system: `QueueSystem` (in `watcher/queues.py`) maintains burning and temperature queues with Zipf distribution sizing. Tiles are selected round-robin across queues, with least-recently-checked tile selected from each queue.
+- `TileChecker` (in `watcher/ingest.py`) manages tile monitoring: creates and owns an `httpx.AsyncClient`, selects tiles via `QueueSystem`, calls `has_tile_changed()` to fetch from WPlace backend, queries affected projects via `TileProject` junction table, and constructs `Project` objects on demand for diffing.
+- `has_tile_changed()` (in `watcher/ingest.py`) requests tiles from the WPlace tile backend using `httpx` and updates a cached paletted PNG if there are changes.
+- **Initial diff on project creation/edit**: When `new_project()` or `edit_project()` links tiles, `_try_initial_diff()` checks if any tiles are already cached via `count_cached_tiles()`. If so, it immediately runs `Project(info).run_diff()` and includes the formatted status in the response. Partial tile coverage is noted (e.g., "2/4 tiles cached"). If no tiles are cached, the diff is deferred to the polling loop.
+- `Person` (in `models/entities.py`) represents users with auto-increment ID. Tracks `watched_tiles_count` (unique tiles across all active projects) and `active_projects_count`. Both updated via `update_totals()` on startup. Has per-user quota limits (`max_active_projects`, `max_watched_tiles`) enforced on project creation/edit. `BotAccess` IntFlag controls permissions: `ADMIN` bypasses guild checks, `ALLOWED` (auto-granted via guild role) marks legitimate users.
+- `GuildConfig` (in `models/entities.py`) stores per-guild bot configuration. `guild_id` (Discord snowflake) is the primary key, `required_role` is the Discord role name users must have. Has guild-level quota ceilings (`max_active_projects`, `max_watched_tiles`) that cap per-user quotas. Configured via `/hawkadmin role <name>`. When no GuildConfig exists for a guild, all non-admin commands are blocked.
+- **Guild access flow**: User commands (`/hawk new`, `/hawk edit`, `/hawk list`) call `_check_access()` in `interactions.py`, which delegates to `check_guild_access()` in `access.py`. Admins bypass all checks. Non-admins must have the guild's configured role; if they do and have no `Person` record, one is auto-created with `BotAccess.ALLOWED`. Admin commands live in a separate command group (`/hawkadmin`).
+- `ProjectState` IntEnum (in `models/entities.py`) defines project states: ACTIVE (0), PASSIVE (10), INACTIVE (20), CREATING (30). Setting coordinates on a CREATING project auto-transitions it to ACTIVE. States determine tile linking and polling behavior — see "Tile lifecycle invariants" below.
+- `ProjectInfo` (in `models/entities.py`) is a pure Tortoise ORM model with owner FK (Person), name (stored in DB), and state. IDs are randomly assigned (1 to 9999) via `save_as_new()`, which retries on collision (EAFP pattern). Tracks completion history, progress/regress statistics, and rates. Persists to SQLite in `data/pixel-hawk.db`. The `filename` property is state-aware: returns `new_{id}.png` for CREATING projects, coordinate-only `{tx}_{ty}_{px}_{py}.png` otherwise. The `rectangle` property asserts the project is not CREATING.
+- `HistoryChange` (in `models/entities.py`) records every diff event per project with pixel counts, completion percentage, and progress/regress deltas.
+- Business logic for ProjectInfo lives in `watcher/metadata.py` as standalone functions (functional service layer). Functions take `ProjectInfo` as first parameter and mutate fields in place. Log messages include owner name for multi-user attribution.
+- `Project` (in `watcher/projects.py`) is loaded from database via `Project.from_info(info)` classmethod. Constructor takes only `ProjectInfo` and derives `path` and `rect` from it. Files must use the project's palette. Invalid files cause from_info() to return None with warning logged. `run_diff()` returns a `HistoryChange` record.
+- `PALETTE` (in `models/palette.py`) enforces and converts images to the project palette (first color treated as transparent). Provides `AsyncImage[T]` for deferred async I/O, and `aopen_file`/`aopen_bytes` methods for async image loading.
+- `WatchMessage` (in `models/entities.py`) tracks persistent Discord messages that auto-update with project stats. Uses the Discord message snowflake as primary key (`message_id`). Unique constraint on `(project_id, channel_id)` enforces one watch per project per channel. FK to ProjectInfo with CASCADE delete.
+- `Main` (in `main.py`) uses two-phase initialization: sync `__init__` followed by `async start()` to initialize `TileChecker` and refresh person-level statistics. Database lifecycle managed via `async with database(), maybe_bot() as bot:` context managers. No in-memory project loading — project discovery happens on demand in `TileChecker._get_projects_for_tile()`. Runs the polling loop: `TileChecker.check_next_tile()` returns diffed project IDs, which are passed to `HawkBot.update_watches()` to edit live Discord messages.
 - Queue system tracks tile metadata (last checked, last modified). Redistribution runs automatically when the queue iterator exhausts (one full cycle), reassigning heat values based on last_update recency. Updates are optimistic: only tiles whose heat differs from the target are written.
+- **Tile lifecycle invariants** — Two strict rules govern the relationship between project state, `TileProject` rows, and `TileInfo.heat`:
+  1. **TileProject rows exist only for ACTIVE and PASSIVE projects.** INACTIVE and CREATING projects have no tile links. `link_tiles()` creates rows; `unlink_tiles()` removes them. State transitions between linked (ACTIVE/PASSIVE) and unlinked (INACTIVE/CREATING) states must call `link_tiles()` or `unlink_tiles()` accordingly. Coord/image edits skip relinking for INACTIVE projects.
+  2. **`TileInfo.heat > 0` only when the tile has at least one ACTIVE project via TileProject.** Heat 0 means "not polled." `adjust_project_heat()` enforces this by querying for ACTIVE projects specifically (not just any TileProject existence). `link_tiles()` uses the in-memory `self.state` to promote tiles (avoids stale-DB reads when `info.save()` hasn't been called yet). State transitions between ACTIVE and PASSIVE call `adjust_linked_tiles_heat()` (after save) to re-evaluate heat. PASSIVE projects piggyback on tiles polled for ACTIVE projects but never drive polling themselves.
 
 ## File/Module map (where to look)
 
-- `src/pixel_hawk/__init__.py` — empty package marker (just comment + docstring)
-- `src/pixel_hawk/config.py` — `Config` dataclass, `load_config()`, `get_config()`, CONFIG singleton
-- `src/pixel_hawk/db.py` — database async context manager (`database()`), Tortoise ORM config, Aerich integration
-- `src/pixel_hawk/models.py` — `Person` (user model with watched_tiles_count, active_projects_count, update_totals()), `ProjectState` IntEnum (ACTIVE/PASSIVE/INACTIVE), `ProjectInfo` (pure Tortoise model with owner FK, random ID via `save_as_new()`), `HistoryChange` (diff event log), `DiffStatus` IntEnum, `TileInfo` (tile metadata: coordinates, heat, timestamps, etag), `TileProject` (tile-project junction table)
-- `src/pixel_hawk/main.py` — application entry, unified polling loop, DB context manager usage, person totals refresh
-- `src/pixel_hawk/geometry.py` — `Tile`, `Point`, `Size`, `Rectangle` helpers (tile math)
-- `src/pixel_hawk/ingest.py` — `TileChecker` (tile monitoring orchestration, owns `httpx.AsyncClient`, query-driven project lookups via `TileProject`), `has_tile_changed()` (async tile download)
-- `src/pixel_hawk/palette.py` — palette enforcement + `PALETTE` singleton + `AsyncImage[T]` (deferred async I/O handle)
-- `src/pixel_hawk/projects.py` — `Project` model (async diffs, snapshots, database-first loading via from_info()), `stitch_tiles()` (async canvas assembly)
-- `src/pixel_hawk/metadata.py` — functional service layer for ProjectInfo business logic (pixel counting, snapshot comparison, rate tracking, owner-attributed logging)
-- `src/pixel_hawk/queues.py` — `QueueSystem`, temperature-based tile queues with Zipf distribution, tile metadata tracking
-- `src/pixel_hawk/interactions.py` — Discord bot integration: `HawkBot` (slash commands under `/hawk` group), `grant_admin()` (admin-me flow), `list_projects()` (project listing with stats, 24h changes, Discord message truncation), `maybe_bot()` (lifecycle context manager)
-- `scripts/rebuild.py` — Idempotent database rebuild from filesystem artifacts (projects, tiles, snapshots)
+### Root (`src/pixel_hawk/`)
+- `__init__.py` — empty package marker
+- `main.py` — application entry, unified polling loop, DB context manager usage, person totals refresh
+
+### Models (`src/pixel_hawk/models/`) — data layer
+- `config.py` — `DiscordSettings` dataclass, `Config` dataclass, `load_config()`, `get_config()`, CONFIG singleton
+- `db.py` — database async context manager (`database()`), Tortoise ORM config, Aerich integration, `rebuild_table()` migration utility
+- `entities.py` — `Person` (user model with watched_tiles_count, active_projects_count, update_totals(), per-user quota limits), `ProjectState` IntEnum (ACTIVE/PASSIVE/INACTIVE/CREATING), `ProjectInfo` (pure Tortoise model with owner FK, random ID via `save_as_new()`), `HistoryChange` (diff event log), `DiffStatus` IntEnum, `TileInfo` (tile metadata: coordinates, heat, timestamps, etag), `TileProject` (tile-project junction table), `GuildConfig` (per-guild bot configuration: required role name, quota ceilings), `WatchMessage` (persistent Discord watch messages, message_id as PK)
+- `geometry.py` — `Tile`, `Point`, `Size`, `Rectangle` helpers (tile math)
+- `palette.py` — palette enforcement + `PALETTE` singleton + `AsyncImage[T]` (deferred async I/O handle)
+
+### Watcher (`src/pixel_hawk/watcher/`) — polling engine
+- `queues.py` — `QueueSystem`, temperature-based tile queues with Zipf distribution, tile metadata tracking
+- `metadata.py` — functional service layer for ProjectInfo business logic (pixel counting, snapshot comparison, rate tracking, owner-attributed logging)
+- `projects.py` — `Project` model (async diffs, snapshots, database-first loading via from_info()), `stitch_tiles()` (async canvas assembly), `count_cached_tiles()` (tile cache check)
+- `ingest.py` — `TileChecker` (tile monitoring orchestration, owns `httpx.AsyncClient`, query-driven project lookups via `TileProject`), `has_tile_changed()` (async tile download). `check_next_tile()` returns `list[int]` of diffed project IDs (empty list if no changes)
+
+### Interface (`src/pixel_hawk/interface/`) — user-facing
+- `commands.py` — project management service layer: `new_project()` (project creation from uploaded image), `edit_project()` (project modification), `delete_project()` (project deletion with watch cleanup), `list_projects()` (project listing with stats, 24h changes, Discord message truncation), `_try_initial_diff()` (immediate diff when tiles are cached), coordinate/filename parsing helpers
+- `watch.py` — living watch message service layer: `format_watch_message()` (comprehensive Discord markdown stats), `create_watch()` / `remove_watch()` (CRUD with ownership validation), `save_watch_message()` (persistence after Discord send), `get_watches_for_projects()` (batch query for update loop), `delete_watches_for_project()` (cleanup helper)
+- `access.py` — admin and guild access service layer: `ErrorMsg` (user-facing exception), `grant_admin()` (admin grant, callers responsible for authorization), `set_guild_role()` (per-guild role configuration), `check_guild_access()` (role-based access gate with auto-creation), `set_user_quotas()` / `set_guild_quotas()` (quota management with guild ceiling enforcement), `get_command_prefix()` (cached config access)
+- `interactions.py` — Discord bot wiring: `HawkBot` (user commands under `/hawk` group, admin commands under `/hawkadmin` group), `_check_access()` (guild role gate on user commands), `maybe_bot()` (lifecycle context manager, yields bot instance or None), `update_watches()` (edits live Discord messages, auto-cleans on 404/403). Dispatches to `commands.py`, `watch.py`, and `access.py` service functions
+
+### Scripts and CI
+- `scripts/install-service.sh` — Generates and installs systemd service unit (detects user, paths, uv dynamically)
+- `scripts/kill-db-handles.ps1` — Windows utility to kill processes holding dangling handles to the SQLite database (requires Sysinternals `handle.exe`)
+- `.github/workflows/deploy.yaml` — Auto-deploy on push to main via self-hosted runner (stop → pull → sync → start)
 
 ## Architecture conventions
 
@@ -101,6 +123,7 @@ This project embraces core principles from PEP 20 ("The Zen of Python"):
 - The project is in early stages: public APIs and internals may change. Prefer simplicity, clarity, and small, focused edits.
 - Follow existing idioms: use `NamedTuple`/`dataclass`-like shapes, type hints, and explicit resource management.
 - Type annotations: Python 3.14 provides deferred evaluation of annotations by default. Use unquoted type annotations (e.g., `def foo() -> Rectangle:` not `def foo() -> 'Rectangle':`). Forward references and self-references work without quotes.
+- Avoid unnecessary type unions: prefer falsy defaults over `None` to eliminate `| None` annotations. Use `""` instead of `None` for strings, `0` for numbers, `()` or `[]` for collections — whenever the falsy value isn't meaningful. Similarly, prefer `NOT NULL` database columns with sensible defaults over nullable columns. Only use `None`/nullable when the absence of a value is semantically distinct from the falsy value.
 - Preserve logging via `loguru` rather than replacing with ad-hoc prints.
 - Async patterns:
   - The project is fully async. Use `async def` for I/O-bound functions. Use `asyncio.to_thread` for blocking PIL/filesystem operations.
@@ -113,13 +136,12 @@ This project embraces core principles from PEP 20 ("The Zen of Python"):
   - For functions returning PIL images, use `with await async_fn() as im:` (the sync context manager on the async result).
 - Time and date: prefer `round(time.time())` for timestamps to get integer seconds, which simplifies metadata and logging. Avoid using raw `time.time()` as well as `datetime` to keep things simple and consistent.
 - Project state: `ProjectInfo` persists to SQLite via Tortoise ORM (`await info.save()`). New projects must use `save_as_new()` (or `from_rect()` which calls it) to assign a random ID — do not use `ProjectInfo.create()` directly. `Project` objects are constructed on demand (not cached in memory) when `TileChecker` needs to diff affected projects. `Project.info` (not `.metadata`) holds the `ProjectInfo` instance. Business logic uses functional service layer: `metadata.process_diff(info, ...)` instead of `info.process_diff(...)`.
-- Multi-user workflow: Each Person has an auto-increment ID. ProjectInfo has a randomly assigned ID (via `save_as_new()`) and an owner FK to Person. Directory structure is `projects/{person_id}/{filename}` where filename is coordinate-only. Names are stored in the database only. Watched tiles are tracked per person with overlap deduplication.
-- Error handling: prefer non-fatal logging (warnings/debug) and avoid raising unexpected exceptions in the polling loop.
+- Multi-user workflow: Each Person has an auto-increment ID. ProjectInfo has a randomly assigned ID (via `save_as_new()`) and an owner FK to Person. Directory structure is `projects/{person_id}/{filename}` where filename is state-dependent (`new_{id}.png` for CREATING, coordinate-only otherwise). Names are stored in the database only. Watched tiles are tracked per person with overlap deduplication.
+- Error handling: prefer non-fatal logging (warnings/debug) and avoid raising unexpected exceptions in the polling loop. Use `ErrorMsg` (in `access.py`) for errors whose message is intended to be displayed to the user; `interactions.py` catches `ErrorMsg` and sends it as an ephemeral Discord response.
 - Defensive programming: Use assertions for "shouldn't happen" cases that indicate logic errors. These should be tested to ensure they catch bugs during development. Example: `assert condition, "clear error message"` for invariants that must hold.
 - File size management:
-  - If a Python file exceeds 400 lines, review it for simplification opportunities; if simplification is insufficient, review it to split it into two modules; if splitting is not appropriate, add a comment at the top documenting that these approaches were attempted and why they were not viable.
-  - If a Python file is smaller than 20 lines, review it to see if it's still needed; if it is, consider whether it should be merged into another module for simplicity; if it should remain separate, add a comment at the top documenting why it is still needed and why merging was not appropriate.
-  - Test files don't follow file size directives. Test files are named after the module they test, prefixed with `test_`, e.g., `test_geometry.py` for `geometry.py`.
+  - If a Python file exceeds 400 lines, review it for simplification and deduplication opportunities; if that's insufficient, review it to split it into two modules; if splitting is not appropriate, add a comment at the top documenting that these approaches were attempted and why they were not viable.
+  - Test files don't follow file size directives. Test files mirror the source structure (e.g., `tests/models/test_geometry.py` for `models/geometry.py`).
 
 ## Developer workflow & checks
 
@@ -134,6 +156,16 @@ This project embraces core principles from PEP 20 ("The Zen of Python"):
   - Test assertions: Write tests that verify assertions fire for "shouldn't happen" cases (use `pytest.raises(AssertionError)`).
   - Run tests: `uv run pytest`
 
+## Aerich migrations and SQLite
+
+Aerich manages schema migrations, but SQLite has gaps that require workarounds:
+
+- **`MODIFY COLUMN` is unsupported in SQLite.** If `aerich migrate` fails with `NotSupportError: Modify column is unsupported in SQLite`, the column type/constraint change needs a table rebuild. Use `rebuild_table()` from `models/db.py` in a manually-written migration file (see its docstring for usage). `MODELS_STATE` at the bottom of migration files is cosmetic — Aerich reads state from its `aerich` DB table, not from migration files, so manual migrations work fine without it.
+- **`ALTER COLUMN COMMENT` is unsupported in SQLite.** Enum description changes (e.g., adding a new `IntEnumField` value) trigger this. These are cosmetic — the column type doesn't actually change. Fix by patching the aerich DB state (update the `description` field in the stored content JSON).
+- **Tortoise ORM upgrades can cause phantom diffs.** Newer Tortoise versions may add keys to model field descriptions (e.g., `db_default`). The stored aerich state (written by the old Tortoise) lacks these keys, so `aerich migrate` sees phantom changes on every field. Fix by patching the aerich DB content to include the new keys, or by including the patch in a migration file (see migration 3 for an example).
+- **Diagnosing aerich diffs:** Compare the aerich DB content with current model descriptions using `dictdiffer.diff()` to see exactly what Aerich thinks changed. Read the last `Aerich` record's `content` field and compare with `aerich.utils.get_models_describe('models')`.
+- **Deploy workflow:** Production runs `aerich upgrade` (applies migration files), never `aerich migrate` (generates new migrations). Migration generation is dev-only.
+
 ## Running and debugging
 
 - To debug tile fetching behavior, create a `TileChecker`, call `await checker.has_tile_changed(tile_info)` with a `TileInfo` instance, and observe `get_config().tiles_dir` for generated `tile-*.png` files.
@@ -142,7 +174,7 @@ This project embraces core principles from PEP 20 ("The Zen of Python"):
 ## Code change guidelines
 
 - Suggest minimal, testable code changes and include brief rationale.
-- When adding features, propose where to add unit tests (suggest `tests/test_geometry.py`, `tests/test_palette.py`).
+- When adding features, propose where to add unit tests (suggest `tests/models/test_geometry.py`, `tests/models/test_palette.py`).
 - If modifying image handling, show the expected lifecycle (open -> ensure palette -> close) and indicate why conversions are safe.
 - Prefer explicit, type-annotated functions and small helper functions over large refactors.
 

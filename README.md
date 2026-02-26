@@ -12,9 +12,11 @@ pixel-hawk polls WPlace tile images, stitches cached tiles, and diffs them again
 - Checks one tile per cycle in round-robin fashion across burning and temperature queues
 - Downloads and caches WPlace tiles when they change
 - Discovers affected projects on demand via database queries (query-driven architecture)
+- Runs an immediate initial diff when creating or editing a project if tiles are already cached (reports partial coverage when some tiles are missing)
 - Diffs updated tiles against project images
 - Tracks watched tiles per person with overlap deduplication
 - Logs pixel placement progress with owner attribution
+- Updates persistent Discord "watch" messages with live project stats after each diff
 
 ### Multi-user architecture
 
@@ -23,7 +25,7 @@ pixel-hawk supports multiple users tracking the same or different coordinates:
 - **ProjectInfo table** stores project metadata with owner foreign key
 - **Unique constraint** on (owner_id, name) prevents duplicate names per user
 - **Watched tiles tracking** counts unique tiles and active projects per person via `update_totals()`
-- **State management** (ACTIVE/PASSIVE/INACTIVE IntEnum) for quota enforcement
+- **State management** (ACTIVE/PASSIVE/INACTIVE/CREATING IntEnum) for quota enforcement
 
 ### Queue system
 
@@ -79,68 +81,14 @@ uv run hawk
 
 **Precedence:** CLI flag `--nest` > environment variable `HAWK_NEST` > default `./nest`
 
-### Setting up projects (Database-first workflow)
-
-**IMPORTANT:** pixel-hawk does not auto-discover projects from the filesystem. Projects must be created in the database first.
-
-#### Quick setup with helper script
-
-```powershell
-uv run python scripts/add_project.py
-```
-
-The helper script will guide you through creating a Person (if needed) and a ProjectInfo record, then wait for you to place your PNG file before linking tiles so the watcher can discover the project.
-
-#### Manual setup
-
-##### Step 1: Create a person (if not exists)
-
-```python
-# In Python REPL or script with pixel-hawk context
-from pixel_hawk.models import Person
-
-# Create a new person
-person = await Person.create(name="YourName")
-# person.id is auto-assigned (e.g., 1, 2, 3...)
-```
-
-#### Step 2: Create project in database
-
-```python
-from pixel_hawk.geometry import Point, Rectangle, Size
-from pixel_hawk.models import ProjectInfo, ProjectState
-
-# Define project bounds
-rect = Rectangle.from_point_size(
-    Point(x=0, y=0),        # Top-left corner in canvas coordinates
-    Size(width=100, height=100)
-)
-
-# Create ProjectInfo record
-info = await ProjectInfo.from_rect(
-    rect=rect,
-    owner_id=person.id,     # Use person.id from Step 1
-    name="MyArtwork",       # Human-readable name (stored in DB only)
-    state=ProjectState.ACTIVE  # Optional: active (default), passive, or inactive
-)
-
-# Check the generated filename
-print(f"Create file at: projects/{person.id}/{info.filename}")
-```
-
-#### Step 3: Create and place the PNG file
-
-1. Create your project image using the WPlace palette (first color is treated as transparent)
-2. Save it at: `<nest>/projects/{person_id}/{tx}_{ty}_{px}_{py}.png`
-   - Filename is **coordinates only** (no project name prefix)
-   - Example: `projects/1/0_0_500_500.png` for person_id=1
-3. The watcher will discover it via database query when its tiles are next checked
-
 ### Project states
 
-- **ACTIVE**: Tiles are queued for monitoring; diffs run when tiles change (default)
-- **PASSIVE**: Not queued, but diffs run when overlapping tiles are checked for other projects
-- **INACTIVE**: Completely excluded from monitoring
+Every project has a state that controls how it interacts with the tile polling system:
+
+- **ACTIVE** (default): The project's tiles are linked and queued for polling. When a tile changes, pixel-hawk diffs it against the project image and logs progress. This is the normal operating state. User tile quotas only count tiles with ACTIVE projects.
+- **PASSIVE**: Tiles are linked but not queued on their own. If another ACTIVE project (usually from a different user) shares the same tiles, the passive project piggybacks on those polls and gets diffed too. Useful for low-priority tracking without adding polling overhead.
+- **INACTIVE**: Tiles are unlinked entirely. The project is stored in the database but completely excluded from monitoring. No polling, no diffing, no bandwidth cost. Reactivating re-links tiles.
+- **CREATING**: A newly uploaded image that hasn't been assigned coordinates yet. No tiles are linked. Setting coordinates auto-transitions the project to ACTIVE.
 
 ### Where data lives
 
@@ -149,9 +97,10 @@ All pixel-hawk data lives in a unified directory structure under `nest` (default
 - **`projects/{person_id}/`** — Project PNG files organized by person ID
   - Example: `projects/1/0_0_500_500.png` for person_id=1
   - Filenames are coordinates only: `{tx}_{ty}_{px}_{py}.png`
-- **`data/pixel-hawk.db`** — SQLite database (Person, ProjectInfo, HistoryChange, TileInfo, TileProject tables)
+- **`data/pixel-hawk.db`** — SQLite database (Person, ProjectInfo, HistoryChange, TileInfo, TileProject, GuildConfig, WatchMessage tables)
 - **`tiles/`** — Cached tiles from WPlace backend
 - **`snapshots/{person_id}/`** — Canvas state snapshots organized by person (same structure as projects)
+- **`rejected/`** — Project files that failed to import (invalid palette, etc.)
 - **`logs/`** — Application logs (`pixel-hawk.log` with 10 MB rotation and 7-day retention)
 
 **Development workflow:** The default `./nest` location is designed to work seamlessly when running pixel-hawk from the project root directory during development. This keeps all data files easily accessible for inspection from your IDE and AI agents, making debugging and analysis straightforward.
@@ -165,13 +114,29 @@ An optional Discord bot runs alongside the polling loop, providing slash command
 ```toml
 [discord]
 bot_token = "your-bot-token"
+# command_prefix = "hawk"
 ```
 
-If no token is configured, the bot is silently skipped.
+If no token is configured, the bot is silently skipped. The `command_prefix` setting changes the slash command group name (default: `hawk`).
 
-**Commands:**
-- `/hawk sa myself <token>` — Grant admin access using a one-time UUID (printed to console and saved to `nest/data/admin-me.txt` on each startup)
+**Guild setup:**
+1. Grant admin access to a Person record in the database (a proper setup flow is planned)
+2. Run `/hawkadmin role <role_name>` to set the required Discord role for the server — users with this role can use the bot and are auto-enrolled on first command
+
+Commands are blocked until a role is configured. Admins always bypass the role check.
+
+**User commands** (under `/hawk` group):
 - `/hawk list` — List all your projects with state, completion stats, 24h progress/regress, and WPlace links (ephemeral, visible only to you)
+- `/hawk new` — Upload a new project image
+- `/hawk edit` — Edit an existing project (name, coordinates, state, image)
+- `/hawk delete` — Permanently delete a project
+- `/hawk watch <project_id>` — Post a live-updating status message for a project. The message auto-updates with current stats (completion %, pixel counts, rate, ETA, 24h activity, lifetime totals) every time the watcher detects changes. One watch per project per channel.
+- `/hawk unwatch <project_id>` — Stop watching a project in this channel and delete the watch message
+
+**Admin commands** (under `/hawkadmin` group, requires Discord administrator permission):
+- `/hawkadmin role <name>` — Set the required Discord role for this server
+- `/hawkadmin quota <user> [projects] [tiles]` — View or set per-user quota limits (enforces guild ceilings)
+- `/hawkadmin guildquota [projects] [tiles]` — View or set guild-level quota ceilings
 
 ## Database schema
 
@@ -180,6 +145,8 @@ If no token is configured, the bot is silently skipped.
 - `name`: User name
 - `discord_id`: Optional Discord user ID (unique)
 - `access`: Bitmask for bot-level access control (`BotAccess` IntFlag)
+- `max_active_projects`: Per-user quota limit (default 50)
+- `max_watched_tiles`: Per-user quota limit (default 10)
 - `watched_tiles_count`: Cached count of unique tiles watched
 - `active_projects_count`: Cached count of active projects
 - Both counts updated via `update_totals()` on startup
@@ -188,7 +155,7 @@ If no token is configured, the bot is silently skipped.
 - `id`: Randomly assigned primary key (1 to 9999). Assigned by `save_as_new()` with collision retry.
 - `owner_id`: Foreign key to Person
 - `name`: Human-readable project name
-- `state`: ACTIVE (0) / PASSIVE (10) / INACTIVE (20) IntEnum
+- `state`: ACTIVE (0) / PASSIVE (10) / INACTIVE (20) / CREATING (30) IntEnum
 - `x, y, width, height`: Bounding rectangle
 - `filename`: Property that returns `{tx}_{ty}_{px}_{py}.png`
 - Unique constraint on `(owner_id, name)`
@@ -214,15 +181,37 @@ If no token is configured, the bot is silently skipped.
 - `project_id`: Foreign key to ProjectInfo
 - Unique constraint on `(tile_id, project_id)`
 
-## Rebuilding the database
+### GuildConfig table (`guild_config`)
+- `guild_id`: Discord guild snowflake (primary key, not auto-generated)
+- `required_role`: Name of the Discord role required to use bot commands in this guild
+- `max_active_projects`: Guild-level quota ceiling (default 50)
+- `max_watched_tiles`: Guild-level quota ceiling (default 10)
 
-If the SQLite database is lost or corrupted, you can rebuild it from filesystem artifacts:
+### WatchMessage table (`watch_message`)
+- `message_id`: Discord message snowflake (primary key, not auto-generated)
+- `project_id`: Foreign key to ProjectInfo (CASCADE delete)
+- `channel_id`: Discord channel snowflake
+- Unique constraint on `(project_id, channel_id)` — one watch per project per channel
 
-```powershell
-uv run python scripts/rebuild.py
+## Deployment (Linux/systemd)
+
+For production deployment on a Linux server with systemd:
+
+```bash
+git clone https://github.com/Liz4v/pixel-hawk.git ~/pixel-hawk
+cd ~/pixel-hawk
+bash scripts/install-service.sh
 ```
 
-This reconstructs Person, ProjectInfo, TileInfo, and TileProject records by scanning the `projects/` and `tiles/` directories. The script is idempotent — safe to re-run on an existing database. Person and project names will use placeholders; historical data (HistoryChange records, rate tracking) is permanently lost.
+The install script detects the current user, repo location, and `uv` path, then generates and installs a systemd service unit. It is idempotent — safe to re-run after updates.
+
+Pushes to `main` are automatically deployed via a self-hosted GitHub Actions runner (see `.github/workflows/deploy.yaml`).
+
+After installation, configure the Discord bot by editing the auto-generated `nest/config.toml` in the nest directory, and restart the service:
+
+```bash
+sudo systemctl restart pixel-hawk
+```
 
 ## Development
 
