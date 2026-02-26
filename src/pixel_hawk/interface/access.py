@@ -162,7 +162,13 @@ async def check_guild_access(guild_id: int, discord_id: int, display_name: str, 
         raise ErrorMsg(f"You need the <@&{config.required_role}> role to use this bot.")
 
     if person is None:
-        person = await Person.create(name=display_name, discord_id=discord_id, access=int(BotAccess.ALLOWED))
+        person = await Person.create(
+            name=display_name,
+            discord_id=discord_id,
+            access=int(BotAccess.ALLOWED),
+            max_active_projects=config.max_active_projects,
+            max_watched_tiles=config.max_watched_tiles,
+        )
         logger.info(f"Auto-created person '{display_name}' (discord_id={discord_id}) via guild role")
 
     return person

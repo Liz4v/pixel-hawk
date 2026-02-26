@@ -184,6 +184,12 @@ class TestCheckGuildAccess:
         assert person.access & BotAccess.ALLOWED
         assert not (person.access & BotAccess.ADMIN)
 
+    async def test_auto_created_inherits_guild_quotas(self):
+        await GuildConfig.create(guild_id=300009, required_role="111", max_active_projects=25, max_watched_tiles=8)
+        person = await check_guild_access(300009, 50009, "QuotaUser", ["111"])
+        assert person.max_active_projects == 25
+        assert person.max_watched_tiles == 8
+
     async def test_has_role_existing_person(self):
         await GuildConfig.create(guild_id=300004, required_role="111")
         existing = await Person.create(name="Existing", discord_id=50004, access=int(BotAccess.ALLOWED))
