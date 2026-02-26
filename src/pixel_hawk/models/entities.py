@@ -76,7 +76,7 @@ class Person(Model):
             rect = project.rectangle
             tiles.update(rect.tiles)  # rect.tiles is a cached property (frozenset[Tile])
         self.watched_tiles_count = len(tiles)
-        await self.save()
+        await self.save(update_fields=["watched_tiles_count", "active_projects_count"])
 
     class Meta(Model.Meta):
         table = "person"
