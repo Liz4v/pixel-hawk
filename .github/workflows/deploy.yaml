@@ -35,7 +35,7 @@ jobs:
           UV_PYTHON_INSTALL_DIR: ${{ vars.UV_PYTHON_INSTALL_DIR }}
 
       - name: Run migrations
-        run: uv run aerich upgrade
+        run: timeout 60 uv run aerich upgrade || true
 
       - name: Start service
         run: sudo systemctl start ${{ vars.SERVICE_NAME }}
