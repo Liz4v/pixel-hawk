@@ -41,6 +41,7 @@ class HawkBot(discord.Client):
         hawk_group.command(name="delete", description="Delete a project")(self._delete)
         hawk_group.command(name="watch", description="Post a live-updating status message for a project")(self._watch)
         hawk_group.command(name="unwatch", description="Stop watching a project in this channel")(self._unwatch)
+        hawk_group.command(name="help", description="Learn about Pixel Hawk and its commands")(self._help)
         self.tree.add_command(hawk_group)
 
         admin_group = app_commands.Group(
@@ -56,9 +57,7 @@ class HawkBot(discord.Client):
         @self.tree.error
         async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
             if isinstance(error, app_commands.CommandOnCooldown):
-                await interaction.response.send_message(
-                    f"Try again in {error.retry_after:.0f}s.", ephemeral=True
-                )
+                await interaction.response.send_message(f"Try again in {error.retry_after:.0f}s.", ephemeral=True)
             else:
                 raise error
 
@@ -93,16 +92,20 @@ class HawkBot(discord.Client):
         tiles="Max watched tiles",
     )
     async def _admin_quota(
-        self, interaction: discord.Interaction, user: discord.User,
-        projects: int | None = None, tiles: int | None = None,
+        self,
+        interaction: discord.Interaction,
+        user: discord.User,
+        projects: int | None = None,
+        tiles: int | None = None,
     ) -> None:
         """Handle /hawkadmin quota — view or set per-user quotas."""
         assert interaction.guild_id is not None, "Commands must be used in a guild"
         caller = interaction.user
         logger.info(f"Admin quota from {caller.name}: user={user.id} projects={projects} tiles={tiles}")
         try:
-            msg = await set_user_quotas(caller.id, user.id, guild_id=interaction.guild_id,
-                                        projects=projects, tiles=tiles)
+            msg = await set_user_quotas(
+                caller.id, user.id, guild_id=interaction.guild_id, projects=projects, tiles=tiles
+            )
         except ErrorMsg as e:
             msg = str(e)
         await interaction.response.send_message(msg, ephemeral=True)
@@ -112,8 +115,10 @@ class HawkBot(discord.Client):
         tiles="Max watched tiles ceiling for this server",
     )
     async def _admin_guildquota(
-        self, interaction: discord.Interaction,
-        projects: int | None = None, tiles: int | None = None,
+        self,
+        interaction: discord.Interaction,
+        projects: int | None = None,
+        tiles: int | None = None,
     ) -> None:
         """Handle /hawkadmin guildquota — view or set guild quota ceilings."""
         assert interaction.guild_id is not None, "Commands must be used in a guild"
@@ -123,6 +128,41 @@ class HawkBot(discord.Client):
             msg = await set_guild_quotas(caller.id, interaction.guild_id, projects=projects, tiles=tiles)
         except ErrorMsg as e:
             msg = str(e)
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    async def _help(self, interaction: discord.Interaction) -> None:
+        """Handle /hawk help — show help message explaining commands and concepts."""
+        p = self.command_prefix
+        msg = (
+            "## Pixel Hawk\n"
+            "Pixel Hawk tracks changes to your pixel art on WPlace. "
+            "It polls the WPlace canvas and compares it against your project images, "
+            "so you can see completion progress and spot griefing. "
+            "It checks one tile every ~2 minutes, with priority to the most "
+            "recently updated tiles, so updates are not instant.\n"
+            "\n"
+            "### Concepts\n"
+            "- **Project** — A PNG image of what you want to build on the canvas, "
+            "placed at specific coordinates. Pixel Hawk tracks how closely the canvas matches your project.\n"
+            "- **Tile** — A fixed-size section of the WPlace canvas. "
+            "Projects span one or more tiles, which Pixel Hawk polls periodically for changes.\n"
+            "\n"
+            "### Project states\n"
+            "- **Creating** — Newly uploaded without coordinates. "
+            f"Use `/{p} edit` to set coordinates and activate it.\n"
+            "- **Active** — Pixel Hawk actively polls this project's tiles and tracks changes.\n"
+            "- **Passive** — Not polled on its own, but piggybacks on tiles polled for other active projects.\n"
+            "- **Inactive** — Paused. Tiles are unlinked and no tracking occurs.\n"
+            "\n"
+            f"### Commands\n"
+            f"- **/{p} new** — Upload a new project image (PNG, WPlace palette)\n"
+            f"- **/{p} edit** — Edit a project's image, name, coordinates, or state\n"
+            f"- **/{p} delete** — Permanently delete a project\n"
+            f"- **/{p} list** — List all your projects with current stats\n"
+            f"- **/{p} watch** — Post a live-updating status message for a project\n"
+            f"- **/{p} unwatch** — Remove a live status message from this channel\n"
+            f"- **/{p} help** — Show this message"
+        )
         await interaction.response.send_message(msg, ephemeral=True)
 
     @app_commands.checks.cooldown(rate=2, per=5.0)
@@ -274,7 +314,9 @@ class HawkBot(discord.Client):
                 logger.info(f"Watch message gone (404): project={watch.project.id:04} channel={watch.channel_id}")
                 await watch.delete()
             except discord.Forbidden:
-                logger.info(f"Watch message inaccessible (403): project={watch.project.id:04} channel={watch.channel_id}")
+                logger.info(
+                    f"Watch message inaccessible (403): project={watch.project.id:04} channel={watch.channel_id}"
+                )
                 await watch.delete()
             except Exception as e:
                 logger.warning(f"Failed to update watch for project {watch.project.id:04}: {e}")
