@@ -42,15 +42,15 @@ async def grant_admin(discord_id: int, display_name: str) -> str:
     return f"Admin access granted to {person.name}."
 
 
-async def set_guild_role(discord_id: int, guild_id: int, role_name: str) -> str:
+async def set_guild_role(discord_id: int, guild_id: int, role_id: str) -> str:
     """Set the required role for a guild. Caller must be an admin."""
     person = await Person.filter(discord_id=discord_id).first()
     if person is None or not (person.access & BotAccess.ADMIN):
         raise ErrorMsg("Admin access required.")
 
-    await GuildConfig.update_or_create(defaults={"required_role": role_name}, guild_id=guild_id)
-    logger.info(f"{person.name}: Set required role for guild {guild_id} to '{role_name}'")
-    return f"Required role set to **{role_name}** for this server."
+    await GuildConfig.update_or_create(defaults={"required_role": role_id}, guild_id=guild_id)
+    logger.info(f"{person.name}: Set required role for guild {guild_id} to {role_id}")
+    return f"Required role set to <@&{role_id}> for this server."
 
 
 async def get_user_quotas(discord_id: int) -> str:
@@ -145,7 +145,7 @@ async def set_guild_quotas(admin_discord_id: int, guild_id: int, *, projects: in
     return "Updated guild quota ceilings:\n" + "\n".join(f"  {c}" for c in changes)
 
 
-async def check_guild_access(guild_id: int, discord_id: int, display_name: str, role_names: list[str]) -> Person:
+async def check_guild_access(guild_id: int, discord_id: int, display_name: str, role_ids: list[str]) -> Person:
     """Check if a user has access in the given guild. Returns the Person (auto-created if needed).
 
     Raises ErrorMsg if access is denied.
@@ -158,8 +158,8 @@ async def check_guild_access(guild_id: int, discord_id: int, display_name: str, 
     if config is None:
         raise ErrorMsg("This server has not been configured. An admin must set a role first.")
 
-    if config.required_role not in role_names:
-        raise ErrorMsg(f"You need the **{config.required_role}** role to use this bot.")
+    if config.required_role not in role_ids:
+        raise ErrorMsg(f"You need the <@&{config.required_role}> role to use this bot.")
 
     if person is None:
         person = await Person.create(name=display_name, discord_id=discord_id, access=int(BotAccess.ALLOWED))

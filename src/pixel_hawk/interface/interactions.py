@@ -68,21 +68,21 @@ class HawkBot(discord.Client):
         assert guild_id is not None, "Commands must be used in a guild"
         member = interaction.user
         assert isinstance(member, discord.Member), "Commands must be used in a guild"
-        role_names = [r.name for r in member.roles]
+        role_ids = [str(r.id) for r in member.roles]
         try:
-            return await check_guild_access(guild_id, member.id, member.name, role_names)
+            return await check_guild_access(guild_id, member.id, member.name, role_ids)
         except ErrorMsg as e:
             await interaction.response.send_message(str(e), ephemeral=True)
             return None
 
-    @app_commands.describe(name="Role name required to use this bot in this server")
-    async def _admin_role(self, interaction: discord.Interaction, name: str) -> None:
+    @app_commands.describe(role="Role required to use this bot in this server")
+    async def _admin_role(self, interaction: discord.Interaction, role: discord.Role) -> None:
         """Handle /hawkadmin role — set the required role for this guild."""
         assert interaction.guild_id is not None, "Commands must be used in a guild"
         user = interaction.user
-        logger.info(f"Admin role from {user.name} (https://discord.com/users/{user.id}): {name}")
+        logger.info(f"Admin role from {user.name} (https://discord.com/users/{user.id}): {role.name} ({role.id})")
         try:
-            msg = await set_guild_role(user.id, interaction.guild_id, name)
+            msg = await set_guild_role(user.id, interaction.guild_id, str(role.id))
         except ErrorMsg as e:
             msg = str(e)
         await interaction.response.send_message(msg, ephemeral=True)

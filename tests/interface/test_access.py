@@ -109,24 +109,24 @@ class TestPersonDiscordFields:
 
 class TestGuildConfig:
     async def test_create_and_retrieve(self):
-        await GuildConfig.create(guild_id=100001, required_role="artists")
+        await GuildConfig.create(guild_id=100001, required_role="111")
         config = await GuildConfig.filter(guild_id=100001).first()
         assert config is not None
-        assert config.required_role == "artists"
+        assert config.required_role == "111"
 
     async def test_update_existing(self):
-        await GuildConfig.create(guild_id=100002, required_role="old")
-        await GuildConfig.update_or_create(defaults={"required_role": "new"}, guild_id=100002)
+        await GuildConfig.create(guild_id=100002, required_role="111")
+        await GuildConfig.update_or_create(defaults={"required_role": "222"}, guild_id=100002)
         config = await GuildConfig.get(guild_id=100002)
-        assert config.required_role == "new"
+        assert config.required_role == "222"
 
     async def test_different_guilds_independent(self):
-        await GuildConfig.create(guild_id=100003, required_role="role_a")
-        await GuildConfig.create(guild_id=100004, required_role="role_b")
+        await GuildConfig.create(guild_id=100003, required_role="111")
+        await GuildConfig.create(guild_id=100004, required_role="222")
         a = await GuildConfig.get(guild_id=100003)
         b = await GuildConfig.get(guild_id=100004)
-        assert a.required_role == "role_a"
-        assert b.required_role == "role_b"
+        assert a.required_role == "111"
+        assert b.required_role == "222"
 
 
 # set_guild_role tests
@@ -135,32 +135,32 @@ class TestGuildConfig:
 class TestSetGuildRole:
     async def test_no_person_raises(self):
         with pytest.raises(ErrorMsg, match="Admin access required"):
-            await set_guild_role(99999, 200001, "artists")
+            await set_guild_role(99999, 200001, "111")
 
     async def test_non_admin_raises(self):
         await Person.create(name="User", discord_id=40001, access=0)
         with pytest.raises(ErrorMsg, match="Admin access required"):
-            await set_guild_role(40001, 200001, "artists")
+            await set_guild_role(40001, 200001, "111")
 
     async def test_allowed_only_raises(self):
         await Person.create(name="Allowed", discord_id=40002, access=int(BotAccess.ALLOWED))
         with pytest.raises(ErrorMsg, match="Admin access required"):
-            await set_guild_role(40002, 200001, "artists")
+            await set_guild_role(40002, 200001, "111")
 
     async def test_admin_sets_role(self):
         await Person.create(name="Admin", discord_id=40003, access=int(BotAccess.ADMIN))
-        result = await set_guild_role(40003, 200002, "painters")
-        assert "painters" in result
+        result = await set_guild_role(40003, 200002, "222")
+        assert "222" in result
         config = await GuildConfig.get(guild_id=200002)
-        assert config.required_role == "painters"
+        assert config.required_role == "222"
 
     async def test_admin_updates_existing_role(self):
         await Person.create(name="Admin", discord_id=40004, access=int(BotAccess.ADMIN))
-        await set_guild_role(40004, 200003, "old_role")
-        result = await set_guild_role(40004, 200003, "new_role")
-        assert "new_role" in result
+        await set_guild_role(40004, 200003, "111")
+        result = await set_guild_role(40004, 200003, "222")
+        assert "222" in result
         config = await GuildConfig.get(guild_id=200003)
-        assert config.required_role == "new_role"
+        assert config.required_role == "222"
 
 
 # check_guild_access tests
@@ -169,37 +169,37 @@ class TestSetGuildRole:
 class TestCheckGuildAccess:
     async def test_no_config_denies(self):
         with pytest.raises(ErrorMsg, match="not been configured"):
-            await check_guild_access(300001, 50001, "User", ["artists"])
+            await check_guild_access(300001, 50001, "User", ["111"])
 
     async def test_has_role_auto_creates_person(self):
-        await GuildConfig.create(guild_id=300002, required_role="artists")
-        person = await check_guild_access(300002, 50002, "NewUser", ["artists", "everyone"])
+        await GuildConfig.create(guild_id=300002, required_role="111")
+        person = await check_guild_access(300002, 50002, "NewUser", ["111", "222"])
         assert person.discord_id == 50002
         assert person.name == "NewUser"
         assert person.access & BotAccess.ALLOWED
 
     async def test_auto_created_gets_allowed_not_admin(self):
-        await GuildConfig.create(guild_id=300003, required_role="artists")
-        person = await check_guild_access(300003, 50003, "User", ["artists"])
+        await GuildConfig.create(guild_id=300003, required_role="111")
+        person = await check_guild_access(300003, 50003, "User", ["111"])
         assert person.access & BotAccess.ALLOWED
         assert not (person.access & BotAccess.ADMIN)
 
     async def test_has_role_existing_person(self):
-        await GuildConfig.create(guild_id=300004, required_role="artists")
+        await GuildConfig.create(guild_id=300004, required_role="111")
         existing = await Person.create(name="Existing", discord_id=50004, access=int(BotAccess.ALLOWED))
-        person = await check_guild_access(300004, 50004, "Existing", ["artists"])
+        person = await check_guild_access(300004, 50004, "Existing", ["111"])
         assert person.id == existing.id
 
     async def test_missing_role_denies(self):
-        await GuildConfig.create(guild_id=300005, required_role="artists")
-        with pytest.raises(ErrorMsg, match="artists"):
-            await check_guild_access(300005, 50005, "User", ["everyone", "bots"])
+        await GuildConfig.create(guild_id=300005, required_role="111")
+        with pytest.raises(ErrorMsg, match="111"):
+            await check_guild_access(300005, 50005, "User", ["222", "333"])
 
     async def test_missing_role_denies_existing_person(self):
-        await GuildConfig.create(guild_id=300006, required_role="artists")
+        await GuildConfig.create(guild_id=300006, required_role="111")
         await Person.create(name="Existing", discord_id=50006, access=int(BotAccess.ALLOWED))
-        with pytest.raises(ErrorMsg, match="artists"):
-            await check_guild_access(300006, 50006, "Existing", ["everyone"])
+        with pytest.raises(ErrorMsg, match="111"):
+            await check_guild_access(300006, 50006, "Existing", ["222"])
 
     async def test_admin_bypasses_no_config(self):
         await Person.create(name="Admin", discord_id=50007, access=int(BotAccess.ADMIN))
@@ -207,9 +207,9 @@ class TestCheckGuildAccess:
         assert person.access & BotAccess.ADMIN
 
     async def test_admin_bypasses_missing_role(self):
-        await GuildConfig.create(guild_id=300008, required_role="artists")
+        await GuildConfig.create(guild_id=300008, required_role="111")
         await Person.create(name="Admin", discord_id=50008, access=int(BotAccess.ADMIN))
-        person = await check_guild_access(300008, 50008, "Admin", ["everyone"])
+        person = await check_guild_access(300008, 50008, "Admin", ["222"])
         assert person.access & BotAccess.ADMIN
 
 
@@ -267,21 +267,21 @@ class TestSetUserQuotas:
     async def test_exceeds_guild_projects_ceiling(self):
         await Person.create(name="Admin", discord_id=70010, access=int(BotAccess.ADMIN))
         await Person.create(name="Target", discord_id=70011)
-        await GuildConfig.create(guild_id=500002, required_role="artists", max_active_projects=20)
+        await GuildConfig.create(guild_id=500002, required_role="111", max_active_projects=20)
         with pytest.raises(ErrorMsg, match="Exceeds guild ceiling"):
             await set_user_quotas(70010, 70011, guild_id=500002, projects=25, tiles=None)
 
     async def test_exceeds_guild_tiles_ceiling(self):
         await Person.create(name="Admin", discord_id=70012, access=int(BotAccess.ADMIN))
         await Person.create(name="Target", discord_id=70013)
-        await GuildConfig.create(guild_id=500003, required_role="artists", max_watched_tiles=5)
+        await GuildConfig.create(guild_id=500003, required_role="111", max_watched_tiles=5)
         with pytest.raises(ErrorMsg, match="Exceeds guild ceiling"):
             await set_user_quotas(70012, 70013, guild_id=500003, projects=None, tiles=15)
 
     async def test_within_guild_ceiling_succeeds(self):
         await Person.create(name="Admin", discord_id=70014, access=int(BotAccess.ADMIN))
         await Person.create(name="Target", discord_id=70015)
-        await GuildConfig.create(guild_id=500004, required_role="artists", max_active_projects=30)
+        await GuildConfig.create(guild_id=500004, required_role="111", max_active_projects=30)
         result = await set_user_quotas(70014, 70015, guild_id=500004, projects=25, tiles=None)
         assert "25" in result
 
@@ -295,13 +295,13 @@ class TestGetGuildQuotas:
             await get_guild_quotas(999999)
 
     async def test_defaults_shown(self):
-        await GuildConfig.create(guild_id=600001, required_role="artists")
+        await GuildConfig.create(guild_id=600001, required_role="111")
         result = await get_guild_quotas(600001)
         assert "50" in result
         assert "10" in result
 
     async def test_custom_shown(self):
-        await GuildConfig.create(guild_id=600002, required_role="artists", max_active_projects=100, max_watched_tiles=25)
+        await GuildConfig.create(guild_id=600002, required_role="111", max_active_projects=100, max_watched_tiles=25)
         result = await get_guild_quotas(600002)
         assert "100" in result
         assert "25" in result
@@ -313,7 +313,7 @@ class TestGetGuildQuotas:
 class TestSetGuildQuotas:
     async def test_non_admin_raises(self):
         await Person.create(name="User", discord_id=80001, access=0)
-        await GuildConfig.create(guild_id=700001, required_role="artists")
+        await GuildConfig.create(guild_id=700001, required_role="111")
         with pytest.raises(ErrorMsg, match="Admin access required"):
             await set_guild_quotas(80001, 700001, projects=100, tiles=50)
 
@@ -324,7 +324,7 @@ class TestSetGuildQuotas:
 
     async def test_admin_sets_quotas(self):
         await Person.create(name="Admin", discord_id=80003, access=int(BotAccess.ADMIN))
-        await GuildConfig.create(guild_id=700002, required_role="artists")
+        await GuildConfig.create(guild_id=700002, required_role="111")
         result = await set_guild_quotas(80003, 700002, projects=100, tiles=50)
         assert "100" in result
         assert "50" in result
@@ -334,6 +334,6 @@ class TestSetGuildQuotas:
 
     async def test_no_args_returns_view(self):
         await Person.create(name="Admin", discord_id=80004, access=int(BotAccess.ADMIN))
-        await GuildConfig.create(guild_id=700003, required_role="artists")
+        await GuildConfig.create(guild_id=700003, required_role="111")
         result = await set_guild_quotas(80004, 700003, projects=None, tiles=None)
         assert "50" in result  # Default

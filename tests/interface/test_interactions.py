@@ -139,7 +139,7 @@ class TestHawkBotCommands:
         assert "testhawkadmin" in names
 
 
-def _mock_interaction(*, guild_id=999, user_id=12345, user_name="TestUser", role_names=None):
+def _mock_interaction(*, guild_id=999, user_id=12345, user_name="TestUser", role_ids=None):
     """Create a mock discord.Interaction with a Member user."""
     interaction = MagicMock(spec=discord.Interaction)
     interaction.guild_id = guild_id
@@ -148,9 +148,9 @@ def _mock_interaction(*, guild_id=999, user_id=12345, user_name="TestUser", role
     member.id = user_id
     member.name = user_name
     roles = []
-    for name in role_names or []:
+    for rid in role_ids or []:
         role = MagicMock(spec=discord.Role)
-        role.name = name
+        role.id = rid
         roles.append(role)
     member.roles = roles
     interaction.user = member
@@ -169,7 +169,7 @@ def _mock_interaction(*, guild_id=999, user_id=12345, user_name="TestUser", role
 class TestCheckAccess:
     async def test_success_returns_person(self):
         bot = HawkBot("hawk")
-        interaction = _mock_interaction(role_names=["artists"])
+        interaction = _mock_interaction(role_ids=[111])
         fake_person = MagicMock(spec=Person)
 
         with patch(
@@ -182,7 +182,7 @@ class TestCheckAccess:
 
     async def test_denied_sends_error_and_returns_none(self):
         bot = HawkBot("hawk")
-        interaction = _mock_interaction(role_names=["everyone"])
+        interaction = _mock_interaction(role_ids=[222])
 
         with patch(
             "pixel_hawk.interface.interactions.check_guild_access",
@@ -205,29 +205,35 @@ class TestAdminRoleCommand:
     async def test_role_success(self):
         bot = HawkBot("hawk")
         interaction = _mock_interaction(guild_id=555)
+        role = MagicMock(spec=discord.Role)
+        role.id = 777
+        role.name = "painters"
 
         with patch(
             "pixel_hawk.interface.interactions.set_guild_role",
             new_callable=AsyncMock,
-            return_value="Required role set to **painters** for this server.",
+            return_value="Required role set to <@&777> for this server.",
         ):
-            await bot._admin_role(interaction, "painters")
+            await bot._admin_role(interaction, role)
 
         interaction.response.send_message.assert_awaited_once()
         msg = interaction.response.send_message.call_args
-        assert "painters" in msg.args[0]
+        assert "777" in msg.args[0]
         assert msg.kwargs["ephemeral"] is True
 
     async def test_role_not_admin(self):
         bot = HawkBot("hawk")
         interaction = _mock_interaction()
+        role = MagicMock(spec=discord.Role)
+        role.id = 777
+        role.name = "painters"
 
         with patch(
             "pixel_hawk.interface.interactions.set_guild_role",
             new_callable=AsyncMock,
             side_effect=ErrorMsg("Admin access required."),
         ):
-            await bot._admin_role(interaction, "painters")
+            await bot._admin_role(interaction, role)
 
         msg = interaction.response.send_message.call_args
         assert "Admin access required" in msg.args[0]
