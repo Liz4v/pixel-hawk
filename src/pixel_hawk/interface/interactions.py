@@ -186,7 +186,7 @@ class HawkBot(discord.Client):
         except (ErrorMsg, ColorsNotInPalette) as e:
             msg = str(e)
         except Exception as e:
-            logger.error(f"Error in /hawk new: {e}")
+            logger.exception(f"Error in /hawk new: {e}")
             msg = "An error occurred while creating the project."
         await interaction.followup.send(msg or "No linked account found.", ephemeral=True)
 
@@ -234,7 +234,7 @@ class HawkBot(discord.Client):
         except (ErrorMsg, ColorsNotInPalette) as e:
             msg = str(e)
         except Exception as e:
-            logger.error(f"Error in /hawk edit: {e}")
+            logger.exception(f"Error in /hawk edit: {e}")
             msg = "An error occurred while editing the project."
         await interaction.followup.send(msg or "No linked account found.", ephemeral=True)
 
@@ -250,7 +250,7 @@ class HawkBot(discord.Client):
         except ErrorMsg as e:
             msg = str(e)
         except Exception as e:
-            logger.error(f"Error in /hawk delete: {e}")
+            logger.exception(f"Error in /hawk delete: {e}")
             msg = "An error occurred while deleting the project."
         await interaction.followup.send(msg or "No linked account found.", ephemeral=True)
 
