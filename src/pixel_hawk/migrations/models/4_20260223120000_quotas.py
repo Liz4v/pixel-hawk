@@ -30,13 +30,23 @@ async def _refresh_aerich_state(db: BaseDBAsyncClient) -> None:
         )
 
 
+async def _has_column(db: BaseDBAsyncClient, table: str, column: str) -> bool:
+    _, rows = await db.execute_query(f'PRAGMA table_info("{table}")')
+    return any(row[1] == column for row in rows)
+
+
 async def upgrade(db: BaseDBAsyncClient) -> str:
     await _refresh_aerich_state(db)
-    return """
-        ALTER TABLE "person" ADD "max_active_projects" INT NOT NULL DEFAULT 50;
-        ALTER TABLE "person" ADD "max_watched_tiles" INT NOT NULL DEFAULT 10;
-        ALTER TABLE "guild_config" ADD "max_active_projects" INT NOT NULL DEFAULT 50;
-        ALTER TABLE "guild_config" ADD "max_watched_tiles" INT NOT NULL DEFAULT 10;"""
+    statements = []
+    for table, column in [
+        ("person", "max_active_projects"),
+        ("person", "max_watched_tiles"),
+        ("guild_config", "max_active_projects"),
+        ("guild_config", "max_watched_tiles"),
+    ]:
+        if not await _has_column(db, table, column):
+            statements.append(f'ALTER TABLE "{table}" ADD "{column}" INT NOT NULL DEFAULT {50 if "projects" in column else 10};')
+    return "\n".join(statements)
 
 
 async def downgrade(db: BaseDBAsyncClient) -> str:
