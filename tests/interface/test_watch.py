@@ -88,7 +88,7 @@ class TestFormatWatchMessage:
         assert "+50" in result
         assert "-3" in result
         assert "+500" in result  # lifetime
-        assert "Updated" in result
+        assert "Last checked" in result
 
     async def test_complete(self):
         person, info = await _person_and_project()

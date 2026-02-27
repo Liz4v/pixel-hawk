@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -58,6 +59,35 @@ async def test_poll_once_checks_tiles(setup_config):
 
     # check_next_tile should have been called
     assert called["count"] == 1
+
+
+async def test_poll_once_updates_watches_on_nochange(setup_config):
+    """poll_once calls update_watches even when tiles are unchanged (no-change path returns IDs)."""
+    m = main_mod.Main()
+    await m.start()
+
+    proj_ids = [42, 99]
+    m.tile_checker.check_next_tile = AsyncMock(return_value=proj_ids)
+    mock_bot = AsyncMock()
+    m.bot = mock_bot
+
+    await m.poll_once()
+
+    mock_bot.update_watches.assert_called_once_with(proj_ids)
+
+
+async def test_poll_once_skips_watches_when_no_projects(setup_config):
+    """poll_once does not call update_watches when check_next_tile returns empty list."""
+    m = main_mod.Main()
+    await m.start()
+
+    m.tile_checker.check_next_tile = AsyncMock(return_value=[])
+    mock_bot = AsyncMock()
+    m.bot = mock_bot
+
+    await m.poll_once()
+
+    mock_bot.update_watches.assert_not_called()
 
 
 # Main loop error handling tests

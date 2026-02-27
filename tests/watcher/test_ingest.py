@@ -296,6 +296,26 @@ async def test_check_next_tile_unchanged_calls_run_nochange(setup_config):
     await checker.close()
 
 
+async def test_check_next_tile_unchanged_returns_project_ids(setup_config):
+    """When tile is unchanged, check_next_tile still returns affected project IDs for watch updates."""
+    info = await _create_project_with_tile(0, 0)
+    tile_info = await TileInfo.get(id=TileInfo.tile_id(0, 0))
+    tile_info.last_update = 1700052326
+    tile_info.last_checked = 100
+    tile_info.heat = 1
+    await tile_info.save()
+
+    checker = TileChecker()
+    await checker.start()
+    checker.client = MockClient(httpx.Response(304))
+
+    with patch("pixel_hawk.watcher.projects.Project.run_nochange", AsyncMock()):
+        result = await checker.check_next_tile()
+
+    assert result == [info.id]
+    await checker.close()
+
+
 async def test_check_next_tile_skips_inactive_projects(setup_config):
     """Inactive projects are not diffed even if linked to a changed tile."""
     await _create_project_with_tile(0, 0, state=ProjectState.INACTIVE)

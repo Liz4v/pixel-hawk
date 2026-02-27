@@ -80,7 +80,7 @@ async def format_watch_message(info: ProjectInfo) -> str:
     if info.largest_regress_pixels > 0:
         lines.append(f"Worst grief: {info.largest_regress_pixels:,} px (<t:{info.largest_regress_time}:R>)")
 
-    lines.append(f"Updated <t:{info.last_check}:R>")
+    lines.append(f"Last checked <t:{info.last_check}:R>")
 
     return "\n".join(lines)
 
