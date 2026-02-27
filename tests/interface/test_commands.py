@@ -191,7 +191,7 @@ class TestParseFilename:
 
     def test_multi_word_name_and_coords(self):
         name, coords = parse_filename("my_cool_art_1_2_100_200.png")
-        assert name == "my_cool_art"
+        assert name == "my cool art"
         assert coords == (1, 2, 100, 200)
 
     def test_no_coords(self):
@@ -247,7 +247,7 @@ class TestParseFilename:
 
     def test_mixed_separators_rejected(self):
         name, coords = parse_filename("5_7.0_0.png")
-        assert name == "5_7.0_0"
+        assert name == "5 7.0 0"
         assert coords is None
 
 

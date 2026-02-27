@@ -20,20 +20,23 @@ from ..watcher.projects import Project, count_cached_tiles
 from .access import ErrorMsg, get_command_prefix
 from .watch import delete_watches_for_project
 
-_ENTIRELY_RE = re.compile(r"^(?P<tx>\d+)(?P<sep>[ ._-])(?P<ty>\d+)(?P=sep)(?P<px>\d+)(?P=sep)(?P<py>\d+)$")
-_ENDS_WITH_RE = re.compile(
-    r"^(?P<name>.+)[ ._-](?P<tx>\d+)(?P<sep>[ ._-])(?P<ty>\d+)(?P=sep)(?P<px>\d+)(?P=sep)(?P<py>\d+)$"
-)
-_BEGINS_WITH_RE = re.compile(
-    r"^(?P<tx>\d+)(?P<sep>[ ._-])(?P<ty>\d+)(?P=sep)(?P<px>\d+)(?P=sep)(?P<py>\d+)[ ._-](?P<name>.+)$"
+_COORDS_FRAGMENT = r"(?P<tx>\d{1,4})(?P<sep>[ .-])(?P<ty>\d{1,4})(?P=sep)(?P<px>\d{1,3})(?P=sep)(?P<py>\d{1,3})"
+_COORDS_RES = (
+    re.compile(rf"^(?P<name>.+)[ .-]{_COORDS_FRAGMENT}$"),
+    re.compile(rf"^{_COORDS_FRAGMENT}[ .-](?P<name>.+)$"),
+    re.compile(rf"^{_COORDS_FRAGMENT}$"),
 )
 _POSITIVE_INT_RE = re.compile(r"\d+")
+_LINKED_STATES = (ProjectState.ACTIVE, ProjectState.PASSIVE)
 
 
 def parse_filename(filename: str) -> tuple[str | None, tuple[int, int, int, int] | None]:
     """Extract coords (tx, ty, px, py) and optional project name from a filename."""
+    # Discord converts spaces to underscores. If we're going to
+    # have to conflate them, then we prefer keeping the spaces.
+    filename = filename.replace("_", " ")
     stem = filename[:-4] if filename.lower().endswith(".png") else filename
-    for pattern in (_ENTIRELY_RE, _ENDS_WITH_RE, _BEGINS_WITH_RE):
+    for pattern in _COORDS_RES:
         m = pattern.match(stem)
         if not m:
             continue
@@ -119,7 +122,11 @@ async def _check_coord_conflict(owner_id: int, x: int, y: int, *, exclude_id: in
 
 
 async def _check_quotas(
-    person: Person, rect: Rectangle | None = None, *, is_new_project: bool = False, exclude_project_id: int = 0,
+    person: Person,
+    rect: Rectangle | None = None,
+    *,
+    is_new_project: bool = False,
+    exclude_project_id: int = 0,
 ) -> None:
     """Pre-check per-user quotas. Raises ErrorMsg if the operation would exceed limits."""
     if is_new_project:
@@ -255,7 +262,7 @@ async def edit_project(
             info.width = width
             info.height = height
 
-        needs_relink = (new_point is not None or dims_changed) and info.state in (ProjectState.ACTIVE, ProjectState.PASSIVE)
+        needs_relink = (new_point is not None or dims_changed) and info.state in _LINKED_STATES
         changes.append(f"Image: {width}x{height}")
 
         # Write new image and clean up snapshot (inside narrowed block for type safety)
@@ -270,7 +277,7 @@ async def edit_project(
     elif new_point is not None:
         await _check_coord_conflict(person.id, new_point.x, new_point.y, exclude_id=info.id)
         _set_coords(info, person.id, new_point.x, new_point.y)
-        needs_relink = info.state in (ProjectState.ACTIVE, ProjectState.PASSIVE)
+        needs_relink = info.state in _LINKED_STATES
         changes.append(f"Coords: {new_point}")
 
     if needs_relink:
@@ -290,7 +297,7 @@ async def edit_project(
 
     # --- State change ---
     if state is not None:
-        if state in (ProjectState.ACTIVE, ProjectState.PASSIVE) and info.state == ProjectState.CREATING:
+        if state in _LINKED_STATES and info.state == ProjectState.CREATING:
             raise ErrorMsg(f"Cannot activate: set coordinates first with `/{get_command_prefix()} edit`.")
         if state == ProjectState.ACTIVE and original_state != ProjectState.ACTIVE and not needs_relink:
             await _check_quotas(person, info.rectangle)
@@ -303,9 +310,8 @@ async def edit_project(
     await info.save()
 
     if state is not None and state != original_state:
-        _LINKED = (ProjectState.ACTIVE, ProjectState.PASSIVE)
-        was_linked = original_state in _LINKED
-        now_linked = state in _LINKED
+        was_linked = original_state in _LINKED_STATES
+        now_linked = state in _LINKED_STATES
         if was_linked and not now_linked:
             await info.unlink_tiles()
         elif not was_linked and now_linked:
