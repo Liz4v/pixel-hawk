@@ -95,11 +95,14 @@ sudo mkdir -p "${NEST_DIR}"/{projects,tiles,snapshots,logs,data,rejected}
 sudo chown -R "${SERVICE_USER}:" "${NEST_DIR}"
 echo "  done"
 
+# Environment file for HAWK_* variables (bot token, etc.)
+ENV_FILE="/etc/${SERVICE_NAME}.env"
+
 # Create env file template if missing
 if [[ ! -f "${ENV_FILE}" ]]; then
-    sudo tee "${ENV_FILE}" > /dev/null <<'ENVEOF'
+    sudo tee "${ENV_FILE}" > /dev/null <<ENVEOF
 # pixel-hawk environment variables
-# HAWK_NEST=./nest
+HAWK_NEST=${NEST_DIR}
 HAWK_BOT_TOKEN=
 # HAWK_COMMAND_PREFIX=hawk
 ENVEOF
@@ -112,33 +115,6 @@ fi
 
 # --- Step 4: Generate and install systemd unit ---
 echo "[4/5] Installing systemd service..."
-
-# Build ReadWritePaths depending on user setup
-READ_WRITE_PATHS="${NEST_DIR}"
-if [[ "${SAME_USER}" == false ]]; then
-    # Service user needs read access to repo .venv, deploy user's uv python installs
-    READ_WRITE_PATHS="${NEST_DIR} ${REPO_DIR}/.venv"
-fi
-
-# Environment file for HAWK_* variables (bot token, etc.)
-ENV_FILE="/etc/${SERVICE_NAME}.env"
-
-# Build environment lines
-ENV_LINES="EnvironmentFile=-${ENV_FILE}
-Environment=PYTHONUNBUFFERED=1"
-if [[ "${SAME_USER}" == false ]]; then
-    ENV_LINES="${ENV_LINES}
-Environment=UV_PYTHON_INSTALL_DIR=${DEPLOY_HOME}/.local/share/uv/python"
-fi
-
-# Determine ProtectHome setting
-if [[ "${SAME_USER}" == false ]]; then
-    # Service user has no home; needs read access to deploy user's home for code + uv
-    PROTECT_HOME="ProtectHome=false"
-else
-    PROTECT_HOME="ProtectHome=false"
-fi
-
 sudo tee /etc/systemd/system/${SERVICE_NAME}.service > /dev/null <<EOF
 [Unit]
 Description=Pixel Hawk - WPlace paint project change tracker
@@ -149,27 +125,45 @@ Wants=network-online.target
 Type=simple
 User=${SERVICE_USER}
 WorkingDirectory=${REPO_DIR}
-ExecStart=${UV} run hawk --nest ${NEST_DIR}
+ExecStart=${UV} run --frozen hawk
 KillSignal=SIGINT
 TimeoutStopSec=15
 Restart=on-failure
 RestartSec=30
-${ENV_LINES}
+EnvironmentFile=-${ENV_FILE}
+Environment=PYTHONUNBUFFERED=1
 CacheDirectory=${SERVICE_NAME}
 Environment=UV_CACHE_DIR=/var/cache/${SERVICE_NAME}
+Environment=UV_PYTHON_INSTALL_DIR=${DEPLOY_HOME}/.local/share/uv/python
 
-# Security hardening
-NoNewPrivileges=true
-PrivateTmp=true
+# Filesystem
 ProtectSystem=strict
-${PROTECT_HOME}
-ReadWritePaths=${READ_WRITE_PATHS}
+ProtectHome=read-only
+ReadWritePaths=${NEST_DIR}
+ReadOnlyPaths=${REPO_DIR} ${DEPLOY_HOME}/.local/share/uv ${DEPLOY_HOME}/.cache/uv
+PrivateTmp=true
+
+# Privileges
+NoNewPrivileges=true
+PrivateDevices=true
+RestrictSUIDSGID=true
+
+# Kernel
 ProtectKernelTunables=true
 ProtectKernelModules=true
+ProtectKernelLogs=true
 ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+
+# Misc
 RestrictRealtime=true
-RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryDenyWriteExecute=false
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
 
 StandardOutput=journal
 StandardError=journal

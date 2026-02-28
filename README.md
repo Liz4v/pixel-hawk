@@ -105,7 +105,7 @@ All pixel-hawk data lives in a unified directory structure under `nest` (default
 
 **Development workflow:** The default `./nest` location is designed to work seamlessly when running pixel-hawk from the project root directory during development. This keeps all data files easily accessible for inspection from your IDE and AI agents, making debugging and analysis straightforward.
 
-**Production deployment:** For production use, set `--nest` explicitly.
+**Production deployment:** For production use, set `HAWK_NEST` in `/etc/pixel-hawk.env` (created by `scripts/install-service.sh`).
 
 ### Discord bot
 
