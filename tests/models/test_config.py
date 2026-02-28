@@ -1,10 +1,9 @@
 """Tests for configuration management."""
 
-import tomllib
 from pathlib import Path
 
 import pixel_hawk.models.config
-from pixel_hawk.models.config import Config, DiscordSettings, generate_default_config, get_config, load_config
+from pixel_hawk.models.config import Config, get_config, load_config
 
 
 class TestConfig:
@@ -25,100 +24,6 @@ class TestConfig:
         config = Config(home=tmp_path)
         assert config.home == tmp_path
         assert config.home.is_absolute()
-
-    def test_config_toml_missing_file(self, tmp_path):
-        """Test that config_toml returns empty dict when file doesn't exist."""
-        config = Config(home=tmp_path)
-        assert config.config_toml == {}
-
-    def test_config_toml_valid_file(self, tmp_path):
-        """Test that config_toml reads and parses TOML file."""
-        config = Config(home=tmp_path)
-        (tmp_path / "config.toml").write_text('[discord]\nbot_token = "abc"\n')
-        assert config.config_toml == {"discord": {"bot_token": "abc"}}
-
-    def test_config_toml_cached(self, tmp_path):
-        """Test that config_toml is cached across accesses."""
-        config = Config(home=tmp_path)
-        (tmp_path / "config.toml").write_text('[discord]\nbot_token = "first"\n')
-        first = config.config_toml
-        (tmp_path / "config.toml").write_text('[discord]\nbot_token = "second"\n')
-        second = config.config_toml
-        assert first is second  # Same object, cached
-
-
-class TestDiscordSettings:
-    """Tests for Config.discord typed settings."""
-
-    def test_defaults_without_config_file(self, tmp_path):
-        config = Config(home=tmp_path)
-        assert config.discord == DiscordSettings(bot_token="", command_prefix="hawk")
-
-    def test_reads_bot_token(self, tmp_path):
-        (tmp_path / "config.toml").write_text('[discord]\nbot_token = "secret"\n')
-        config = Config(home=tmp_path)
-        assert config.discord.bot_token == "secret"
-
-    def test_empty_bot_token_stays_empty(self, tmp_path):
-        (tmp_path / "config.toml").write_text('[discord]\nbot_token = ""\n')
-        config = Config(home=tmp_path)
-        assert config.discord.bot_token == ""
-
-    def test_reads_command_prefix(self, tmp_path):
-        (tmp_path / "config.toml").write_text('[discord]\ncommand_prefix = "testhawk"\n')
-        config = Config(home=tmp_path)
-        assert config.discord.command_prefix == "testhawk"
-
-    def test_command_prefix_defaults_to_hawk(self, tmp_path):
-        (tmp_path / "config.toml").write_text("[discord]\n")
-        config = Config(home=tmp_path)
-        assert config.discord.command_prefix == "hawk"
-
-    def test_discord_cached(self, tmp_path):
-        (tmp_path / "config.toml").write_text('[discord]\nbot_token = "x"\n')
-        config = Config(home=tmp_path)
-        assert config.discord is config.discord
-
-
-class TestGenerateDefaultConfig:
-    """Tests for generate_default_config function."""
-
-    def test_output_is_valid_toml(self):
-        result = generate_default_config()
-        parsed = tomllib.loads(result)
-        assert "discord" in parsed
-
-    def test_includes_discord_defaults(self):
-        parsed = tomllib.loads(generate_default_config())
-        assert parsed["discord"]["bot_token"] == ""
-        assert parsed["discord"]["command_prefix"] == "hawk"
-
-    def test_includes_docstring_as_comment(self):
-        result = generate_default_config()
-        assert "# Typed settings from the [discord] section of config.toml." in result
-
-    def test_roundtrips_through_discord_settings(self):
-        """Generated TOML should produce the same DiscordSettings as bare defaults."""
-        config = generate_default_config()
-        parsed = tomllib.loads(config)
-        settings = DiscordSettings(**parsed["discord"])
-        assert settings == DiscordSettings()
-
-
-class TestLoadConfigGeneratesConfig:
-    """Tests for auto-generation of config.toml in load_config."""
-
-    def test_creates_config_toml_when_missing(self, tmp_path, monkeypatch):
-        monkeypatch.delenv("HAWK_NEST", raising=False)
-        load_config(args=["--nest", str(tmp_path)])
-        assert (tmp_path / "config.toml").exists()
-
-    def test_does_not_overwrite_existing_config(self, tmp_path, monkeypatch):
-        monkeypatch.delenv("HAWK_NEST", raising=False)
-        (tmp_path / "config.toml").write_text('[discord]\nbot_token = "keep"\n')
-        load_config(args=["--nest", str(tmp_path)])
-        parsed = tomllib.loads((tmp_path / "config.toml").read_text())
-        assert parsed["discord"]["bot_token"] == "keep"
 
 
 class TestLoadConfig:

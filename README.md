@@ -109,15 +109,14 @@ All pixel-hawk data lives in a unified directory structure under `nest` (default
 
 ### Discord bot
 
-An optional Discord bot runs alongside the polling loop, providing slash commands under the `/hawk` group. Configure by adding a `config.toml` at the nest root:
+An optional Discord bot runs alongside the polling loop, providing slash commands under the `/hawk` group. Configure via environment variables:
 
-```toml
-[discord]
-bot_token = "your-bot-token"
-# command_prefix = "hawk"
-```
+| Variable | Default | Description |
+|---|---|---|
+| `HAWK_BOT_TOKEN` | *(empty)* | Discord bot token. If empty, the bot is silently skipped. |
+| `HAWK_COMMAND_PREFIX` | `hawk` | Slash command group name (e.g. `/hawk new`, `/hawkadmin role`). |
 
-If no token is configured, the bot is silently skipped. The `command_prefix` setting changes the slash command group name (default: `hawk`).
+Copy `.env.example` to `.env` and fill in values — `python-dotenv` auto-loads it on startup. For production (systemd), the service loads from `/etc/pixel-hawk.env` (see `scripts/install-service.sh`).
 
 **Guild setup:**
 1. Grant admin access to a Person record in the database (a proper setup flow is planned)
@@ -207,9 +206,11 @@ The install script detects the current user, repo location, and `uv` path, then 
 
 Pushes to `main` are automatically deployed via a GitHub-hosted runner (see `.github/workflows/deploy.yaml`).
 
-After installation, configure the Discord bot by editing the auto-generated `nest/config.toml` in the nest directory, and restart the service:
+After installation, configure the Discord bot by setting environment variables in `/etc/pixel-hawk.env`:
 
 ```bash
+sudo nano /etc/pixel-hawk.env
+# Set HAWK_BOT_TOKEN=your-bot-token
 sudo systemctl restart pixel-hawk
 ```
 

@@ -8,47 +8,12 @@ Can be overridden with --nest CLI flag or HAWK_NEST environment variable.
 Precedence: CLI flag > env var > default
 """
 
-import dataclasses
-import functools
 import os
 import sys
-import tomllib
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from pathlib import Path
 
-
-@dataclass
-class DiscordSettings:
-    """Typed settings from the [discord] section of config.toml."""
-
-    bot_token: str = ""
-    command_prefix: str = "hawk"
-
-
-# Maps TOML section names to their settings dataclass.
-_CONFIG_SECTIONS: dict[str, type] = {"discord": DiscordSettings}
-
-
-def generate_default_config() -> str:
-    """Generate config.toml content with defaults and documentation from dataclass docstrings."""
-    lines: list[str] = []
-    for section, cls in _CONFIG_SECTIONS.items():
-        if cls.__doc__:
-            for doc_line in cls.__doc__.strip().splitlines():
-                lines.append(f"# {doc_line.strip()}")
-        lines.append(f"[{section}]")
-        for f in fields(cls):
-            if f.default is dataclasses.MISSING:
-                continue
-            val = f.default
-            if isinstance(val, str):
-                lines.append(f'{f.name} = "{val}"')
-            elif isinstance(val, bool):
-                lines.append(f"{f.name} = {'true' if val else 'false'}")
-            elif isinstance(val, (int, float)):
-                lines.append(f"{f.name} = {val}")
-        lines.append("")
-    return "\n".join(lines)
+from dotenv import load_dotenv
 
 
 @dataclass
@@ -90,22 +55,6 @@ class Config:
         """Directory for SQLite database and bot data."""
         return self.home / "data"
 
-    @functools.cached_property
-    def config_toml(self) -> dict:
-        """Read config.toml from nest root, defaulting to empty dict."""
-        path = self.home / "config.toml"
-        try:
-            with path.open("rb") as f:
-                return tomllib.load(f)
-        except (IOError, ValueError):
-            return {}
-
-    @functools.cached_property
-    def discord(self) -> DiscordSettings:
-        """Typed access to [discord] settings from config.toml."""
-        raw = self.config_toml.get("discord", {})
-        return DiscordSettings(**{f.name: raw[f.name] for f in fields(DiscordSettings) if f.name in raw})
-
 
 def load_config(args: list[str] | None = None) -> Config:
     """Load configuration from CLI args, environment, or defaults.
@@ -118,6 +67,8 @@ def load_config(args: list[str] | None = None) -> Config:
     Returns:
         Config instance with absolute path for home
     """
+    load_dotenv()
+
     if args is None:
         args = sys.argv[1:]
 
@@ -150,11 +101,6 @@ def load_config(args: list[str] | None = None) -> Config:
     cfg.rejected_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     cfg.logs_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     cfg.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-
-    # Generate default config.toml if it doesn't exist
-    config_path = home_path / "config.toml"
-    if not config_path.exists():
-        config_path.write_text(generate_default_config())
 
     return cfg
 

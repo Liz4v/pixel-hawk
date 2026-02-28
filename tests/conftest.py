@@ -1,7 +1,7 @@
 import pytest
 from loguru import logger
 
-import pixel_hawk.interface.access
+import pixel_hawk.interface.commands
 import pixel_hawk.models.config
 from pixel_hawk.models.config import Config
 from pixel_hawk.models.db import database
@@ -10,6 +10,10 @@ from pixel_hawk.models.db import database
 @pytest.fixture(autouse=True)
 def setup_config(tmp_path, monkeypatch):
     """Set up test CONFIG before each test using tmp_path."""
+    # Prevent host env vars from leaking into tests
+    monkeypatch.delenv("HAWK_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("HAWK_COMMAND_PREFIX", raising=False)
+
     # Create Config with test-specific tmp_path
     config = Config(home=tmp_path / "nest")
 
@@ -28,7 +32,7 @@ def setup_config(tmp_path, monkeypatch):
 
     # Cleanup: Reset CONFIG and cached command_prefix after test
     pixel_hawk.models.config.CONFIG = None
-    pixel_hawk.interface.access._command_prefix = None
+    pixel_hawk.interface.commands._command_prefix = None
 
 
 @pytest.fixture(autouse=True)

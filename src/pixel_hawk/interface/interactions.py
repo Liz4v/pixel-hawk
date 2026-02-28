@@ -1,20 +1,20 @@
 """Discord bot wiring for pixel-hawk.
 
 Optional Discord bot that runs alongside the polling loop. Reads credentials
-from config.toml at the nest root. If config.toml is missing or has no bot_token,
-the bot is silently skipped.
+from HAWK_BOT_TOKEN and HAWK_COMMAND_PREFIX environment variables. If no token
+is set, the bot is silently skipped.
 
 Dispatches slash commands to service functions in commands.py and watch.py.
 """
 
 import asyncio
 import contextlib
+import os
 
 import discord
 from discord import app_commands
 from loguru import logger
 
-from ..models.config import get_config
 from ..models.entities import Person, ProjectState
 from ..models.palette import ColorsNotInPalette
 from .access import ErrorMsg, check_guild_access, set_guild_quotas, set_guild_role, set_user_quotas
@@ -336,13 +336,13 @@ async def maybe_bot():
     Yields the HawkBot instance (or None if no token). The caller can use the
     bot reference to edit watch messages from the polling loop.
     """
-    token = get_config().discord.bot_token
+    token = os.environ.get("HAWK_BOT_TOKEN", "")
     if not token:
-        logger.debug("No Discord bot token in config.toml, skipping bot")
+        logger.debug("No HAWK_BOT_TOKEN set, skipping Discord bot")
         yield None
         return
 
-    bot = HawkBot(get_config().discord.command_prefix)
+    bot = HawkBot(os.environ.get("HAWK_COMMAND_PREFIX", "hawk"))
     asyncio.create_task(bot.start(token))
     yield bot
     await bot.close()

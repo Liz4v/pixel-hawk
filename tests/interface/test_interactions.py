@@ -6,17 +6,8 @@ import discord
 
 from pixel_hawk.interface.access import ErrorMsg
 from pixel_hawk.interface.interactions import HawkBot, maybe_bot
-from pixel_hawk.models.config import get_config
 from pixel_hawk.models.entities import Person, ProjectState, WatchMessage
 from pixel_hawk.models.palette import ColorsNotInPalette
-
-
-def _invalidate_config_toml():
-    """Clear the cached_property so config.toml is re-read."""
-    cfg = get_config()
-    # cached_property stores the value in the instance __dict__
-    cfg.__dict__.pop("config_toml", None)
-    cfg.__dict__.pop("discord", None)
 
 
 # HawkBot tests
@@ -63,10 +54,8 @@ class TestMaybeBot:
         async with maybe_bot():
             pass  # should not raise
 
-    async def test_starts_and_closes_bot_with_config(self, setup_config):
-        config_path = get_config().home / "config.toml"
-        config_path.write_text('[discord]\nbot_token = "fake-token"\n')
-        _invalidate_config_toml()
+    async def test_starts_and_closes_bot_with_config(self, setup_config, monkeypatch):
+        monkeypatch.setenv("HAWK_BOT_TOKEN", "fake-token")
 
         with (
             patch.object(HawkBot, "start", new_callable=AsyncMock),
@@ -946,10 +935,8 @@ class TestMaybeBotYieldsBot:
         async with maybe_bot() as bot:
             assert bot is None
 
-    async def test_yields_bot_with_config(self, setup_config):
-        config_path = get_config().home / "config.toml"
-        config_path.write_text('[discord]\nbot_token = "fake-token"\n')
-        _invalidate_config_toml()
+    async def test_yields_bot_with_config(self, setup_config, monkeypatch):
+        monkeypatch.setenv("HAWK_BOT_TOKEN", "fake-token")
 
         with (
             patch.object(HawkBot, "start", new_callable=AsyncMock),

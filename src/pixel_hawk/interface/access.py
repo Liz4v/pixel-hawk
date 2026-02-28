@@ -6,22 +6,12 @@ and guild access checks.
 
 from loguru import logger
 
-from ..models.config import get_config
 from ..models.entities import BotAccess, GuildConfig, Person
 
 
 class ErrorMsg(Exception):
     """An error whose message is intended to be displayed to the user."""
 
-
-_command_prefix: str | None = None
-
-
-def get_command_prefix() -> str:
-    global _command_prefix
-    if _command_prefix is None:
-        _command_prefix = get_config().discord.command_prefix
-    return _command_prefix
 
 
 async def grant_admin(discord_id: int, display_name: str) -> str:

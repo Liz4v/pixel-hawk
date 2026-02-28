@@ -6,6 +6,7 @@ Parsing filenames/coordinates.
 """
 
 import asyncio
+import os
 import re
 import time
 
@@ -17,7 +18,7 @@ from ..models.entities import DiffStatus, HistoryChange, Person, ProjectInfo, Pr
 from ..models.geometry import Point, Rectangle, Size
 from ..models.palette import PALETTE
 from ..watcher.projects import Project, count_cached_tiles
-from .access import ErrorMsg, get_command_prefix
+from .access import ErrorMsg
 from .watch import delete_watches_for_project
 
 _COORDS_FRAGMENT = r"(?P<tx>\d{1,4})(?P<sep>[ .-])(?P<ty>\d{1,4})(?P=sep)(?P<px>\d{1,3})(?P=sep)(?P<py>\d{1,3})"
@@ -28,6 +29,16 @@ _COORDS_RES = (
 )
 _POSITIVE_INT_RE = re.compile(r"\d+")
 _LINKED_STATES = (ProjectState.ACTIVE, ProjectState.PASSIVE)
+
+
+_command_prefix: str | None = None
+
+
+def get_command_prefix() -> str:
+    global _command_prefix
+    if _command_prefix is None:
+        _command_prefix = os.environ.get("HAWK_COMMAND_PREFIX", "hawk")
+    return _command_prefix
 
 
 def parse_filename(filename: str) -> tuple[str | None, tuple[int, int, int, int] | None]:

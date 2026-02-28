@@ -95,6 +95,21 @@ sudo mkdir -p "${NEST_DIR}"/{projects,tiles,snapshots,logs,data,rejected}
 sudo chown -R "${SERVICE_USER}:" "${NEST_DIR}"
 echo "  done"
 
+# Create env file template if missing
+if [[ ! -f "${ENV_FILE}" ]]; then
+    sudo tee "${ENV_FILE}" > /dev/null <<'ENVEOF'
+# pixel-hawk environment variables
+# HAWK_NEST=./nest
+HAWK_BOT_TOKEN=
+# HAWK_COMMAND_PREFIX=hawk
+ENVEOF
+    sudo chmod 600 "${ENV_FILE}"
+    sudo chown "${SERVICE_USER}:" "${ENV_FILE}"
+    echo "  created ${ENV_FILE} — edit it to set your Discord bot token"
+else
+    echo "  ${ENV_FILE} already exists, not overwriting"
+fi
+
 # --- Step 4: Generate and install systemd unit ---
 echo "[4/5] Installing systemd service..."
 
@@ -105,8 +120,12 @@ if [[ "${SAME_USER}" == false ]]; then
     READ_WRITE_PATHS="${NEST_DIR} ${REPO_DIR}/.venv"
 fi
 
+# Environment file for HAWK_* variables (bot token, etc.)
+ENV_FILE="/etc/${SERVICE_NAME}.env"
+
 # Build environment lines
-ENV_LINES="Environment=PYTHONUNBUFFERED=1"
+ENV_LINES="EnvironmentFile=-${ENV_FILE}
+Environment=PYTHONUNBUFFERED=1"
 if [[ "${SAME_USER}" == false ]]; then
     ENV_LINES="${ENV_LINES}
 Environment=UV_PYTHON_INSTALL_DIR=${DEPLOY_HOME}/.local/share/uv/python"
@@ -172,6 +191,7 @@ echo "  done"
 echo ""
 echo "=== Installation complete ==="
 echo ""
+echo "  env file: ${ENV_FILE}  (HAWK_BOT_TOKEN, HAWK_COMMAND_PREFIX)"
 echo "  status:   sudo systemctl status ${SERVICE_NAME}"
 echo "  journal:  sudo journalctl -u ${SERVICE_NAME} -f"
 echo "  logs:     tail -f ${NEST_DIR}/logs/pixel-hawk.log"

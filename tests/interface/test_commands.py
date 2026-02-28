@@ -12,6 +12,7 @@ from pixel_hawk.interface.commands import (
     _parse_coords,
     delete_project,
     edit_project,
+    get_command_prefix,
     list_projects,
     new_project,
     parse_filename,
@@ -313,7 +314,7 @@ class TestNewProject:
 
         assert result is not None
         assert "created" in result
-        assert f"/{get_config().discord.command_prefix} edit" in result
+        assert f"/{get_command_prefix()} edit" in result
 
         info = await ProjectInfo.filter(owner=person).first()
         assert info is not None

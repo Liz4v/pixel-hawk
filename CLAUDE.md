@@ -7,7 +7,7 @@ pixel-hawk is a change tracker for WPlace paint projects. It polls WPlace tile i
 - **Requires:** Python >= 3.14 (see `pyproject.toml`)
 - **Console script:** `hawk = "pixel_hawk.main:main"`
 - **Main package:** `src/pixel_hawk`
-- **Key dependencies:** `loguru`, `pillow`, `httpx`, `tortoise-orm` (SQLite via `aiosqlite`), `humanize`, `discord.py`
+- **Key dependencies:** `loguru`, `pillow`, `httpx`, `tortoise-orm` (SQLite via `aiosqlite`), `humanize`, `discord.py`, `python-dotenv`
 - **Linting:** `ruff` configured with `line-length = 120`
 
 ## Where to look for further context
@@ -34,9 +34,11 @@ uv run hawk
 
 ## Configuration and data directories
 
-- Configuration managed through `src/pixel_hawk/models/config.py`
+- Configuration managed through `src/pixel_hawk/models/config.py` (nest path) and environment variables (Discord settings)
 - Default nest: `./nest` (current working directory)
 - Configurable via CLI flag `--nest` or environment variable `HAWK_NEST`
+- Discord settings via `HAWK_BOT_TOKEN` and `HAWK_COMMAND_PREFIX` env vars (see `.env.example`)
+- `python-dotenv` auto-loads `.env` from CWD on startup
 - All data lives under nest with organized subdirectories:
   - `projects/{person_id}/` — project PNG files organized by person ID (coordinate-only filenames: `{tx}_{ty}_{px}_{py}.png`; CREATING projects use `new_{id}.png`)
   - `tiles/` — cached tiles from WPlace
@@ -81,7 +83,7 @@ uv run hawk
 - `main.py` — application entry, unified polling loop, DB context manager usage, person totals refresh
 
 ### Models (`src/pixel_hawk/models/`) — data layer
-- `config.py` — `DiscordSettings` dataclass, `Config` dataclass, `load_config()`, `get_config()`, CONFIG singleton
+- `config.py` — `Config` dataclass (nest path + directory properties), `load_config()` (CLI/env/default with `dotenv`), `get_config()`, CONFIG singleton
 - `db.py` — database async context manager (`database()`), Tortoise ORM config, Aerich integration, `rebuild_table()` migration utility
 - `entities.py` — `Person` (user model with watched_tiles_count, active_projects_count, update_totals(), per-user quota limits), `ProjectState` IntEnum (ACTIVE/PASSIVE/INACTIVE/CREATING), `ProjectInfo` (pure Tortoise model with owner FK, random ID via `save_as_new()`), `HistoryChange` (diff event log), `DiffStatus` IntEnum, `TileInfo` (tile metadata: coordinates, heat, timestamps, etag), `TileProject` (tile-project junction table), `GuildConfig` (per-guild bot configuration: required role name, quota ceilings), `WatchMessage` (persistent Discord watch messages, message_id as PK)
 - `geometry.py` — `Tile`, `Point`, `Size`, `Rectangle`, `GeoPoint` helpers (tile math, Web Mercator projection)
@@ -96,8 +98,8 @@ uv run hawk
 ### Interface (`src/pixel_hawk/interface/`) — user-facing
 - `commands.py` — project management service layer: `new_project()` (project creation from uploaded image), `edit_project()` (project modification), `delete_project()` (project deletion with watch cleanup), `list_projects()` (project listing with stats, 24h changes, Discord message truncation), `_try_initial_diff()` (immediate diff when tiles are cached), coordinate/filename parsing helpers
 - `watch.py` — living watch message service layer: `format_watch_message()` (comprehensive Discord markdown stats), `create_watch()` / `remove_watch()` (CRUD with ownership validation), `save_watch_message()` (persistence after Discord send), `get_watches_for_projects()` (batch query for update loop), `delete_watches_for_project()` (cleanup helper)
-- `access.py` — admin and guild access service layer: `ErrorMsg` (user-facing exception), `grant_admin()` (admin grant, callers responsible for authorization), `set_guild_role()` (per-guild role configuration), `check_guild_access()` (role-based access gate with auto-creation, inherits guild quota ceilings), `get_user_quotas()` / `set_user_quotas()` / `get_guild_quotas()` / `set_guild_quotas()` (quota management with guild ceiling enforcement), `get_command_prefix()` (cached config access)
-- `interactions.py` — Discord bot wiring: `HawkBot` (user commands under `/hawk` group, admin commands under `/hawkadmin` group), `_check_access()` (guild role gate on user commands), `maybe_bot()` (lifecycle context manager, yields bot instance or None), `update_watches()` (edits live Discord messages, auto-cleans on 404/403). Dispatches to `commands.py`, `watch.py`, and `access.py` service functions
+- `access.py` — admin and guild access service layer: `ErrorMsg` (user-facing exception), `grant_admin()` (admin grant, callers responsible for authorization), `set_guild_role()` (per-guild role configuration), `check_guild_access()` (role-based access gate with auto-creation, inherits guild quota ceilings), `get_user_quotas()` / `set_user_quotas()` / `get_guild_quotas()` / `set_guild_quotas()` (quota management with guild ceiling enforcement)
+- `interactions.py` — Discord bot wiring: `HawkBot` (user commands under `/hawk` group, admin commands under `/hawkadmin` group), `_check_access()` (guild role gate on user commands), `maybe_bot()` (lifecycle context manager, reads `HAWK_BOT_TOKEN`/`HAWK_COMMAND_PREFIX` env vars, yields bot instance or None), `update_watches()` (edits live Discord messages, auto-cleans on 404/403). Dispatches to `commands.py`, `watch.py`, and `access.py` service functions
 
 ### Scripts and CI
 - `scripts/install-service.sh` — Generates and installs systemd service unit; supports split deploy/service user via `--service-user` and `--nest` flags
