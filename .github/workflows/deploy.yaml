@@ -1,15 +1,22 @@
-# Auto-deploy to a single self-hosted runner on push to main.
+# Auto-deploy on push to main via Tailscale + SSH.
 #
-# Assumptions specific to this setup:
-#   - Single self-hosted runner with passwordless sudo for the service and service user
-#   - pixel-hawk is managed as a systemd service (see scripts/install-service.sh)
-#   - No rolling deploys or health checks — one production host
+# Uses a GitHub-hosted runner that joins the tailnet to reach the
+# production host, then SSHes as the deploy user to run each step.
 #
 # The following GitHub Actions repository variables must be set:
-#   DEPLOY_DIR         — absolute path to the repo clone (e.g. /home/user/pixel_hawk)
-#   SERVICE_NAME       — systemd service name (e.g. pixel-hawk)
-#   SERVICE_USER       — OS user that runs the service and owns the database (e.g. hawk)
-#   UV_PYTHON_INSTALL_DIR — where uv caches Python (e.g. /home/user/uv-python)
+#   DEPLOY_HOST            — Tailscale hostname or IP of the target (e.g. homelab1)
+#   DEPLOY_USER            — OS user that owns the repo clone (e.g. deploy)
+#   DEPLOY_DIR             — absolute path to the repo clone (e.g. /home/deploy/pixel-hawk)
+#   SERVICE_NAME           — systemd service name (e.g. pixel-hawk)
+#   SERVICE_USER           — OS user that runs the service (e.g. pixel-hawk)
+#   NEST_DIR               — absolute path to the data directory (e.g. /var/local/pixel-hawk/nest)
+#   UV_BIN                 — absolute path to uv binary (e.g. /home/deploy/.local/bin/uv)
+#   UV_PYTHON_INSTALL_DIR  — where uv stores Python installations (e.g. /home/deploy/.local/share/uv/python)
+#
+# The following GitHub Actions repository secrets must be set:
+#   TS_OAUTH_CLIENT_ID  — Tailscale OAuth client ID (devices scope, tag:ci)
+#   TS_OAUTH_SECRET     — Tailscale OAuth client secret
+#   DEPLOY_SSH_KEY      — ed25519 private key authorized for DEPLOY_USER@DEPLOY_HOST
 
 name: Deploy
 
@@ -19,27 +26,40 @@ on:
 
 jobs:
   deploy:
-    runs-on: self-hosted
-    defaults:
-      run:
-        working-directory: ${{ vars.DEPLOY_DIR }}
+    runs-on: ubuntu-latest
     steps:
+      - name: Join tailnet
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ vars.DEPLOY_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
       - name: Stop service
-        run: sudo systemctl stop ${{ vars.SERVICE_NAME }}
+        run: ssh ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }} "sudo systemctl stop ${{ vars.SERVICE_NAME }}"
 
       - name: Pull latest
-        run: git pull
+        run: ssh ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }} "cd ${{ vars.DEPLOY_DIR }} && git pull"
 
       - name: Sync dependencies
-        run: uv sync --quiet
-        env:
-          UV_PYTHON_INSTALL_DIR: ${{ vars.UV_PYTHON_INSTALL_DIR }}
+        run: >
+          ssh ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }}
+          "cd ${{ vars.DEPLOY_DIR }} && UV_PYTHON_INSTALL_DIR=${{ vars.UV_PYTHON_INSTALL_DIR }} ${{ vars.UV_BIN }} sync --quiet"
 
-      - name: Run migrations
-        run: sudo -u ${{ vars.SERVICE_USER }} timeout 30 uv run aerich upgrade || true
+      - name: Ensure nest symlink and run migrations
+        run: >
+          ssh ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }}
+          "cd ${{ vars.DEPLOY_DIR }} && ln -sfn ${{ vars.NEST_DIR }} nest && sudo -u ${{ vars.SERVICE_USER }} ${{ vars.UV_BIN }} run aerich upgrade || true"
 
       - name: Start service
-        run: sudo systemctl start ${{ vars.SERVICE_NAME }}
+        run: ssh ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }} "sudo systemctl start ${{ vars.SERVICE_NAME }}"
 
       - name: Verify
-        run: sleep 3 && sudo systemctl is-active ${{ vars.SERVICE_NAME }}
+        run: ssh ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }} "sleep 3 && sudo systemctl is-active ${{ vars.SERVICE_NAME }}"
