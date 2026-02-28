@@ -56,7 +56,7 @@ jobs:
       - name: Ensure nest symlink and run migrations
         run: >
           ssh ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }}
-          "cd ${{ vars.DEPLOY_DIR }} && ln -sfn ${{ vars.NEST_DIR }} nest && sudo -u ${{ vars.SERVICE_USER }} UV_CACHE_DIR=/var/cache/${{ vars.SERVICE_NAME }} ${{ vars.UV_BIN }} run aerich upgrade || true"
+          "cd ${{ vars.DEPLOY_DIR }} && ln -sfn ${{ vars.NEST_DIR }} nest && sudo -u ${{ vars.SERVICE_USER }} ${{ vars.UV_BIN }} run --cache-dir /var/cache/${{ vars.SERVICE_NAME }} --frozen aerich upgrade || true"
 
       - name: Start service
         run: ssh ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }} "sudo systemctl start ${{ vars.SERVICE_NAME }}"
