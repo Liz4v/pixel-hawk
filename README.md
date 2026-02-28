@@ -121,7 +121,7 @@ If no token is configured, the bot is silently skipped. The `command_prefix` set
 
 **Guild setup:**
 1. Grant admin access to a Person record in the database (a proper setup flow is planned)
-2. Run `/hawkadmin role <role_name>` to set the required Discord role for the server — users with this role can use the bot and are auto-enrolled on first command
+2. Run `/hawkadmin role <role>` to set the required Discord role for the server — users with this role can use the bot and are auto-enrolled on first command (inheriting guild quota ceilings)
 
 Commands are blocked until a role is configured. Admins always bypass the role check.
 
@@ -183,7 +183,7 @@ Commands are blocked until a role is configured. Admins always bypass the role c
 
 ### GuildConfig table (`guild_config`)
 - `guild_id`: Discord guild snowflake (primary key, not auto-generated)
-- `required_role`: Name of the Discord role required to use bot commands in this guild
+- `required_role`: Discord role ID (snowflake stored as string) of the role required to use bot commands in this guild
 - `max_active_projects`: Guild-level quota ceiling (default 50)
 - `max_watched_tiles`: Guild-level quota ceiling (default 10)
 
@@ -205,7 +205,7 @@ bash scripts/install-service.sh
 
 The install script detects the current user, repo location, and `uv` path, then generates and installs a systemd service unit. It is idempotent — safe to re-run after updates.
 
-Pushes to `main` are automatically deployed via a self-hosted GitHub Actions runner (see `.github/workflows/deploy.yaml`).
+Pushes to `main` are automatically deployed via a GitHub-hosted runner (see `.github/workflows/deploy.yaml`).
 
 After installation, configure the Discord bot by editing the auto-generated `nest/config.toml` in the nest directory, and restart the service:
 
