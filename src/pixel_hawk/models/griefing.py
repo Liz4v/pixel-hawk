@@ -29,8 +29,6 @@ class Painter(NamedTuple):
         return self.user_id != 0
 
     def __str__(self):
-        if not self.user_id:
-            return "Not painted (mod revert???)"
         parts = [
             self.alliance_name and f"%{self.alliance_name}",
             f"~{self.user_name} (#{self.user_id})",

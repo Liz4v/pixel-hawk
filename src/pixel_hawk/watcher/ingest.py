@@ -160,8 +160,8 @@ class TileChecker:
         """Investigate authorship of regressed pixels by adaptive sampling.
 
         Randomly samples regressed pixels one at a time, querying the WPlace API for each.
-        Stops once any single author has been seen 4 times. Logs one line per unique author
-        and stores a GriefReport on the project for downstream Discord notification.
+        Stops once any single author has been seen 4 times. Stores a GriefReport on the
+        project (painters ordered by decreasing sample count) for downstream Discord notification.
         """
         rect = proj.rect
         w = rect.size.w
@@ -180,11 +180,9 @@ class TileChecker:
             if authors[uid] >= 4:
                 break
 
-        prefix = f"{proj.info.owner.name}/{proj.info.name}: {len(proj.regressed_indices)}px regressed by"
-        for painter in painters.values():
-            logger.warning(f"{prefix} {painter}")
-
         sorted_painters = tuple(painters[uid] for uid, _ in authors.most_common())
+        names = ", ".join(f"~{p.user_name}" for p in sorted_painters)
+        logger.warning(f"{proj.info.owner.name}/{proj.info.name}: {len(proj.regressed_indices)}px regressed by {names}")
         proj.grief_report = GriefReport(regress_count=len(proj.regressed_indices), painters=sorted_painters)
 
     async def investigate_pixel(self, point: Point) -> Painter:

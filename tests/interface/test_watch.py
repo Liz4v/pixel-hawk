@@ -379,6 +379,8 @@ class TestFormatGriefMessage:
         assert "my art" in result
         assert "-150" in result
         assert "~Griefer" in result
+        assert f"`{info.id:04}`" in result
+        assert "wplace.live" in result
 
     async def test_without_discord_id(self):
         person = await Person.create(name="NoDC")

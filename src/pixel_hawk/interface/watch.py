@@ -91,9 +91,12 @@ def format_grief_message(project: Project) -> str:
     info = project.info
     report = project.grief_report
     mention = f"<@{info.owner.discord_id}>" if info.owner.discord_id else info.owner.name
-    lines = [f"**Grief alert** — {info.name} (-{report.regress_count:,}px) {mention}"]
+    lines = [
+        f"**Grief alert** — `{info.id:04}` {info.name} (-{report.regress_count:,}px) "
+        f"{mention} <{info.rectangle.to_link()}>"
+    ]
     for painter in report.painters:
-        lines.append(str(painter))
+        lines.append(f"- {painter}")
     return "\n".join(lines)
 
 
