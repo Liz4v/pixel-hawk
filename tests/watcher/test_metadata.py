@@ -141,6 +141,50 @@ async def test_numeric_fields_precision(test_person):
 # Pixel counting tests
 
 
+async def test_find_regressed_indices_basic():
+    """Test finding flat indices of regressed pixels."""
+    target = bytes([0, 1, 2, 3, 0])
+    prev = bytes([0, 1, 2, 3, 0])
+    current = bytes([0, 1, 0, 0, 0])  # pixels 2 and 3 regressed
+
+    indices = metadata.find_regressed_indices(current, prev, target)
+
+    assert indices == [2, 3]
+
+
+async def test_find_regressed_indices_skips_transparent():
+    """Transparent target pixels are never counted as regressed."""
+    target = bytes([0, 1, 0, 2])
+    prev = bytes([5, 1, 5, 2])
+    current = bytes([9, 1, 9, 0])  # pixel 3 regressed, pixel 0 and 2 are transparent
+
+    indices = metadata.find_regressed_indices(current, prev, target)
+
+    assert indices == [3]
+
+
+async def test_find_regressed_indices_no_regression():
+    """No regressed pixels returns empty list."""
+    target = bytes([0, 1, 2, 0])
+    prev = bytes([0, 0, 0, 0])
+    current = bytes([0, 1, 2, 0])  # all progress, no regress
+
+    indices = metadata.find_regressed_indices(current, prev, target)
+
+    assert indices == []
+
+
+async def test_find_regressed_indices_ignores_progress():
+    """Progress pixels are not included in regressed indices."""
+    target = bytes([1, 2, 3])
+    prev = bytes([0, 2, 0])
+    current = bytes([1, 0, 3])  # pixel 0: progress, pixel 1: regress, pixel 2: progress
+
+    indices = metadata.find_regressed_indices(current, prev, target)
+
+    assert indices == [1]
+
+
 async def test_compare_snapshots_progress():
     """Test snapshot comparison detecting progress."""
     target = bytes([0, 1, 2, 0])

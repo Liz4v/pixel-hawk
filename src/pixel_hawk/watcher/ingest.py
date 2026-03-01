@@ -14,7 +14,9 @@ table, and Project objects are constructed on demand for diffing.
 """
 
 import asyncio
+import random
 import time
+from collections import Counter
 from email.utils import formatdate, parsedate_to_datetime
 from typing import NamedTuple
 
@@ -80,6 +82,8 @@ class TileChecker:
         if changed:
             for proj in projects:
                 await proj.run_diff()
+                if proj.regressed_indices:
+                    await self.investigate_regression(proj)
             return proj_ids
 
         untouched = tile_info.last_checked - tile_info.last_update
@@ -152,6 +156,33 @@ class TileChecker:
         """Close the httpx client."""
         await self.client.aclose()
 
+    async def investigate_regression(self, proj: Project) -> None:
+        """Investigate authorship of regressed pixels by adaptive sampling.
+
+        Randomly samples regressed pixels one at a time, querying the WPlace API for each.
+        Stops once any single author has been seen 4 times. Logs one line per unique author.
+        """
+        rect = proj.rect
+        w = rect.size.w
+        indices = proj.regressed_indices.copy()
+        random.shuffle(indices)
+
+        authors: Counter[int] = Counter()  # user_id -> count
+        painters: dict[int, Painter] = {}  # user_id -> Painter (dedup)
+
+        for idx in indices:
+            point = Point(rect.point.x + idx % w, rect.point.y + idx // w)
+            painter = await self.investigate_pixel(point)
+            uid = painter.user_id
+            authors[uid] += 1
+            painters.setdefault(uid, painter)
+            if authors[uid] >= 4:
+                break
+
+        prefix = f"{proj.info.owner.name}/{proj.info.name}: {len(proj.regressed_indices)}px regressed by"
+        for painter in painters.values():
+            logger.warning(f"{prefix} {painter}")
+
     async def investigate_pixel(self, point: Point) -> Painter:
         tx, ty, px, py = point.to4()
         url = f"https://backend.wplace.live/s0/pixel/{tx}/{ty}?x={px}&y={py}"
@@ -170,9 +201,8 @@ class TileChecker:
 class Painter(NamedTuple):
     user_id: int
     user_name: str
-    alliance_id: int
     alliance_name: str
-    discord_id: int
+    discord_id: str
     discord_name: str
 
     @classmethod
@@ -180,11 +210,21 @@ class Painter(NamedTuple):
         return Painter(
             user_id=kwargs.get("id", 0),
             user_name=kwargs.get("name", ""),
-            alliance_id=kwargs.get("allianceId", 0),
             alliance_name=kwargs.get("allianceName", ""),
-            discord_id=int(kwargs.get("discordId", 0)),
+            discord_id=kwargs.get("discordId", ""),
             discord_name=kwargs.get("discord", ""),
         )
 
     def __bool__(self):
         return self.user_id != 0
+
+    def __str__(self):
+        if not self.user_id:
+            return "Not painted (mod revert???)"
+        parts = [
+            self.alliance_name and f"%{self.alliance_name}",
+            f"~{self.user_name} (#{self.user_id})",
+            self.discord_name and f"@{self.discord_name}",
+            self.discord_id and f"https://discord.com/users/{self.discord_id}",
+        ]
+        return " ".join(p for p in parts if p)

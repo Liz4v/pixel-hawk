@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 
-
-from pixel_hawk.watcher.ingest import TileChecker
+from pixel_hawk.watcher.ingest import Painter, TileChecker
 from pixel_hawk.models.entities import Person, ProjectInfo, ProjectState, TileInfo, TileProject
+from pixel_hawk.models.geometry import Point, Rectangle, Size
 from pixel_hawk.models.palette import PALETTE
 
 
@@ -385,3 +385,125 @@ async def test_tile_checker_close():
     checker = TileChecker()
     await checker.close()
     assert checker.client.is_closed
+
+
+# --- investigate_regression ---
+
+
+def _make_project_with_regressed_indices(indices: list[int], *, rect: Rectangle | None = None) -> "Project":
+    """Create a minimal Project mock with regressed_indices and rect set."""
+    from pixel_hawk.watcher.projects import Project
+
+    if rect is None:
+        rect = Rectangle.from_point_size(Point(5000, 7000), Size(100, 100))
+
+    proj = object.__new__(Project)
+    proj.regressed_indices = indices
+    proj.rect = rect
+
+    # Minimal info stub for logging
+    class _Info:
+        class owner:
+            name = "tester"
+
+        name = "test-project"
+
+    proj.info = _Info()
+    return proj
+
+
+async def test_investigate_regression_stops_after_3_hits():
+    """Stops sampling once any single author reaches 3 occurrences."""
+    painter_a = Painter(user_id=42, user_name="Griefer", alliance_name="Bad", discord_id="", discord_name="")
+
+    call_count = 0
+    original_investigate = TileChecker.investigate_pixel
+
+    async def mock_investigate(self, point):
+        nonlocal call_count
+        call_count += 1
+        return painter_a
+
+    checker = TileChecker()
+    proj = _make_project_with_regressed_indices(list(range(200)))
+
+    with patch.object(TileChecker, "investigate_pixel", mock_investigate):
+        await checker.investigate_regression(proj)
+
+    assert call_count == 3  # Stopped after 3 hits of same author
+    await checker.close()
+
+
+async def test_investigate_regression_deduplicates_authors():
+    """Each unique author is logged once, not per-pixel."""
+    painters = [
+        Painter(user_id=1, user_name="Alice", alliance_name="A", discord_id="", discord_name=""),
+        Painter(user_id=2, user_name="Bob", alliance_name="B", discord_id="", discord_name=""),
+        Painter(user_id=1, user_name="Alice", alliance_name="A", discord_id="", discord_name=""),
+        Painter(user_id=2, user_name="Bob", alliance_name="B", discord_id="", discord_name=""),
+        Painter(user_id=1, user_name="Alice", alliance_name="A", discord_id="", discord_name=""),
+    ]
+    call_idx = 0
+
+    async def mock_investigate(self, point):
+        nonlocal call_idx
+        p = painters[call_idx]
+        call_idx += 1
+        return p
+
+    checker = TileChecker()
+    # Need at least 5 indices since Alice hits 3 on 5th call
+    proj = _make_project_with_regressed_indices(list(range(200)))
+
+    warnings = []
+    with patch.object(TileChecker, "investigate_pixel", mock_investigate):
+        with patch("pixel_hawk.watcher.ingest.logger") as mock_logger:
+            mock_logger.warning = lambda msg: warnings.append(msg)
+            mock_logger.debug = lambda msg: None
+            await checker.investigate_regression(proj)
+
+    assert len(warnings) == 2  # One per unique author
+    await checker.close()
+
+
+async def test_investigate_regression_maps_indices_to_canvas_points():
+    """Flat indices are correctly converted to canvas Points using rect."""
+    rect = Rectangle.from_point_size(Point(5000, 7000), Size(100, 100))
+    # Index 0 -> (5000, 7000), Index 105 -> (5005, 7001)
+    captured_points = []
+
+    async def mock_investigate(self, point):
+        captured_points.append(point)
+        return Painter(user_id=1, user_name="X", alliance_name="", discord_id="", discord_name="")
+
+    checker = TileChecker()
+    proj = _make_project_with_regressed_indices([0, 105, 250])
+
+    with patch.object(TileChecker, "investigate_pixel", mock_investigate):
+        await checker.investigate_regression(proj)
+
+    # With only 1 author, stops after 3 hits — all 3 indices investigated
+    assert Point(5000, 7000) in captured_points
+    assert Point(5005, 7001) in captured_points
+    assert Point(5050, 7002) in captured_points
+    await checker.close()
+
+
+async def test_investigate_regression_exhausts_all_indices():
+    """If no author reaches 3 hits, all indices are investigated."""
+    call_count = 0
+
+    async def mock_investigate(self, point):
+        nonlocal call_count
+        call_count += 1
+        # Each pixel has a unique author
+        return Painter(user_id=call_count, user_name=f"User{call_count}", alliance_name="", discord_id="", discord_name="")
+
+    checker = TileChecker()
+    proj = _make_project_with_regressed_indices(list(range(5)))
+
+    with patch.object(TileChecker, "investigate_pixel", mock_investigate):
+        await checker.investigate_regression(proj)
+
+    assert call_count == 5  # All indices checked, none hit 3
+    await checker.close()

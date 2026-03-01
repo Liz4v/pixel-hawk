@@ -16,6 +16,18 @@ if TYPE_CHECKING:
     from ..models.entities import ProjectInfo
 
 
+def find_regressed_indices(current_data: bytes, prev_data: bytes, target_data: bytes) -> list[int]:
+    """Return flat array indices of all regressed pixels.
+
+    A pixel is regressed when it was correct in the previous snapshot but is now wrong.
+    """
+    return [
+        i
+        for i, (curr_px, prev_px, target_px) in enumerate(zip(current_data, prev_data, target_data))
+        if target_px != 0 and prev_px == target_px and curr_px != target_px
+    ]
+
+
 def compare_snapshots(current_data: bytes, prev_data: bytes, target_data: bytes) -> tuple[int, int]:
     """Compare current and previous snapshots to detect progress and regress.
 

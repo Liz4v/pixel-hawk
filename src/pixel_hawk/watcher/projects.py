@@ -31,6 +31,8 @@ from ..models.palette import PALETTE, AsyncImage, ColorsNotInPalette
 if TYPE_CHECKING:
     from PIL import Image
 
+REGRESS_INVESTIGATE_THRESHOLD = 100
+
 
 class Project:
     """Represents a wplace project stored on disk that has been validated."""
@@ -43,6 +45,7 @@ class Project:
         self.info = info
         self.rect = info.rectangle
         self.path = get_config().projects_dir / str(info.owner.id) / info.filename
+        self.regressed_indices: list[int] = []
         try:
             self.mtime = round(self.path.stat().st_mtime)
         except OSError:
@@ -151,6 +154,8 @@ class Project:
 
         # Process diff: count, compare, update info, build log message, create history record
         change = metadata.process_diff(self.info, current_data, target_data, prev_data)
+        if change.regress_pixels >= REGRESS_INVESTIGATE_THRESHOLD and prev_data:
+            self.regressed_indices = metadata.find_regressed_indices(current_data, prev_data, target_data)
         if change.progress_pixels or change.regress_pixels:
             await change.save()
 
