@@ -10,6 +10,7 @@ Dispatches slash commands to service functions in commands.py and watch.py.
 import asyncio
 import contextlib
 import os
+from typing import TYPE_CHECKING
 
 import discord
 from discord import app_commands
@@ -17,9 +18,20 @@ from loguru import logger
 
 from ..models.entities import Person, ProjectState
 from ..models.palette import ColorsNotInPalette
+from ..watcher.projects import Project
 from .access import ErrorMsg, check_guild_access, set_guild_quotas, set_guild_role, set_user_quotas
 from .commands import delete_project, edit_project, list_projects, new_project
-from .watch import create_watch, format_watch_message, get_watches_for_projects, remove_watch, save_watch_message
+from .watch import (
+    create_watch,
+    format_grief_message,
+    format_watch_message,
+    get_watches_for_projects,
+    remove_watch,
+    save_watch_message,
+)
+
+if TYPE_CHECKING:
+    from ..models.entities import WatchMessage
 
 
 class HawkBot(discord.Client):
@@ -320,6 +332,36 @@ class HawkBot(discord.Client):
                 await watch.delete()
             except Exception as e:
                 logger.warning(f"Failed to update watch for project {watch.project.id:04}: {e}")
+
+    async def notify_griefs(self, projects: list[Project]) -> None:
+        """Send grief alert messages to channels watching projects with grief reports."""
+        griefed = [p for p in projects if p.grief_report]
+        if not griefed:
+            return
+        proj_ids = [p.info.id for p in griefed]
+        watches = await get_watches_for_projects(proj_ids)
+        # Group watches by project ID
+        watches_by_project: dict[int, list[WatchMessage]] = {}
+        for watch in watches:
+            watches_by_project.setdefault(watch.project_id, []).append(watch)
+        for proj in griefed:
+            assert proj.grief_report is not None
+            content = format_grief_message(proj)
+            for watch in watches_by_project.get(proj.info.id, []):
+                try:
+                    channel = self.get_channel(watch.channel_id)
+                    if not isinstance(channel, discord.TextChannel):
+                        channel = await self.fetch_channel(watch.channel_id)
+                    assert isinstance(channel, discord.TextChannel)
+                    await channel.send(content)
+                except discord.NotFound:
+                    logger.info(f"Grief channel gone (404): project={proj.info.id:04} channel={watch.channel_id}")
+                    await watch.delete()
+                except discord.Forbidden:
+                    logger.info(f"Grief channel forbidden (403): project={proj.info.id:04} channel={watch.channel_id}")
+                    await watch.delete()
+                except Exception as e:
+                    logger.warning(f"Failed to send grief alert for project {proj.info.id:04}: {e}")
 
     async def setup_hook(self) -> None:
         await self.tree.sync()

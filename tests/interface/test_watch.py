@@ -8,6 +8,7 @@ from pixel_hawk.interface.access import ErrorMsg
 from pixel_hawk.interface.watch import (
     create_watch,
     delete_watches_for_project,
+    format_grief_message,
     format_watch_message,
     get_watches_for_projects,
     remove_watch,
@@ -22,6 +23,7 @@ from pixel_hawk.models.entities import (
     WatchMessage,
 )
 from pixel_hawk.models.geometry import Point, Rectangle, Size
+from pixel_hawk.models.painters import GriefReport, Painter
 
 RECT = Rectangle.from_point_size(Point(500_000, 600_000), Size(100, 100))
 
@@ -351,3 +353,45 @@ async def test_delete_watches_for_project():
 async def test_delete_watches_for_project_none():
     deleted = await delete_watches_for_project(9999)
     assert deleted == 0
+
+
+# format_grief_message tests
+
+
+class TestFormatGriefMessage:
+    async def test_with_discord_id(self):
+        person = await Person.create(name="Victim", discord_id=12345)
+        info = await ProjectInfo.from_rect(RECT, person.id, "my art")
+        await info.fetch_related("owner")
+        painters = [Painter(user_id=99, user_name="Griefer", alliance_name="Bad", discord_id="", discord_name="")]
+        report = GriefReport(regress_count=150, painters=painters)
+        result = format_grief_message(info, report)
+        assert "<@12345>" in result
+        assert "my art" in result
+        assert "-150" in result
+        assert "~Griefer" in result
+
+    async def test_without_discord_id(self):
+        person = await Person.create(name="NoDC")
+        info = await ProjectInfo.from_rect(RECT, person.id, "project")
+        await info.fetch_related("owner")
+        painters = [Painter(user_id=1, user_name="X", alliance_name="", discord_id="", discord_name="")]
+        report = GriefReport(regress_count=200, painters=painters)
+        result = format_grief_message(info, report)
+        assert "NoDC" in result
+        assert "<@" not in result
+
+    async def test_multiple_painters(self):
+        person = await Person.create(name="V", discord_id=55555)
+        info = await ProjectInfo.from_rect(RECT, person.id, "art")
+        await info.fetch_related("owner")
+        painters = [
+            Painter(user_id=1, user_name="Alice", alliance_name="A", discord_id="", discord_name=""),
+            Painter(user_id=2, user_name="Bob", alliance_name="B", discord_id="", discord_name=""),
+        ]
+        report = GriefReport(regress_count=300, painters=painters)
+        result = format_grief_message(info, report)
+        lines = result.split("\n")
+        assert len(lines) == 3  # header + 2 painters
+        assert "~Alice" in lines[1]
+        assert "~Bob" in lines[2]

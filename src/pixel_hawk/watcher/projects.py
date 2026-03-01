@@ -22,11 +22,12 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from . import metadata
 from ..models.config import get_config
-from ..models.geometry import Rectangle, Size
 from ..models.entities import HistoryChange, ProjectInfo
+from ..models.geometry import Rectangle, Size
+from ..models.painters import GriefReport
 from ..models.palette import PALETTE, AsyncImage, ColorsNotInPalette
+from . import metadata
 
 if TYPE_CHECKING:
     from PIL import Image
@@ -46,6 +47,7 @@ class Project:
         self.rect = info.rectangle
         self.path = get_config().projects_dir / str(info.owner.id) / info.filename
         self.regressed_indices: list[int] = []
+        self.grief_report: GriefReport = GriefReport()
         try:
             self.mtime = round(self.path.stat().st_mtime)
         except OSError:

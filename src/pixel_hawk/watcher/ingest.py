@@ -18,7 +18,6 @@ import random
 import time
 from collections import Counter
 from email.utils import formatdate, parsedate_to_datetime
-from typing import NamedTuple
 
 import httpx
 from humanize import naturaldelta
@@ -28,6 +27,7 @@ from PIL import UnidentifiedImageError
 from ..models.config import get_config
 from ..models.entities import ProjectInfo, ProjectState, TileInfo
 from ..models.geometry import Point
+from ..models.painters import GriefReport, Painter
 from ..models.palette import PALETTE, ColorsNotInPalette
 from .projects import Project
 from .queues import QueueSystem
@@ -61,10 +61,11 @@ class TileChecker:
 
         return [Project(info) for info in infos]
 
-    async def check_next_tile(self) -> list[int]:
+    async def check_next_tile(self) -> list[Project]:
         """Check one tile for changes using queue-based selection and update affected projects.
 
-        Returns project IDs that were affected (empty if no tile selected or no projects linked).
+        Returns Project instances that were affected (empty if no tile selected or no projects linked).
+        Projects with large regressions will have their grief_report populated.
         """
         # Select next tile from database via QueueSystem
         tile_info = await self.queue_system.select_next_tile()
@@ -78,19 +79,18 @@ class TileChecker:
 
         # Query affected projects from database
         projects = await self._get_projects_for_tile(tile_info)
-        proj_ids = [proj.info.id for proj in projects]
         if changed:
             for proj in projects:
                 await proj.run_diff()
                 if proj.regressed_indices:
                     await self.investigate_regression(proj)
-            return proj_ids
+            return projects
 
         untouched = tile_info.last_checked - tile_info.last_update
         logger.debug(f"Tile {tile_info.tile}: Unchanged for {untouched}s ({naturaldelta(untouched)})")
         for proj in projects:
             await proj.run_nochange()
-        return proj_ids
+        return projects
 
     async def has_tile_changed(self, tile_info: TileInfo) -> bool:
         """Downloads the indicated tile from the server and updates the cache.
@@ -160,7 +160,8 @@ class TileChecker:
         """Investigate authorship of regressed pixels by adaptive sampling.
 
         Randomly samples regressed pixels one at a time, querying the WPlace API for each.
-        Stops once any single author has been seen 4 times. Logs one line per unique author.
+        Stops once any single author has been seen 4 times. Logs one line per unique author
+        and stores a GriefReport on the project for downstream Discord notification.
         """
         rect = proj.rect
         w = rect.size.w
@@ -183,6 +184,8 @@ class TileChecker:
         for painter in painters.values():
             logger.warning(f"{prefix} {painter}")
 
+        proj.grief_report = GriefReport(regress_count=len(proj.regressed_indices), painters=list(painters.values()))
+
     async def investigate_pixel(self, point: Point) -> Painter:
         tx, ty, px, py = point.to4()
         url = f"https://backend.wplace.live/s0/pixel/{tx}/{ty}?x={px}&y={py}"
@@ -196,35 +199,3 @@ class TileChecker:
             return Painter.new()
         payload = response.json()
         return Painter.new(**payload.get("paintedBy", {}))
-
-
-class Painter(NamedTuple):
-    user_id: int
-    user_name: str
-    alliance_name: str
-    discord_id: str
-    discord_name: str
-
-    @classmethod
-    def new(cls, **kwargs) -> Painter:
-        return Painter(
-            user_id=kwargs.get("id", 0),
-            user_name=kwargs.get("name", ""),
-            alliance_name=kwargs.get("allianceName", ""),
-            discord_id=kwargs.get("discordId", ""),
-            discord_name=kwargs.get("discord", ""),
-        )
-
-    def __bool__(self):
-        return self.user_id != 0
-
-    def __str__(self):
-        if not self.user_id:
-            return "Not painted (mod revert???)"
-        parts = [
-            self.alliance_name and f"%{self.alliance_name}",
-            f"~{self.user_name} (#{self.user_id})",
-            self.discord_name and f"@{self.discord_name}",
-            self.discord_id and f"https://discord.com/users/{self.discord_id}",
-        ]
-        return " ".join(p for p in parts if p)

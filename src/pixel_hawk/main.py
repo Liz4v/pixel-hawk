@@ -76,9 +76,11 @@ class Main:
 
     async def poll_once(self) -> None:
         """Run a cycle of the main polling loop."""
-        proj_ids = await self.tile_checker.check_next_tile()
-        if proj_ids and self.bot:
+        projects = await self.tile_checker.check_next_tile()
+        if projects and self.bot:
+            proj_ids = [p.info.id for p in projects]
             await self.bot.update_watches(proj_ids)
+            await self.bot.notify_griefs(projects)
 
 
 def main():

@@ -9,6 +9,7 @@ import time
 from loguru import logger
 
 from ..models.entities import DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState, WatchMessage
+from ..watcher.projects import Project
 from .access import ErrorMsg
 
 
@@ -82,6 +83,17 @@ async def format_watch_message(info: ProjectInfo) -> str:
 
     lines.append(f"Last checked <t:{info.last_check}:R>")
 
+    return "\n".join(lines)
+
+
+def format_grief_message(project: Project) -> str:
+    """Format a grief alert message for Discord, mentioning the project owner."""
+    info = project.info
+    report = project.grief_report
+    mention = f"<@{info.owner.discord_id}>" if info.owner.discord_id else info.owner.name
+    lines = [f"**Grief alert** — {info.name} (-{report.regress_count:,}px) {mention}"]
+    for painter in report.painters:
+        lines.append(str(painter))
     return "\n".join(lines)
 
 

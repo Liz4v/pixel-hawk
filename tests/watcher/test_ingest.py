@@ -5,7 +5,8 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 
-from pixel_hawk.watcher.ingest import Painter, TileChecker
+from pixel_hawk.models.painters import Painter
+from pixel_hawk.watcher.ingest import TileChecker
 from pixel_hawk.models.entities import Person, ProjectInfo, ProjectState, TileInfo, TileProject
 from pixel_hawk.models.geometry import Point, Rectangle, Size
 from pixel_hawk.models.palette import PALETTE
@@ -296,8 +297,8 @@ async def test_check_next_tile_unchanged_calls_run_nochange(setup_config):
     await checker.close()
 
 
-async def test_check_next_tile_unchanged_returns_project_ids(setup_config):
-    """When tile is unchanged, check_next_tile still returns affected project IDs for watch updates."""
+async def test_check_next_tile_unchanged_returns_projects(setup_config):
+    """When tile is unchanged, check_next_tile still returns affected Projects for watch updates."""
     info = await _create_project_with_tile(0, 0)
     tile_info = await TileInfo.get(id=TileInfo.tile_id(0, 0))
     tile_info.last_update = 1700052326
@@ -312,7 +313,8 @@ async def test_check_next_tile_unchanged_returns_project_ids(setup_config):
     with patch("pixel_hawk.watcher.projects.Project.run_nochange", AsyncMock()):
         result = await checker.check_next_tile()
 
-    assert result == [info.id]
+    assert len(result) == 1
+    assert result[0].info.id == info.id
     await checker.close()
 
 
@@ -399,6 +401,7 @@ def _make_project_with_regressed_indices(indices: list[int], *, rect: Rectangle 
 
     proj = object.__new__(Project)
     proj.regressed_indices = indices
+    proj.grief_report = None
     proj.rect = rect
 
     # Minimal info stub for logging
@@ -412,12 +415,11 @@ def _make_project_with_regressed_indices(indices: list[int], *, rect: Rectangle 
     return proj
 
 
-async def test_investigate_regression_stops_after_3_hits():
-    """Stops sampling once any single author reaches 3 occurrences."""
+async def test_investigate_regression_stops_after_4_hits():
+    """Stops sampling once any single author reaches 4 occurrences."""
     painter_a = Painter(user_id=42, user_name="Griefer", alliance_name="Bad", discord_id="", discord_name="")
 
     call_count = 0
-    original_investigate = TileChecker.investigate_pixel
 
     async def mock_investigate(self, point):
         nonlocal call_count
@@ -430,19 +432,19 @@ async def test_investigate_regression_stops_after_3_hits():
     with patch.object(TileChecker, "investigate_pixel", mock_investigate):
         await checker.investigate_regression(proj)
 
-    assert call_count == 3  # Stopped after 3 hits of same author
+    assert call_count == 4  # Stopped after 4 hits of same author
+    assert proj.grief_report is not None
+    assert proj.grief_report.regress_count == 200
+    assert len(proj.grief_report.painters) == 1
     await checker.close()
 
 
 async def test_investigate_regression_deduplicates_authors():
-    """Each unique author is logged once, not per-pixel."""
-    painters = [
-        Painter(user_id=1, user_name="Alice", alliance_name="A", discord_id="", discord_name=""),
-        Painter(user_id=2, user_name="Bob", alliance_name="B", discord_id="", discord_name=""),
-        Painter(user_id=1, user_name="Alice", alliance_name="A", discord_id="", discord_name=""),
-        Painter(user_id=2, user_name="Bob", alliance_name="B", discord_id="", discord_name=""),
-        Painter(user_id=1, user_name="Alice", alliance_name="A", discord_id="", discord_name=""),
-    ]
+    """Each unique author is logged once, not per-pixel. GriefReport has deduplicated list."""
+    alice = Painter(user_id=1, user_name="Alice", alliance_name="A", discord_id="", discord_name="")
+    bob = Painter(user_id=2, user_name="Bob", alliance_name="B", discord_id="", discord_name="")
+    # Alice hits 4 on the 7th call: A B A B A B A
+    painters = [alice, bob, alice, bob, alice, bob, alice]
     call_idx = 0
 
     async def mock_investigate(self, point):
@@ -452,17 +454,14 @@ async def test_investigate_regression_deduplicates_authors():
         return p
 
     checker = TileChecker()
-    # Need at least 5 indices since Alice hits 3 on 5th call
     proj = _make_project_with_regressed_indices(list(range(200)))
 
-    warnings = []
     with patch.object(TileChecker, "investigate_pixel", mock_investigate):
-        with patch("pixel_hawk.watcher.ingest.logger") as mock_logger:
-            mock_logger.warning = lambda msg: warnings.append(msg)
-            mock_logger.debug = lambda msg: None
-            await checker.investigate_regression(proj)
+        await checker.investigate_regression(proj)
 
-    assert len(warnings) == 2  # One per unique author
+    assert call_idx == 7  # Stopped when Alice hit 4
+    assert proj.grief_report is not None
+    assert len(proj.grief_report.painters) == 2  # Deduplicated: Alice and Bob
     await checker.close()
 
 
@@ -482,7 +481,7 @@ async def test_investigate_regression_maps_indices_to_canvas_points():
     with patch.object(TileChecker, "investigate_pixel", mock_investigate):
         await checker.investigate_regression(proj)
 
-    # With only 1 author, stops after 3 hits — all 3 indices investigated
+    # Only 3 indices, single author doesn't reach threshold of 4 — all investigated
     assert Point(5000, 7000) in captured_points
     assert Point(5005, 7001) in captured_points
     assert Point(5050, 7002) in captured_points
@@ -490,7 +489,7 @@ async def test_investigate_regression_maps_indices_to_canvas_points():
 
 
 async def test_investigate_regression_exhausts_all_indices():
-    """If no author reaches 3 hits, all indices are investigated."""
+    """If no author reaches 4 hits, all indices are investigated."""
     call_count = 0
 
     async def mock_investigate(self, point):
@@ -505,5 +504,5 @@ async def test_investigate_regression_exhausts_all_indices():
     with patch.object(TileChecker, "investigate_pixel", mock_investigate):
         await checker.investigate_regression(proj)
 
-    assert call_count == 5  # All indices checked, none hit 3
+    assert call_count == 5  # All indices checked, none hit 4
     await checker.close()
