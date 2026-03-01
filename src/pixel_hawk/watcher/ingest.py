@@ -27,7 +27,7 @@ from PIL import UnidentifiedImageError
 from ..models.config import get_config
 from ..models.entities import ProjectInfo, ProjectState, TileInfo
 from ..models.geometry import Point
-from ..models.painters import GriefReport, Painter
+from ..models.griefing import GriefReport, Painter
 from ..models.palette import PALETTE, ColorsNotInPalette
 from .projects import Project
 from .queues import QueueSystem
@@ -184,7 +184,8 @@ class TileChecker:
         for painter in painters.values():
             logger.warning(f"{prefix} {painter}")
 
-        proj.grief_report = GriefReport(regress_count=len(proj.regressed_indices), painters=list(painters.values()))
+        sorted_painters = tuple(painters[uid] for uid, _ in authors.most_common())
+        proj.grief_report = GriefReport(regress_count=len(proj.regressed_indices), painters=sorted_painters)
 
     async def investigate_pixel(self, point: Point) -> Painter:
         tx, ty, px, py = point.to4()

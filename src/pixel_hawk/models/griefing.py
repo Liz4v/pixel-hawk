@@ -42,7 +42,7 @@ class Painter(NamedTuple):
 
 class GriefReport(NamedTuple):
     regress_count: int = 0
-    painters: list[Painter] = []
+    painters: tuple[Painter, ...] = ()
 
     def __bool__(self):
         return bool(self.painters)

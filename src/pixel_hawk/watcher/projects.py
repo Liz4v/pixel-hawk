@@ -25,7 +25,7 @@ from loguru import logger
 from ..models.config import get_config
 from ..models.entities import HistoryChange, ProjectInfo
 from ..models.geometry import Rectangle, Size
-from ..models.painters import GriefReport
+from ..models.griefing import GriefReport
 from ..models.palette import PALETTE, AsyncImage, ColorsNotInPalette
 from . import metadata
 

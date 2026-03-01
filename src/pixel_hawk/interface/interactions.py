@@ -345,7 +345,6 @@ class HawkBot(discord.Client):
         for watch in watches:
             watches_by_project.setdefault(watch.project_id, []).append(watch)
         for proj in griefed:
-            assert proj.grief_report is not None
             content = format_grief_message(proj)
             for watch in watches_by_project.get(proj.info.id, []):
                 try:

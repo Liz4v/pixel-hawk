@@ -23,7 +23,8 @@ from pixel_hawk.models.entities import (
     WatchMessage,
 )
 from pixel_hawk.models.geometry import Point, Rectangle, Size
-from pixel_hawk.models.painters import GriefReport, Painter
+from pixel_hawk.models.griefing import GriefReport, Painter
+from pixel_hawk.watcher.projects import Project
 
 RECT = Rectangle.from_point_size(Point(500_000, 600_000), Size(100, 100))
 
@@ -358,14 +359,22 @@ async def test_delete_watches_for_project_none():
 # format_grief_message tests
 
 
+def _grief_project(info: ProjectInfo, report: GriefReport) -> Project:
+    """Build a minimal Project stub with info and grief_report set."""
+    proj = object.__new__(Project)
+    proj.info = info
+    proj.grief_report = report
+    return proj
+
+
 class TestFormatGriefMessage:
     async def test_with_discord_id(self):
         person = await Person.create(name="Victim", discord_id=12345)
         info = await ProjectInfo.from_rect(RECT, person.id, "my art")
         await info.fetch_related("owner")
-        painters = [Painter(user_id=99, user_name="Griefer", alliance_name="Bad", discord_id="", discord_name="")]
-        report = GriefReport(regress_count=150, painters=painters)
-        result = format_grief_message(info, report)
+        painters = (Painter(user_id=99, user_name="Griefer", alliance_name="Bad", discord_id="", discord_name=""),)
+        proj = _grief_project(info, GriefReport(regress_count=150, painters=painters))
+        result = format_grief_message(proj)
         assert "<@12345>" in result
         assert "my art" in result
         assert "-150" in result
@@ -375,9 +384,9 @@ class TestFormatGriefMessage:
         person = await Person.create(name="NoDC")
         info = await ProjectInfo.from_rect(RECT, person.id, "project")
         await info.fetch_related("owner")
-        painters = [Painter(user_id=1, user_name="X", alliance_name="", discord_id="", discord_name="")]
-        report = GriefReport(regress_count=200, painters=painters)
-        result = format_grief_message(info, report)
+        painters = (Painter(user_id=1, user_name="X", alliance_name="", discord_id="", discord_name=""),)
+        proj = _grief_project(info, GriefReport(regress_count=200, painters=painters))
+        result = format_grief_message(proj)
         assert "NoDC" in result
         assert "<@" not in result
 
@@ -385,12 +394,12 @@ class TestFormatGriefMessage:
         person = await Person.create(name="V", discord_id=55555)
         info = await ProjectInfo.from_rect(RECT, person.id, "art")
         await info.fetch_related("owner")
-        painters = [
+        painters = (
             Painter(user_id=1, user_name="Alice", alliance_name="A", discord_id="", discord_name=""),
             Painter(user_id=2, user_name="Bob", alliance_name="B", discord_id="", discord_name=""),
-        ]
-        report = GriefReport(regress_count=300, painters=painters)
-        result = format_grief_message(info, report)
+        )
+        proj = _grief_project(info, GriefReport(regress_count=300, painters=painters))
+        result = format_grief_message(proj)
         lines = result.split("\n")
         assert len(lines) == 3  # header + 2 painters
         assert "~Alice" in lines[1]

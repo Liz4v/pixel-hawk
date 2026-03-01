@@ -5,8 +5,9 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 
-from pixel_hawk.models.painters import Painter
+from pixel_hawk.models.griefing import GriefReport, Painter
 from pixel_hawk.watcher.ingest import TileChecker
+from pixel_hawk.watcher.projects import Project
 from pixel_hawk.models.entities import Person, ProjectInfo, ProjectState, TileInfo, TileProject
 from pixel_hawk.models.geometry import Point, Rectangle, Size
 from pixel_hawk.models.palette import PALETTE
@@ -392,16 +393,15 @@ async def test_tile_checker_close():
 # --- investigate_regression ---
 
 
-def _make_project_with_regressed_indices(indices: list[int], *, rect: Rectangle | None = None) -> "Project":
+def _make_project_with_regressed_indices(indices: list[int], *, rect: Rectangle | None = None) -> Project:
     """Create a minimal Project mock with regressed_indices and rect set."""
-    from pixel_hawk.watcher.projects import Project
 
     if rect is None:
         rect = Rectangle.from_point_size(Point(5000, 7000), Size(100, 100))
 
     proj = object.__new__(Project)
     proj.regressed_indices = indices
-    proj.grief_report = None
+    proj.grief_report = GriefReport()
     proj.rect = rect
 
     # Minimal info stub for logging
@@ -433,7 +433,7 @@ async def test_investigate_regression_stops_after_4_hits():
         await checker.investigate_regression(proj)
 
     assert call_count == 4  # Stopped after 4 hits of same author
-    assert proj.grief_report is not None
+    assert proj.grief_report
     assert proj.grief_report.regress_count == 200
     assert len(proj.grief_report.painters) == 1
     await checker.close()
@@ -460,14 +460,14 @@ async def test_investigate_regression_deduplicates_authors():
         await checker.investigate_regression(proj)
 
     assert call_idx == 7  # Stopped when Alice hit 4
-    assert proj.grief_report is not None
+    assert proj.grief_report
     assert len(proj.grief_report.painters) == 2  # Deduplicated: Alice and Bob
+    assert proj.grief_report.painters[0] == alice  # Ordered by decreasing count (4 > 3)
     await checker.close()
 
 
 async def test_investigate_regression_maps_indices_to_canvas_points():
     """Flat indices are correctly converted to canvas Points using rect."""
-    rect = Rectangle.from_point_size(Point(5000, 7000), Size(100, 100))
     # Index 0 -> (5000, 7000), Index 105 -> (5005, 7001)
     captured_points = []
 
