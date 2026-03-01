@@ -124,6 +124,8 @@ Copy `.env.example` to `.env` and fill in values — `python-dotenv` auto-loads 
 
 Commands are blocked until a role is configured. Admins always bypass the role check.
 
+**DM support:** All user commands also work in Discord DMs. Access in DMs requires the user to have previously used a command in a configured guild (which auto-enrolls them). Admins can always use DM commands. Admin commands remain guild-only.
+
 **User commands** (under `/hawk` group):
 - `/hawk list` — List all your projects with state, completion stats, 24h progress/regress, and WPlace links (ephemeral, visible only to you)
 - `/hawk new` — Upload a new project image
@@ -132,7 +134,7 @@ Commands are blocked until a role is configured. Admins always bypass the role c
 - `/hawk watch <project_id>` — Post a live-updating status message for a project. The message auto-updates with current stats (completion %, pixel counts, rate, ETA, 24h activity, lifetime totals) every time the watcher detects changes. One watch per project per channel.
 - `/hawk unwatch <project_id>` — Stop watching a project in this channel and delete the watch message
 
-**Admin commands** (under `/hawkadmin` group, requires Discord administrator permission):
+**Admin commands** (under `/hawkadmin` group, guild-only, requires Discord administrator permission):
 - `/hawkadmin role <name>` — Set the required Discord role for this server
 - `/hawkadmin quota <user> [projects] [tiles]` — View or set per-user quota limits (enforces guild ceilings)
 - `/hawkadmin guildquota [projects] [tiles]` — View or set guild-level quota ceilings

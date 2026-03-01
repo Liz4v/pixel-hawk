@@ -72,7 +72,7 @@ class HawkBot(discord.Client):
             if isinstance(error, app_commands.CommandOnCooldown):
                 await interaction.response.send_message(f"Try again in {error.retry_after:.0f}s.", ephemeral=True)
             else:
-                raise error
+                logger.opt(exception=error).error(f"Unhandled error in /{interaction.command.name if interaction.command else '?'}")
 
     async def _check_access(self, interaction: discord.Interaction) -> Person | None:
         """Check access (guild role or DM). Returns Person on success, sends denial and returns None on failure."""

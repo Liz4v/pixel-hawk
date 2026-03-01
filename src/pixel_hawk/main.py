@@ -8,18 +8,24 @@ on demand.
 """
 
 import asyncio
+import logging
 
 from loguru import logger
 
+from .interface.interactions import maybe_bot
 from .models.config import get_config
 from .models.db import database
-from .watcher.ingest import TileChecker
-from .interface.interactions import maybe_bot
 from .models.entities import Person
+from .watcher.ingest import TileChecker
 
 # Polling cycle period: 60φ = 30(1 + √5) ≈ 97.08 seconds
 # Chosen to be maximally dissonant with 27s and 30s periods
 POLLING_CYCLE_SECONDS = 30 * (1 + 5**0.5)
+
+
+def main():
+    """Main entry point for pixel-hawk."""
+    asyncio.run(Main().main())
 
 
 class Main:
@@ -32,6 +38,8 @@ class Main:
         log_file = cfg.logs_dir / "pixel-hawk.log"
         log_fmt = "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
         logger.add(log_file, rotation="10 MB", retention="7 days", level="DEBUG", format=log_fmt)
+        # Route stdlib logging errors (e.g. discord.py) to loguru
+        logging.basicConfig(handlers=[InterceptHandler()], level=logging.ERROR, force=True)
         logger.info("============================================================================================")
         logger.info("pixel-hawk - WPlace paint project change tracker")
         logger.debug(f"nest: {cfg.home}")
@@ -83,9 +91,11 @@ class Main:
             await self.bot.notify_griefs(projects)
 
 
-def main():
-    """Main entry point for pixel-hawk."""
-    asyncio.run(Main().main())
+class InterceptHandler(logging.Handler):
+    """Route stdlib logging records to loguru."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        logger.opt(depth=6, exception=record.exc_info).log(record.levelname, record.getMessage())
 
 
 if __name__ == "__main__":
