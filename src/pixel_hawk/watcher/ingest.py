@@ -16,6 +16,7 @@ table, and Project objects are constructed on demand for diffing.
 import asyncio
 import time
 from email.utils import formatdate, parsedate_to_datetime
+from typing import NamedTuple
 
 import httpx
 from humanize import naturaldelta
@@ -24,6 +25,7 @@ from PIL import UnidentifiedImageError
 
 from ..models.config import get_config
 from ..models.entities import ProjectInfo, ProjectState, TileInfo
+from ..models.geometry import Point
 from ..models.palette import PALETTE, ColorsNotInPalette
 from .projects import Project
 from .queues import QueueSystem
@@ -149,3 +151,40 @@ class TileChecker:
     async def close(self) -> None:
         """Close the httpx client."""
         await self.client.aclose()
+
+    async def investigate_pixel(self, point: Point) -> Painter:
+        tx, ty, px, py = point.to4()
+        url = f"https://backend.wplace.live/s0/pixel/{tx}/{ty}?x={px}&y={py}"
+        try:
+            response = await self.client.get(url)
+        except Exception as e:
+            logger.debug(f"Pixel {point}: Request failed: {e}")
+            return Painter.new()
+        if response.status_code != 200:
+            logger.debug(f"Pixel {point}: Server returned {response.status_code}")
+            return Painter.new()
+        payload = response.json()
+        return Painter.new(**payload.get("paintedBy", {}))
+
+
+class Painter(NamedTuple):
+    user_id: int
+    user_name: str
+    alliance_id: int
+    alliance_name: str
+    discord_id: int
+    discord_name: str
+
+    @classmethod
+    def new(cls, **kwargs) -> Painter:
+        return Painter(
+            user_id=kwargs.get("id", 0),
+            user_name=kwargs.get("name", ""),
+            alliance_id=kwargs.get("allianceId", 0),
+            alliance_name=kwargs.get("allianceName", ""),
+            discord_id=int(kwargs.get("discordId", 0)),
+            discord_name=kwargs.get("discord", ""),
+        )
+
+    def __bool__(self):
+        return self.user_id != 0
