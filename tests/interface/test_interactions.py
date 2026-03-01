@@ -7,7 +7,9 @@ import discord
 from pixel_hawk.interface.access import ErrorMsg
 from pixel_hawk.interface.interactions import HawkBot, maybe_bot
 from pixel_hawk.models.entities import Person, ProjectState, WatchMessage
+from pixel_hawk.models.griefing import GriefReport, Painter
 from pixel_hawk.models.palette import ColorsNotInPalette
+from pixel_hawk.watcher.projects import Project
 
 
 # HawkBot tests
@@ -944,3 +946,145 @@ class TestMaybeBotYieldsBot:
         ):
             async with maybe_bot() as bot:
                 assert isinstance(bot, HawkBot)
+
+
+# notify_griefs tests
+
+
+def _grief_proj(project_id: int = 1, grief: bool = True) -> Project:
+    """Build a minimal Project stub for notify_griefs testing."""
+    proj = object.__new__(Project)
+    info = MagicMock()
+    info.id = project_id
+    info.owner = MagicMock()
+    info.owner.discord_id = 12345
+    info.owner.name = "Owner"
+    info.name = "test"
+    info.rectangle = MagicMock()
+    info.rectangle.to_link.return_value = "https://wplace.live/?lat=0&lng=0&zoom=10"
+    proj.info = info
+    if grief:
+        painters = (Painter(user_id=1, user_name="Griefer", alliance_name="", discord_id="", discord_name=""),)
+        proj.grief_report = GriefReport(regress_count=100, painters=painters)
+    else:
+        proj.grief_report = GriefReport()
+    return proj
+
+
+class TestNotifyGriefs:
+    async def test_no_grief_reports_skips(self):
+        """No projects with grief reports → no watches queried."""
+        bot = HawkBot("hawk")
+        proj = _grief_proj(grief=False)
+
+        with patch(
+            "pixel_hawk.interface.interactions.get_watches_for_projects", new_callable=AsyncMock
+        ) as mock_get:
+            await bot.notify_griefs([proj])
+
+        mock_get.assert_not_awaited()
+
+    async def test_sends_message_to_channel(self):
+        bot = HawkBot("hawk")
+        mock_channel = MagicMock(spec=discord.TextChannel)
+        mock_channel.send = AsyncMock()
+        bot.get_channel = MagicMock(return_value=mock_channel)
+
+        watch = MagicMock(spec=WatchMessage)
+        watch.project_id = 1
+        watch.channel_id = 100
+        watch.delete = AsyncMock()
+
+        proj = _grief_proj(project_id=1)
+
+        with patch(
+            "pixel_hawk.interface.interactions.get_watches_for_projects",
+            new_callable=AsyncMock,
+            return_value=[watch],
+        ):
+            await bot.notify_griefs([proj])
+
+        mock_channel.send.assert_awaited_once()
+        content = mock_channel.send.call_args.args[0]
+        assert "Grief alert" in content
+        assert "Griefer" in content
+
+    async def test_deletes_watch_on_not_found(self):
+        bot = HawkBot("hawk")
+        mock_channel = MagicMock(spec=discord.TextChannel)
+        mock_channel.send = AsyncMock(side_effect=discord.NotFound(MagicMock(), "gone"))
+        bot.get_channel = MagicMock(return_value=mock_channel)
+
+        watch = MagicMock(spec=WatchMessage)
+        watch.project_id = 1
+        watch.channel_id = 100
+        watch.delete = AsyncMock()
+
+        with patch(
+            "pixel_hawk.interface.interactions.get_watches_for_projects",
+            new_callable=AsyncMock,
+            return_value=[watch],
+        ):
+            await bot.notify_griefs([_grief_proj()])
+
+        watch.delete.assert_awaited_once()
+
+    async def test_deletes_watch_on_forbidden(self):
+        bot = HawkBot("hawk")
+        mock_channel = MagicMock(spec=discord.TextChannel)
+        mock_channel.send = AsyncMock(side_effect=discord.Forbidden(MagicMock(), "nope"))
+        bot.get_channel = MagicMock(return_value=mock_channel)
+
+        watch = MagicMock(spec=WatchMessage)
+        watch.project_id = 1
+        watch.channel_id = 100
+        watch.delete = AsyncMock()
+
+        with patch(
+            "pixel_hawk.interface.interactions.get_watches_for_projects",
+            new_callable=AsyncMock,
+            return_value=[watch],
+        ):
+            await bot.notify_griefs([_grief_proj()])
+
+        watch.delete.assert_awaited_once()
+
+    async def test_handles_unexpected_error(self):
+        bot = HawkBot("hawk")
+        bot.get_channel = MagicMock(side_effect=RuntimeError("boom"))
+
+        watch = MagicMock(spec=WatchMessage)
+        watch.project_id = 1
+        watch.channel_id = 100
+        watch.delete = AsyncMock()
+
+        with patch(
+            "pixel_hawk.interface.interactions.get_watches_for_projects",
+            new_callable=AsyncMock,
+            return_value=[watch],
+        ):
+            await bot.notify_griefs([_grief_proj()])
+
+        watch.delete.assert_not_awaited()
+
+    async def test_fetches_channel_when_not_cached(self):
+        bot = HawkBot("hawk")
+        mock_channel = MagicMock(spec=discord.TextChannel)
+        mock_channel.send = AsyncMock()
+        bot.get_channel = MagicMock(return_value=None)
+        bot.fetch_channel = AsyncMock(return_value=mock_channel)
+
+        watch = MagicMock(spec=WatchMessage)
+        watch.project_id = 1
+        watch.channel_id = 100
+        watch.delete = AsyncMock()
+
+        with patch(
+            "pixel_hawk.interface.interactions.get_watches_for_projects",
+            new_callable=AsyncMock,
+            return_value=[watch],
+        ):
+            await bot.notify_griefs([_grief_proj()])
+
+        bot.fetch_channel.assert_awaited_once_with(100)
+        mock_channel.send.assert_awaited_once()

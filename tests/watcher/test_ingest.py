@@ -506,3 +506,61 @@ async def test_investigate_regression_exhausts_all_indices():
 
     assert call_count == 5  # All indices checked, none hit 4
     await checker.close()
+
+
+# --- investigate_pixel ---
+
+
+async def test_investigate_pixel_success():
+    """Successful 200 response returns populated Painter from paintedBy payload."""
+    response = httpx.Response(200, json={"paintedBy": {"id": 42, "name": "Alice", "allianceName": "Cool", "discordId": "999", "discord": "alice#1"}})
+    checker = TileChecker()
+    checker.client = MockClient(response)
+
+    painter = await checker.investigate_pixel(Point(5001, 7002))
+    assert painter.user_id == 42
+    assert painter.user_name == "Alice"
+    assert painter.alliance_name == "Cool"
+    assert painter.discord_id == "999"
+    # Verify correct URL construction: (5, 7, 1, 2)
+    url = checker.client.calls[0][0]
+    assert "/s0/pixel/5/7" in url
+    assert "x=1" in url
+    assert "y=2" in url
+    await checker.close()
+
+
+async def test_investigate_pixel_request_error():
+    """Request exception returns empty Painter."""
+
+    async def raise_error(url, **kwargs):
+        raise httpx.ConnectError("connection refused")
+
+    checker = TileChecker()
+    checker.client = MockClient(handler=raise_error)
+
+    painter = await checker.investigate_pixel(Point(0, 0))
+    assert not painter  # Painter.__bool__ is False for user_id=0
+    await checker.close()
+
+
+async def test_investigate_pixel_non_200():
+    """Non-200 status code returns empty Painter."""
+    checker = TileChecker()
+    checker.client = MockClient(httpx.Response(500))
+
+    painter = await checker.investigate_pixel(Point(0, 0))
+    assert not painter
+    await checker.close()
+
+
+async def test_investigate_pixel_missing_painted_by():
+    """200 response without paintedBy key returns empty Painter."""
+    response = httpx.Response(200, json={"something": "else"})
+    checker = TileChecker()
+    checker.client = MockClient(response)
+
+    painter = await checker.investigate_pixel(Point(0, 0))
+    assert painter.user_id == 0
+    assert painter.user_name == ""
+    await checker.close()
