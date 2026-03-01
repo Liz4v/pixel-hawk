@@ -100,7 +100,7 @@ def format_grief_message(project: Project) -> str:
     return "\n".join(lines)
 
 
-async def create_watch(discord_id: int, project_id: int, channel_id: int, guild_id: int) -> tuple[str, int]:
+async def create_watch(discord_id: int, project_id: int, channel_id: int, guild_id: int = 0) -> tuple[str, int]:
     """Validate and format a watch message. Returns (content, project_id).
 
     The caller sends the Discord message, then calls ``save_watch_message``
@@ -118,7 +118,8 @@ async def create_watch(discord_id: int, project_id: int, channel_id: int, guild_
 
     existing = await WatchMessage.filter(project_id=project_id, channel_id=channel_id).first()
     if existing:
-        link = f"https://discord.com/channels/{guild_id}/{existing.channel_id}/{existing.message_id}"
+        guild_part = str(guild_id) if guild_id else "@me"
+        link = f"https://discord.com/channels/{guild_part}/{existing.channel_id}/{existing.message_id}"
         raise ErrorMsg(f"Project {project_id:04} is already being watched in this channel: {link}")
 
     content = await format_watch_message(info)

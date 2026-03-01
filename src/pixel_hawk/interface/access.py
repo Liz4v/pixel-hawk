@@ -135,6 +135,17 @@ async def set_guild_quotas(admin_discord_id: int, guild_id: int, *, projects: in
     return "Updated guild quota ceilings:\n" + "\n".join(f"  {c}" for c in changes)
 
 
+async def check_dm_access(discord_id: int) -> Person:
+    """Check if a user has access via DMs. Returns the Person if they have ADMIN or ALLOWED access.
+
+    Raises ErrorMsg if the user has no Person record or insufficient access.
+    """
+    person = await Person.filter(discord_id=discord_id).first()
+    if person is None or not (person.access & (BotAccess.ADMIN | BotAccess.ALLOWED)):
+        raise ErrorMsg("Use a hawk command in a server first to get access.")
+    return person
+
+
 async def check_guild_access(guild_id: int, discord_id: int, display_name: str, role_ids: list[str]) -> Person:
     """Check if a user has access in the given guild. Returns the Person (auto-created if needed).
 

@@ -19,7 +19,7 @@ from loguru import logger
 from ..models.entities import Person, ProjectState
 from ..models.palette import ColorsNotInPalette
 from ..watcher.projects import Project
-from .access import ErrorMsg, check_guild_access, set_guild_quotas, set_guild_role, set_user_quotas
+from .access import ErrorMsg, check_dm_access, check_guild_access, set_guild_quotas, set_guild_role, set_user_quotas
 from .commands import delete_project, edit_project, list_projects, new_project
 from .watch import (
     create_watch,
@@ -60,6 +60,7 @@ class HawkBot(discord.Client):
             name=f"{self.command_prefix}admin",
             description="Pixel Hawk admin commands",
             default_permissions=discord.Permissions(administrator=True),
+            guild_only=True,
         )
         admin_group.command(name="role", description="Set the required role for this server")(self._admin_role)
         admin_group.command(name="quota", description="View or set per-user quotas")(self._admin_quota)
@@ -74,14 +75,15 @@ class HawkBot(discord.Client):
                 raise error
 
     async def _check_access(self, interaction: discord.Interaction) -> Person | None:
-        """Check guild role access. Returns Person on success, sends denial and returns None on failure."""
-        guild_id = interaction.guild_id
-        assert guild_id is not None, "Commands must be used in a guild"
-        member = interaction.user
-        assert isinstance(member, discord.Member), "Commands must be used in a guild"
-        role_ids = [str(r.id) for r in member.roles]
+        """Check access (guild role or DM). Returns Person on success, sends denial and returns None on failure."""
         try:
-            return await check_guild_access(guild_id, member.id, member.name, role_ids)
+            if interaction.guild_id is not None:
+                member = interaction.user
+                assert isinstance(member, discord.Member)
+                role_ids = [str(r.id) for r in member.roles]
+                return await check_guild_access(interaction.guild_id, member.id, member.name, role_ids)
+            else:
+                return await check_dm_access(interaction.user.id)
         except ErrorMsg as e:
             await interaction.response.send_message(str(e), ephemeral=True)
             return None
@@ -275,9 +277,7 @@ class HawkBot(discord.Client):
         channel_id = interaction.channel_id
         assert channel_id is not None, "Commands must be used in a channel"
         try:
-            guild_id = interaction.guild_id
-            assert guild_id is not None, "Commands must be used in a guild"
-            content, info_id = await create_watch(interaction.user.id, project_id, channel_id, guild_id)
+            content, info_id = await create_watch(interaction.user.id, project_id, channel_id, interaction.guild_id or 0)
         except ErrorMsg as e:
             await interaction.response.send_message(str(e), ephemeral=True)
             return
@@ -299,12 +299,12 @@ class HawkBot(discord.Client):
             await interaction.response.send_message(str(e), ephemeral=True)
             return
         channel = interaction.channel
-        assert isinstance(channel, discord.TextChannel), "Commands must be used in a text channel"
-        try:
-            msg = await channel.fetch_message(message_id)
-            await msg.delete()
-        except (discord.NotFound, discord.Forbidden):
-            pass
+        if isinstance(channel, (discord.TextChannel, discord.DMChannel)):
+            try:
+                msg = await channel.fetch_message(message_id)
+                await msg.delete()
+            except (discord.NotFound, discord.Forbidden):
+                pass
         await interaction.response.send_message(
             f"Stopped watching project **{project_id:04}** in this channel.", ephemeral=True
         )
@@ -316,9 +316,9 @@ class HawkBot(discord.Client):
             try:
                 content = await format_watch_message(watch.project)
                 channel = self.get_channel(watch.channel_id)
-                if not isinstance(channel, discord.TextChannel):
+                if not isinstance(channel, (discord.TextChannel, discord.DMChannel)):
                     channel = await self.fetch_channel(watch.channel_id)
-                assert isinstance(channel, discord.TextChannel)
+                assert isinstance(channel, (discord.TextChannel, discord.DMChannel))
                 msg = await channel.fetch_message(watch.message_id)
                 await msg.edit(content=content)
                 logger.debug(f"Updated watch: project={watch.project.id:04} channel={watch.channel_id}")
@@ -349,9 +349,9 @@ class HawkBot(discord.Client):
             for watch in watches_by_project.get(proj.info.id, []):
                 try:
                     channel = self.get_channel(watch.channel_id)
-                    if not isinstance(channel, discord.TextChannel):
+                    if not isinstance(channel, (discord.TextChannel, discord.DMChannel)):
                         channel = await self.fetch_channel(watch.channel_id)
-                    assert isinstance(channel, discord.TextChannel)
+                    assert isinstance(channel, (discord.TextChannel, discord.DMChannel))
                     await channel.send(content)
                 except discord.NotFound:
                     logger.info(f"Grief channel gone (404): project={proj.info.id:04} channel={watch.channel_id}")
