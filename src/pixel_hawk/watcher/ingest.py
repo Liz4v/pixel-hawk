@@ -14,6 +14,7 @@ table, and Project objects are constructed on demand for diffing.
 """
 
 import asyncio
+import os
 import random
 import time
 from collections import Counter
@@ -31,6 +32,8 @@ from ..models.griefing import GriefReport, Painter
 from ..models.palette import PALETTE, ColorsNotInPalette
 from .projects import Project
 from .queues import QueueSystem
+
+_HAWK_INVESTIGATE = os.getenv("HAWK_INVESTIGATE", "disabled").lower() == "enabled"
 
 
 class TileChecker:
@@ -164,6 +167,11 @@ class TileChecker:
         Stops once any single author has been seen 4 times. Stores a GriefReport on the
         project (painters ordered by decreasing sample count) for downstream Discord notification.
         """
+        if not _HAWK_INVESTIGATE:
+            # I'm getting 403 errors from the pixel API in my tests, so I'm disabling it for now.
+            proj.grief_report = GriefReport(len(proj.regressed_indices))
+            return
+
         rect = proj.rect
         w = rect.size.w
         random.shuffle(proj.regressed_indices)

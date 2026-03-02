@@ -415,6 +415,22 @@ def _make_project_with_regressed_indices(indices: list[int], *, rect: Rectangle 
     return proj
 
 
+async def test_investigate_regression_skipped_when_disabled():
+    """When _HAWK_INVESTIGATE is False, investigation is skipped and a painters-less GriefReport is created."""
+    checker = TileChecker()
+    proj = _make_project_with_regressed_indices(list(range(20)))
+
+    mock_pixel = AsyncMock()
+    with patch.object(TileChecker, "investigate_pixel", mock_pixel):
+        await checker.investigate_regression(proj)
+
+    mock_pixel.assert_not_called()
+    assert proj.grief_report
+    assert proj.grief_report.regress_count == 20
+    assert not proj.grief_report.painters
+    await checker.close()
+
+
 async def test_investigate_regression_stops_after_4_hits():
     """Stops sampling once any single author reaches 4 occurrences."""
     painter_a = Painter(user_id=42, user_name="Griefer", alliance_name="Bad", discord_id="", discord_name="")
@@ -429,7 +445,8 @@ async def test_investigate_regression_stops_after_4_hits():
     checker = TileChecker()
     proj = _make_project_with_regressed_indices(list(range(200)))
 
-    with patch.object(TileChecker, "investigate_pixel", mock_investigate):
+    with patch("pixel_hawk.watcher.ingest._HAWK_INVESTIGATE", True), \
+         patch.object(TileChecker, "investigate_pixel", mock_investigate):
         await checker.investigate_regression(proj)
 
     assert call_count == 4  # Stopped after 4 hits of same author
@@ -456,7 +473,8 @@ async def test_investigate_regression_deduplicates_authors():
     checker = TileChecker()
     proj = _make_project_with_regressed_indices(list(range(200)))
 
-    with patch.object(TileChecker, "investigate_pixel", mock_investigate):
+    with patch("pixel_hawk.watcher.ingest._HAWK_INVESTIGATE", True), \
+         patch.object(TileChecker, "investigate_pixel", mock_investigate):
         await checker.investigate_regression(proj)
 
     assert call_idx == 7  # Stopped when Alice hit 4
@@ -478,7 +496,8 @@ async def test_investigate_regression_maps_indices_to_canvas_points():
     checker = TileChecker()
     proj = _make_project_with_regressed_indices([0, 105, 250])
 
-    with patch.object(TileChecker, "investigate_pixel", mock_investigate):
+    with patch("pixel_hawk.watcher.ingest._HAWK_INVESTIGATE", True), \
+         patch.object(TileChecker, "investigate_pixel", mock_investigate):
         await checker.investigate_regression(proj)
 
     # Only 3 indices, single author doesn't reach threshold of 4 — all investigated
@@ -501,7 +520,8 @@ async def test_investigate_regression_exhausts_all_indices():
     checker = TileChecker()
     proj = _make_project_with_regressed_indices(list(range(5)))
 
-    with patch.object(TileChecker, "investigate_pixel", mock_investigate):
+    with patch("pixel_hawk.watcher.ingest._HAWK_INVESTIGATE", True), \
+         patch.object(TileChecker, "investigate_pixel", mock_investigate):
         await checker.investigate_regression(proj)
 
     assert call_count == 5  # All indices checked, none hit 4
@@ -520,7 +540,8 @@ async def test_investigate_regression_aborts_on_falsy_painter():
     checker = TileChecker()
     proj = _make_project_with_regressed_indices(list(range(50)))
 
-    with patch.object(TileChecker, "investigate_pixel", mock_investigate):
+    with patch("pixel_hawk.watcher.ingest._HAWK_INVESTIGATE", True), \
+         patch.object(TileChecker, "investigate_pixel", mock_investigate):
         await checker.investigate_regression(proj)
 
     assert call_count == 1  # Stopped after first falsy result
