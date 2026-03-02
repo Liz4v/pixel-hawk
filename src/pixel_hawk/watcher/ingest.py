@@ -84,6 +84,7 @@ class TileChecker:
                 await proj.run_diff()
                 if proj.regressed_indices:
                     await self.investigate_regression(proj)
+                    proj.regressed_indices.clear()
             return projects
 
         untouched = tile_info.last_checked - tile_info.last_update
@@ -165,13 +166,12 @@ class TileChecker:
         """
         rect = proj.rect
         w = rect.size.w
-        indices = proj.regressed_indices.copy()
-        random.shuffle(indices)
+        random.shuffle(proj.regressed_indices)
 
         authors: Counter[int] = Counter()  # user_id -> count
         painters: dict[int, Painter] = {}  # user_id -> Painter (dedup)
 
-        for idx in indices:
+        for idx in proj.regressed_indices:
             point = Point(rect.point.x + idx % w, rect.point.y + idx // w)
             painter = await self.investigate_pixel(point)
             if not painter:
