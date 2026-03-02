@@ -5,6 +5,7 @@ import pytest
 from pixel_hawk.interface.access import (
     ErrorMsg,
     check_guild_access,
+    coadmin,
     get_guild_quotas,
     get_user_quotas,
     grant_admin,
@@ -74,6 +75,52 @@ class TestGrantAdmin:
         updated = await Person.get(discord_id=66666)
         assert updated.access & BotAccess.ADMIN
         assert updated.access & 0x1  # Original flag preserved
+
+
+# coadmin tests
+
+
+class TestCoadmin:
+    async def test_no_person_raises(self):
+        with pytest.raises(ErrorMsg, match="Admin access required"):
+            await coadmin(99999, 88888, "Target")
+
+    async def test_non_admin_raises(self):
+        await Person.create(name="User", discord_id=44001, access=0)
+        with pytest.raises(ErrorMsg, match="Admin access required"):
+            await coadmin(44001, 44002, "Target")
+
+    async def test_admin_grants_to_new_user(self):
+        await Person.create(name="Admin", discord_id=44003, access=int(BotAccess.ADMIN))
+        result = await coadmin(44003, 44004, "NewAdmin")
+        assert "NewAdmin" in result
+
+        target = await Person.filter(discord_id=44004).first()
+        assert target is not None
+        assert target.access & BotAccess.ADMIN
+
+    async def test_admin_grants_to_existing_user(self):
+        await Person.create(name="Admin", discord_id=44005, access=int(BotAccess.ADMIN))
+        await Person.create(name="Existing", discord_id=44006, access=int(BotAccess.ALLOWED))
+        result = await coadmin(44005, 44006, "Existing")
+        assert "Existing" in result
+
+        target = await Person.get(discord_id=44006)
+        assert target.access & BotAccess.ADMIN
+        assert target.access & BotAccess.ALLOWED  # Preserved
+
+    async def test_self_target_imprints_on_empty_db(self):
+        result = await coadmin(44007, 44007, "SelfAdmin")
+        assert "hatching_chick" in result
+
+        person = await Person.filter(discord_id=44007).first()
+        assert person is not None
+        assert person.access & BotAccess.ADMIN
+
+    async def test_self_target_rejects_on_nonempty_db(self):
+        await Person.create(name="Existing", discord_id=44008)
+        with pytest.raises(ErrorMsg):
+            await coadmin(44009, 44009, "LateArrival")
 
 
 # Person discord fields tests

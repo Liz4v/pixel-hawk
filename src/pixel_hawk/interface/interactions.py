@@ -10,7 +10,6 @@ Dispatches slash commands to service functions in commands.py and watch.py.
 import asyncio
 import contextlib
 import os
-from typing import TYPE_CHECKING
 
 import discord
 from discord import app_commands
@@ -19,7 +18,15 @@ from loguru import logger
 from ..models.entities import Person, ProjectState
 from ..models.palette import ColorsNotInPalette
 from ..watcher.projects import Project
-from .access import ErrorMsg, check_dm_access, check_guild_access, set_guild_quotas, set_guild_role, set_user_quotas
+from .access import (
+    ErrorMsg,
+    check_dm_access,
+    check_guild_access,
+    coadmin,
+    set_guild_quotas,
+    set_guild_role,
+    set_user_quotas,
+)
 from .commands import delete_project, edit_project, list_projects, new_project
 from .watch import (
     create_watch,
@@ -29,9 +36,6 @@ from .watch import (
     remove_watch,
     save_watch_message,
 )
-
-if TYPE_CHECKING:
-    from ..models.entities import WatchMessage
 
 
 class HawkBot(discord.Client):
@@ -62,6 +66,7 @@ class HawkBot(discord.Client):
             default_permissions=discord.Permissions(administrator=True),
             guild_only=True,
         )
+        admin_group.command(name="admin", description="Grant bot admin access to a user")(self._admin_coadmin)
         admin_group.command(name="role", description="Set the required role for this server")(self._admin_role)
         admin_group.command(name="quota", description="View or set per-user quotas")(self._admin_quota)
         admin_group.command(name="guildquota", description="View or set guild quota ceilings")(self._admin_guildquota)
@@ -72,7 +77,9 @@ class HawkBot(discord.Client):
             if isinstance(error, app_commands.CommandOnCooldown):
                 await interaction.response.send_message(f"Try again in {error.retry_after:.0f}s.", ephemeral=True)
             else:
-                logger.opt(exception=error).error(f"Unhandled error in /{interaction.command.name if interaction.command else '?'}")
+                logger.opt(exception=error).error(
+                    f"Unhandled error in /{interaction.command.name if interaction.command else '?'}"
+                )
 
     async def _check_access(self, interaction: discord.Interaction) -> Person | None:
         """Check access (guild role or DM). Returns Person on success, sends denial and returns None on failure."""
@@ -87,6 +94,18 @@ class HawkBot(discord.Client):
         except ErrorMsg as e:
             await interaction.response.send_message(str(e), ephemeral=True)
             return None
+
+    @app_commands.describe(user="Discord user to grant admin access to")
+    async def _admin_coadmin(self, interaction: discord.Interaction, user: discord.User) -> None:
+        """Handle /hawkadmin coadmin — grant admin access to another user."""
+        assert interaction.guild_id is not None, "Commands must be used in a guild"
+        caller = interaction.user
+        logger.info(f"Admin coadmin from {caller.name}: target={user.id} ({user.display_name})")
+        try:
+            msg = await coadmin(caller.id, user.id, user.display_name)
+        except ErrorMsg as e:
+            msg = str(e)
+        await interaction.response.send_message(msg, ephemeral=True)
 
     @app_commands.describe(role="Role required to use this bot in this server")
     async def _admin_role(self, interaction: discord.Interaction, role: discord.Role) -> None:
@@ -277,7 +296,9 @@ class HawkBot(discord.Client):
         channel_id = interaction.channel_id
         assert channel_id is not None, "Commands must be used in a channel"
         try:
-            content, info_id = await create_watch(interaction.user.id, project_id, channel_id, interaction.guild_id or 0)
+            content, info_id = await create_watch(
+                interaction.user.id, project_id, channel_id, interaction.guild_id or 0
+            )
         except ErrorMsg as e:
             await interaction.response.send_message(str(e), ephemeral=True)
             return
@@ -341,7 +362,7 @@ class HawkBot(discord.Client):
         proj_ids = [p.info.id for p in griefed]
         watches = await get_watches_for_projects(proj_ids)
         # Group watches by project ID
-        watches_by_project: dict[int, list[WatchMessage]] = {}
+        watches_by_project: dict[int, list] = {}
         for watch in watches:
             watches_by_project.setdefault(watch.project_id, []).append(watch)
         for proj in griefed:

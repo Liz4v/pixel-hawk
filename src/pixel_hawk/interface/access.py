@@ -13,6 +13,27 @@ class ErrorMsg(Exception):
     """An error whose message is intended to be displayed to the user."""
 
 
+async def imprint(discord_id: int, display_name: str) -> str:
+    """Bootstrap the first admin on a fresh database.
+
+    Only works when no Person records exist. Creates the caller as an admin.
+    """
+    count = await Person.all().count()
+    if count > 0:
+        raise ErrorMsg(":wing: I won't fall for _that_ one again...")
+    await grant_admin(discord_id, display_name)
+    return ":hatching_chick: Hello, parent!"
+
+
+async def coadmin(admin_discord_id: int, target_discord_id: int, target_display_name: str) -> str:
+    """Grant admin access to another user. Caller must be an admin."""
+    if admin_discord_id == target_discord_id:
+        return await imprint(target_discord_id, target_display_name)
+    person = await Person.filter(discord_id=admin_discord_id).first()
+    if person is None or not (person.access & BotAccess.ADMIN):
+        raise ErrorMsg("Admin access required.")
+    return await grant_admin(target_discord_id, target_display_name)
+
 
 async def grant_admin(discord_id: int, display_name: str) -> str:
     """Grant admin access to a Discord user. Creates a Person record if needed.

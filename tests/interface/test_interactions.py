@@ -119,6 +119,12 @@ class TestHawkBotCommands:
         names = [c.name for c in admin.commands]
         assert "guildquota" in names
 
+    def test_admin_group_has_admin(self):
+        bot = HawkBot("hawk")
+        admin = next(c for c in bot.tree.get_commands() if c.name == "hawkadmin")
+        names = [c.name for c in admin.commands]
+        assert "admin" in names
+
     def test_admin_group_has_administrator_permissions(self):
         bot = HawkBot("hawk")
         admin = next(c for c in bot.tree.get_commands() if c.name == "hawkadmin")
@@ -187,6 +193,47 @@ class TestCheckAccess:
         msg = interaction.response.send_message.call_args
         assert "artists" in msg.args[0]
         assert msg.kwargs["ephemeral"] is True
+
+
+# Admin admin (coadmin) command tests
+
+
+class TestAdminCoadminCommand:
+    async def test_coadmin_success(self):
+        bot = HawkBot("hawk")
+        interaction = _mock_interaction(guild_id=555)
+        target_user = MagicMock(spec=discord.User)
+        target_user.id = 99999
+        target_user.display_name = "TargetUser"
+
+        with patch(
+            "pixel_hawk.interface.interactions.coadmin",
+            new_callable=AsyncMock,
+            return_value="Admin access granted to TargetUser.",
+        ):
+            await bot._admin_coadmin(interaction, target_user)
+
+        interaction.response.send_message.assert_awaited_once()
+        msg = interaction.response.send_message.call_args
+        assert "TargetUser" in msg.args[0]
+        assert msg.kwargs["ephemeral"] is True
+
+    async def test_coadmin_error(self):
+        bot = HawkBot("hawk")
+        interaction = _mock_interaction(guild_id=555)
+        target_user = MagicMock(spec=discord.User)
+        target_user.id = 99999
+        target_user.display_name = "TargetUser"
+
+        with patch(
+            "pixel_hawk.interface.interactions.coadmin",
+            new_callable=AsyncMock,
+            side_effect=ErrorMsg("Admin access required."),
+        ):
+            await bot._admin_coadmin(interaction, target_user)
+
+        msg = interaction.response.send_message.call_args
+        assert "Admin access required" in msg.args[0]
 
 
 # Admin role command tests

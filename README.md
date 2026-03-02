@@ -119,10 +119,10 @@ An optional Discord bot runs alongside the polling loop, providing slash command
 Copy `.env.example` to `.env` and fill in values — `python-dotenv` auto-loads it on startup. For production (systemd), the service loads from `/etc/pixel-hawk.env` (see `scripts/install-service.sh`).
 
 **Guild setup:**
-1. Grant admin access to a Person record in the database (a proper setup flow is planned)
-2. Run `/hawkadmin role <role>` to set the required Discord role for the server — users with this role can use the bot and are auto-enrolled on first command (inheriting guild quota ceilings)
+1. Run `/hawkadmin admin @yourself` to make yourself the first admin (only works on a fresh database with no existing users)
+2. Run `/hawkadmin role <role>` to set the required Discord role for the server — users with this role can use the regular features of the bot and are auto-enrolled on first command (inheriting guild quota ceilings)
 
-Commands are blocked until a role is configured. Admins always bypass the role check.
+Commands are blocked until a role is configured. Hawk Admins always bypass the role check but are still checked for their quota.
 
 **DM support:** All user commands also work in Discord DMs. Access in DMs requires the user to have previously used a command in a configured guild (which auto-enrolls them). Admins can always use DM commands. Admin commands remain guild-only.
 
@@ -134,7 +134,8 @@ Commands are blocked until a role is configured. Admins always bypass the role c
 - `/hawk watch <project_id>` — Post a live-updating status message for a project. The message auto-updates with current stats (completion %, pixel counts, rate, ETA, 24h activity, lifetime totals) every time the watcher detects changes. One watch per project per channel.
 - `/hawk unwatch <project_id>` — Stop watching a project in this channel and delete the watch message
 
-**Admin commands** (under `/hawkadmin` group, guild-only, requires Discord administrator permission):
+**Admin commands** (under `/hawkadmin` group, guild-only, requires **both** bot admin and guild admin permission):
+- `/hawkadmin admin <user>` — Grant bot admin access to a user (targeting yourself bootstraps the first admin on a fresh database)
 - `/hawkadmin role <name>` — Set the required Discord role for this server
 - `/hawkadmin quota <user> [projects] [tiles]` — View or set per-user quota limits (enforces guild ceilings)
 - `/hawkadmin guildquota [projects] [tiles]` — View or set guild-level quota ceilings
