@@ -26,9 +26,11 @@ class Painter(NamedTuple):
         )
 
     def __bool__(self):
-        return self.user_id != 0
+        return self.user_id != 0 or self.user_name != ""
 
     def __str__(self):
+        if not self.__bool__():
+            return "(unknown user)"
         parts = [
             self.alliance_name and f"%{self.alliance_name}",
             f"~{self.user_name} (#{self.user_id})",
@@ -43,4 +45,4 @@ class GriefReport(NamedTuple):
     painters: tuple[Painter, ...] = ()
 
     def __bool__(self):
-        return bool(self.painters)
+        return self.regress_count > 0

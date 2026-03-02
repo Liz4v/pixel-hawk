@@ -174,6 +174,9 @@ class TileChecker:
         for idx in indices:
             point = Point(rect.point.x + idx % w, rect.point.y + idx // w)
             painter = await self.investigate_pixel(point)
+            if not painter:
+                logger.debug(f"{proj.info.owner.name}/{proj.info.name}: Pixel API unavailable, aborting investigation")
+                break
             uid = painter.user_id
             authors[uid] += 1
             painters.setdefault(uid, painter)

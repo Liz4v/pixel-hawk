@@ -508,6 +508,28 @@ async def test_investigate_regression_exhausts_all_indices():
     await checker.close()
 
 
+async def test_investigate_regression_aborts_on_falsy_painter():
+    """Stops investigation immediately when investigate_pixel returns a falsy Painter (API error)."""
+    call_count = 0
+
+    async def mock_investigate(self, point):
+        nonlocal call_count
+        call_count += 1
+        return Painter.new()  # Falsy: user_id=0, empty name
+
+    checker = TileChecker()
+    proj = _make_project_with_regressed_indices(list(range(50)))
+
+    with patch.object(TileChecker, "investigate_pixel", mock_investigate):
+        await checker.investigate_regression(proj)
+
+    assert call_count == 1  # Stopped after first falsy result
+    assert proj.grief_report
+    assert proj.grief_report.regress_count == 50  # Still records regression
+    assert len(proj.grief_report.painters) == 0  # No painters identified
+    await checker.close()
+
+
 # --- investigate_pixel ---
 
 
