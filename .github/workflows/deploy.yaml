@@ -46,7 +46,7 @@ jobs:
         run: ssh ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }} "sudo systemctl stop ${{ vars.SERVICE_NAME }}"
 
       - name: Pull latest
-        run: ssh ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }} "cd ${{ vars.DEPLOY_DIR }} && git pull"
+        run: ssh ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }} "cd ${{ vars.DEPLOY_DIR }} && git fetch origin main && git reset --hard origin/main"
 
       - name: Sync dependencies
         run: >
