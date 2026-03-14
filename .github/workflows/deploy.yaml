@@ -11,7 +11,7 @@
 #   SERVICE_USER           — OS user that runs the service (e.g. pixel-hawk)
 #   NEST_DIR               — absolute path to the data directory (e.g. /var/local/pixel-hawk/nest)
 #   UV_BIN                 — absolute path to uv binary (e.g. /home/deploy/.local/bin/uv)
-#   UV_PYTHON_INSTALL_DIR  — where uv stores Python installations (e.g. /home/deploy/.local/share/uv/python)
+#   UV_PYTHON_INSTALL_DIR  — (optional) where uv stores Python installations (e.g. /home/deploy/.local/share/uv/python)
 #
 # The following GitHub Actions repository secrets must be set:
 #   TS_OAUTH_CLIENT_ID  — Tailscale OAuth client ID (devices scope, tag:ci)
@@ -49,9 +49,11 @@ jobs:
         run: ssh ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }} "cd ${{ vars.DEPLOY_DIR }} && git fetch origin main && git reset --hard origin/main"
 
       - name: Sync dependencies
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ vars.UV_PYTHON_INSTALL_DIR }}
         run: >
           ssh ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }}
-          "cd ${{ vars.DEPLOY_DIR }} && UV_PYTHON_INSTALL_DIR=${{ vars.UV_PYTHON_INSTALL_DIR }} ${{ vars.UV_BIN }} sync --quiet"
+          "cd ${{ vars.DEPLOY_DIR }} && ${UV_PYTHON_INSTALL_DIR:+UV_PYTHON_INSTALL_DIR=$UV_PYTHON_INSTALL_DIR} UV_PYTHON_PREFERENCE=only-system ${{ vars.UV_BIN }} sync --quiet"
 
       - name: Ensure nest symlink and run migrations
         run: >
