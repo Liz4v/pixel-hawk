@@ -15,7 +15,7 @@ import discord
 from discord import app_commands
 from loguru import logger
 
-from ..models.entities import Person, ProjectState
+from ..models.entities import Person, ProjectInfo, ProjectState
 from ..models.palette import ColorsNotInPalette
 from ..watcher.projects import Project
 from .access import (
@@ -32,10 +32,16 @@ from .watch import (
     create_watch,
     format_grief_message,
     format_watch_message,
+    get_watch_image_paths,
     get_watches_for_projects,
     remove_watch,
     save_watch_message,
 )
+
+
+def _make_watch_files(info: ProjectInfo) -> list[discord.File]:
+    """Build discord.File attachments for a project's goal and snapshot images."""
+    return [discord.File(path, filename=name) for name, path in get_watch_image_paths(info).items()]
 
 
 class HawkBot(discord.Client):
@@ -311,15 +317,16 @@ class HawkBot(discord.Client):
         channel_id = interaction.channel_id
         assert channel_id is not None, "Commands must be used in a channel"
         try:
-            content, info_id = await create_watch(
+            content, info = await create_watch(
                 interaction.user.id, project_id, channel_id, interaction.guild_id or 0
             )
         except ErrorMsg as e:
             await interaction.response.send_message(str(e), ephemeral=True)
             return
-        await interaction.response.send_message(content)
+        files = _make_watch_files(info)
+        await interaction.response.send_message(content, files=files)
         sent = await interaction.original_response()
-        await save_watch_message(info_id, channel_id, sent.id)
+        await save_watch_message(info.id, channel_id, sent.id)
 
     @app_commands.checks.cooldown(rate=2, per=5.0)
     @app_commands.describe(project_id="Project ID (4-digit number)")
@@ -356,7 +363,8 @@ class HawkBot(discord.Client):
                     channel = await self.fetch_channel(watch.channel_id)
                 assert isinstance(channel, (discord.TextChannel, discord.DMChannel))
                 msg = await channel.fetch_message(watch.message_id)
-                await msg.edit(content=content)
+                files = _make_watch_files(watch.project)
+                await msg.edit(content=content, attachments=files)
                 logger.debug(f"Updated watch: project={watch.project.id:04} channel={watch.channel_id}")
             except discord.NotFound:
                 logger.info(f"Watch message gone (404): project={watch.project.id:04} channel={watch.channel_id}")

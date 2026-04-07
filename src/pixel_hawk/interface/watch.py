@@ -5,9 +5,11 @@ formatting, and updating persistent Discord messages that reflect project status
 """
 
 import time
+from pathlib import Path
 
 from loguru import logger
 
+from ..models.config import get_config
 from ..models.entities import DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState, WatchMessage
 from ..watcher.projects import Project
 from .access import ErrorMsg
@@ -100,11 +102,35 @@ def format_grief_message(project: Project) -> str:
     return "\n".join(lines)
 
 
-async def create_watch(discord_id: int, project_id: int, channel_id: int, guild_id: int = 0) -> tuple[str, int]:
-    """Validate and format a watch message. Returns (content, project_id).
+def get_watch_image_paths(info: ProjectInfo) -> dict[str, Path]:
+    """Return {display_name: path} for project goal and snapshot images.
+
+    Only includes paths that exist on disk. Returns empty dict for CREATING projects.
+    """
+    if ProjectState(info.state) == ProjectState.CREATING:
+        return {}
+    config = get_config()
+    owner_id = str(info.owner.id)
+    filename = info.filename
+    paths: dict[str, Path] = {}
+
+    goal_path = config.projects_dir / owner_id / filename
+    if goal_path.exists():
+        paths[f"goal_{info.id:04}.png"] = goal_path
+
+    snapshot_path = config.snapshots_dir / owner_id / filename
+    if snapshot_path.exists():
+        paths[f"snapshot_{info.id:04}.png"] = snapshot_path
+
+    return paths
+
+
+async def create_watch(discord_id: int, project_id: int, channel_id: int, guild_id: int = 0) -> tuple[str, ProjectInfo]:
+    """Validate and format a watch message. Returns (content, ProjectInfo).
 
     The caller sends the Discord message, then calls ``save_watch_message``
-    with the resulting message_id.
+    with the resulting message_id. The ProjectInfo is returned so the caller
+    can build image attachments via ``get_watch_image_paths()``.
     """
     person = await Person.filter(discord_id=discord_id).first()
     if person is None:
@@ -123,7 +149,7 @@ async def create_watch(discord_id: int, project_id: int, channel_id: int, guild_
         raise ErrorMsg(f"Project {project_id:04} is already being watched in this channel: {link}")
 
     content = await format_watch_message(info)
-    return content, info.id
+    return content, info
 
 
 async def save_watch_message(project_id: int, channel_id: int, message_id: int) -> None:

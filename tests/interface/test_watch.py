@@ -10,6 +10,7 @@ from pixel_hawk.interface.watch import (
     delete_watches_for_project,
     format_grief_message,
     format_watch_message,
+    get_watch_image_paths,
     get_watches_for_projects,
     remove_watch,
     save_watch_message,
@@ -267,15 +268,15 @@ class TestCreateWatch:
         person, info = await _person_and_project()
         info.last_check = round(time.time())
         await info.save()
-        content, project_id = await create_watch(77777, info.id, 200, 500)
-        assert project_id == info.id
+        content, returned_info = await create_watch(77777, info.id, 200, 500)
+        assert returned_info.id == info.id
         assert "test project" in content
 
     async def test_different_channel_allowed(self):
         person, info = await _person_and_project()
         await WatchMessage.create(project_id=info.id, channel_id=100, message_id=999)
-        content, project_id = await create_watch(77777, info.id, 200, 500)
-        assert project_id == info.id
+        content, returned_info = await create_watch(77777, info.id, 200, 500)
+        assert returned_info.id == info.id
 
 
 # save_watch_message tests
@@ -406,3 +407,57 @@ class TestFormatGriefMessage:
         assert len(lines) == 3  # header + 2 painters
         assert "~Alice" in lines[1]
         assert "~Bob" in lines[2]
+
+
+# get_watch_image_paths tests
+
+
+class TestGetWatchImagePaths:
+    async def test_creating_project_returns_empty(self):
+        person = await Person.create(name="Creator", discord_id=80001)
+        info = ProjectInfo(owner_id=person.id, name="wip", state=ProjectState.CREATING, width=50, height=50)
+        await info.save_as_new()
+        await info.fetch_related("owner")
+        assert get_watch_image_paths(info) == {}
+
+    async def test_returns_existing_paths(self, setup_config):
+        person, info = await _person_and_project()
+        await info.fetch_related("owner")
+        from pixel_hawk.models.config import get_config
+
+        config = get_config()
+        # Create goal file
+        goal_dir = config.projects_dir / str(person.id)
+        goal_dir.mkdir(parents=True, exist_ok=True)
+        goal_path = goal_dir / info.filename
+        goal_path.write_bytes(b"fake png")
+        # Create snapshot file
+        snap_dir = config.snapshots_dir / str(person.id)
+        snap_dir.mkdir(parents=True, exist_ok=True)
+        snap_path = snap_dir / info.filename
+        snap_path.write_bytes(b"fake png")
+
+        paths = get_watch_image_paths(info)
+        assert len(paths) == 2
+        assert paths[f"goal_{info.id:04}.png"] == goal_path
+        assert paths[f"snapshot_{info.id:04}.png"] == snap_path
+
+    async def test_only_goal_when_no_snapshot(self, setup_config):
+        person, info = await _person_and_project()
+        await info.fetch_related("owner")
+        from pixel_hawk.models.config import get_config
+
+        config = get_config()
+        goal_dir = config.projects_dir / str(person.id)
+        goal_dir.mkdir(parents=True, exist_ok=True)
+        (goal_dir / info.filename).write_bytes(b"fake png")
+
+        paths = get_watch_image_paths(info)
+        assert len(paths) == 1
+        assert f"goal_{info.id:04}.png" in paths
+
+    async def test_empty_when_no_files(self, setup_config):
+        person, info = await _person_and_project()
+        await info.fetch_related("owner")
+        paths = get_watch_image_paths(info)
+        assert paths == {}

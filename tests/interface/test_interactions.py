@@ -739,13 +739,17 @@ class TestWatchHandler:
         sent_msg.id = 12345
         interaction.original_response = AsyncMock(return_value=sent_msg)
 
+        mock_info = MagicMock()
+        mock_info.id = 42
+
         with (
             patch.object(bot, "_check_access", new_callable=AsyncMock, return_value=MagicMock()),
             patch(
                 "pixel_hawk.interface.interactions.create_watch",
                 new_callable=AsyncMock,
-                return_value=("Stats here", 42),
+                return_value=("Stats here", mock_info),
             ),
+            patch("pixel_hawk.interface.interactions._make_watch_files", return_value=[]),
             patch(
                 "pixel_hawk.interface.interactions.save_watch_message", new_callable=AsyncMock
             ) as mock_save,
@@ -851,10 +855,11 @@ class TestUpdateWatches:
                 new_callable=AsyncMock,
                 return_value="Updated stats",
             ),
+            patch("pixel_hawk.interface.interactions._make_watch_files", return_value=[]),
         ):
             await bot.update_watches([1])
 
-        mock_msg.edit.assert_awaited_once_with(content="Updated stats")
+        mock_msg.edit.assert_awaited_once_with(content="Updated stats", attachments=[])
 
     async def test_deletes_watch_on_not_found(self):
         bot = HawkBot("hawk")
@@ -969,6 +974,7 @@ class TestUpdateWatches:
                 new_callable=AsyncMock,
                 return_value="Stats",
             ),
+            patch("pixel_hawk.interface.interactions._make_watch_files", return_value=[]),
         ):
             await bot.update_watches([1])
 
