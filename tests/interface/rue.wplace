@@ -1,0 +1,23 @@
+{
+  "id": "b5c25435-3aed-4d80-aa19-690a31668975",
+  "schemaVersion": "1",
+  "name": "Rue portrait",
+  "opacity": 1,
+  "image": {
+    "dataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAABpElEQVR4AayTsUoDQRCGNwcqiqksDGJh4StYGRAsbcTKxsIXCCIpLWy0FLGyFawsrRQrhXsKURSSQhEbI4gBOe87mGXcu73bxIT82dnZ2e/f2SWRCfisrR4kzWYzE3HAFlsSZGCr0+Cjf53+hn+DDFzoIF0EGXz9jBkk53YNJe+OHCTIYKneMzedjrl8fsnkgmQOEMl7cZBKg+/H5eTkdMJM380KJzN5n19MkAsESuHVRsugUgPgFKPPlVeGnM7vz3I5wJL0Ggj8bf/J+OAC4eok1vB6e7NWaNDdmksEPHk7JXsrRw2X4og7lAkj9woUMQ+V7oI9nJ4x4lF4dcCIZJHWFxpGVLSucwInF8VxXHPdWRhWwHtHF4nsz95gpvtQk4Rv5BAiXw15DWeeGRCMQv3jPYsRI2sQ0oXd7QnGdw/tClfFxBowwQQR/1e5DjRwUBNOjjSjsANdgIlI50Pj0g5cCKcrk1vPvLIDioZVq71jt/55ZJtVgbSqUqWhwLdNI/uzVRpIq6XUdBEwSkP7xaTSwFZ7AqDIs2yCDHQXGqZjn8EvAAAA//8TJqflAAAABklEQVQDAImRw3f0VCAKAAAAAElFTkSuQmCC",
+    "width": 24,
+    "height": 24
+  },
+  "bounds": {
+    "north": 43.667045115465456,
+    "south": 43.663993344320964,
+    "west": -78.9823828125,
+    "east": -78.97816406250001
+  },
+  "colorMetric": "lab",
+  "dithering": false,
+  "order": 0,
+  "locked": false,
+  "hasPlaced": true,
+  "visible": true
+}

@@ -81,7 +81,7 @@ def parse_wplace(data: bytes) -> tuple[str, bytes, Point]:
     image_obj = doc.get("image")
     if not isinstance(image_obj, dict):
         raise ErrorMsg("Missing image in .wplace file.")
-    image_b64 = image_obj.get("data", "")
+    image_b64 = image_obj.get("dataUrl", "")
     if not image_b64:
         raise ErrorMsg("Missing image data in .wplace file.")
 

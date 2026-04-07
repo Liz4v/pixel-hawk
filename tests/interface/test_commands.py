@@ -4,6 +4,7 @@ import base64
 import json
 import time
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -982,7 +983,7 @@ def _make_wplace(
         "id": "test-uuid",
         "schemaVersion": schema_version,
         "name": name,
-        "image": {"data": base64.b64encode(png_data).decode(), "width": width, "height": height},
+        "image": {"dataUrl": base64.b64encode(png_data).decode(), "width": width, "height": height},
         "bounds": bounds,
         **overrides,
     }
@@ -998,13 +999,12 @@ class TestParseWplace:
         assert point.x == 500_000
         assert point.y == 600_000
 
-    def test_nikos_dream_sample(self):
-        bounds = {"north": 43.83972529738362, "south": 43.7788362466409, "west": -78.37189453125, "east": -78.25939453125}
-        data = _make_wplace(name="Niko's Dream", bounds=bounds, width=640, height=480)
-        name, _, point = parse_wplace(data)
-        assert name == "Niko's Dream"
-        assert point.x == 578_151
-        assert point.y == 745_959
+    def test_rue_portrait(self):
+        data = (Path(__file__).parent / "rue.wplace").read_bytes()
+        name, image_data, point = parse_wplace(data)
+        assert name == "Rue portrait"
+        assert point.x == 574_678
+        assert point.y == 747_319
 
     def test_extracts_name(self):
         data = _make_wplace(name="Niko's Dream")
@@ -1032,17 +1032,19 @@ class TestParseWplace:
 
     def test_missing_bounds(self):
         png = _make_test_png()
-        doc = json.dumps({"name": "test", "image": {"data": base64.b64encode(png).decode()}}).encode()
+        doc = json.dumps({"name": "test", "image": {"dataUrl": base64.b64encode(png).decode()}}).encode()
         with pytest.raises(ErrorMsg, match="Missing bounds"):
             parse_wplace(doc)
 
     def test_missing_north(self):
         png = _make_test_png()
-        doc = json.dumps({
-            "name": "test",
-            "image": {"data": base64.b64encode(png).decode()},
-            "bounds": {"south": 0, "west": 0},
-        }).encode()
+        doc = json.dumps(
+            {
+                "name": "test",
+                "image": {"dataUrl": base64.b64encode(png).decode()},
+                "bounds": {"south": 0, "west": 0},
+            }
+        ).encode()
         with pytest.raises(ErrorMsg, match="Missing north/west"):
             parse_wplace(doc)
 
@@ -1053,20 +1055,24 @@ class TestParseWplace:
         b64 = "data:image/png;base64," + base64.b64encode(png).decode()
         nw = GeoPoint.from_pixel(500_000, 600_000)
         se = GeoPoint.from_pixel(500_010, 600_010)
-        doc = json.dumps({
-            "name": "test",
-            "image": {"data": b64, "width": 10, "height": 10},
-            "bounds": {"north": nw.latitude, "south": se.latitude, "west": nw.longitude, "east": se.longitude},
-        }).encode()
+        doc = json.dumps(
+            {
+                "name": "test",
+                "image": {"dataUrl": b64, "width": 10, "height": 10},
+                "bounds": {"north": nw.latitude, "south": se.latitude, "west": nw.longitude, "east": se.longitude},
+            }
+        ).encode()
         name, image_data, point = parse_wplace(doc)
         assert image_data.startswith(b"\x89PNG")
 
     def test_invalid_base64(self):
-        doc = json.dumps({
-            "name": "test",
-            "image": {"data": "!!!not-base64!!!"},
-            "bounds": {"north": 0, "west": 0},
-        }).encode()
+        doc = json.dumps(
+            {
+                "name": "test",
+                "image": {"dataUrl": "!!!not-base64!!!"},
+                "bounds": {"north": 0, "west": 0},
+            }
+        ).encode()
         with pytest.raises(ErrorMsg, match="Invalid image data"):
             parse_wplace(doc)
 
