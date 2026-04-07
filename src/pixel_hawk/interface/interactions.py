@@ -27,7 +27,7 @@ from .access import (
     set_guild_role,
     set_user_quotas,
 )
-from .commands import delete_project, edit_project, list_projects, new_project
+from .commands import delete_project, edit_project, list_projects, new_project, parse_wplace
 from .watch import (
     create_watch,
     format_grief_message,
@@ -188,7 +188,7 @@ class HawkBot(discord.Client):
             "- **Inactive** — Paused. Tiles are unlinked and no tracking occurs.\n"
             "\n"
             f"### Commands\n"
-            f"- **/{p} new** — Upload a new project image (PNG, WPlace palette)\n"
+            f"- **/{p} new** — Upload a new project image (PNG or .wplace file)\n"
             f"- **/{p} edit** — Edit a project's image, name, coordinates, or state\n"
             f"- **/{p} delete** — Permanently delete a project\n"
             f"- **/{p} list** — List all your projects with current stats\n"
@@ -207,15 +207,22 @@ class HawkBot(discord.Client):
         await interaction.response.send_message(msg or "You have no projects.", ephemeral=True)
 
     @app_commands.checks.cooldown(rate=1, per=10.0)
-    @app_commands.describe(image="Project PNG image (must use WPlace palette, max 1000x1000)")
+    @app_commands.describe(image="Project image: PNG (WPlace palette, max 1000x1000) or .wplace file")
     async def _new(self, interaction: discord.Interaction, image: discord.Attachment) -> None:
         """Handle /hawk new — upload a new project image."""
         if await self._check_access(interaction) is None:
             return
         await interaction.response.defer(ephemeral=True)
         try:
-            image_data = await image.read()
-            msg = await new_project(interaction.user.id, image_data, image.filename)
+            raw = await image.read()
+            if image.filename.lower().endswith(".wplace"):
+                name, image_data, point = parse_wplace(raw)
+                tx, ty, px, py = point.to4()
+                filename = f"{name} {tx}.{ty}.{px}.{py}.png"
+            else:
+                image_data = raw
+                filename = image.filename
+            msg = await new_project(interaction.user.id, image_data, filename)
         except (ErrorMsg, ColorsNotInPalette) as e:
             msg = str(e)
         except Exception as e:
@@ -226,7 +233,7 @@ class HawkBot(discord.Client):
     @app_commands.checks.cooldown(rate=1, per=10.0)
     @app_commands.describe(
         project_id="Project ID (4-digit number)",
-        image="Replacement project PNG image (resets tracking stats)",
+        image="Replacement image: PNG (WPlace palette) or .wplace file (resets tracking stats)",
         name="New project name",
         coords="Coordinates as Tx,Ty,Px,Py. 4 numbers separated by whatever.",
         state="Project state",
@@ -252,8 +259,16 @@ class HawkBot(discord.Client):
             return
         await interaction.response.defer(ephemeral=True)
         try:
-            image_data = await image.read() if image else None
-            image_filename = image.filename if image else None
+            if image and image.filename.lower().endswith(".wplace"):
+                raw = await image.read()
+                wplace_name, image_data, point = parse_wplace(raw)
+                tx, ty, px, py = point.to4()
+                image_filename = f"{wplace_name} {tx}.{ty}.{px}.{py}.png"
+                if name is None:
+                    name = wplace_name
+            else:
+                image_data = await image.read() if image else None
+                image_filename = image.filename if image else None
             state_value = ProjectState(state.value) if state else None
             msg = await edit_project(
                 interaction.user.id,

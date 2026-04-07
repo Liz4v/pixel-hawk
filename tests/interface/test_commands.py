@@ -1,5 +1,7 @@
 """Tests for project management service layer (commands.py)."""
 
+import base64
+import json
 import time
 from io import BytesIO
 
@@ -16,6 +18,7 @@ from pixel_hawk.interface.commands import (
     list_projects,
     new_project,
     parse_filename,
+    parse_wplace,
 )
 from pixel_hawk.models.config import get_config
 from pixel_hawk.models.entities import DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState, TileProject
@@ -952,3 +955,140 @@ class TestQuotaEnforcement:
 
         person = await Person.get(id=person.id)
         assert person.active_projects_count == 0
+
+
+# parse_wplace tests
+
+
+def _make_wplace(
+    name: str = "Test Project",
+    png_data: bytes | None = None,
+    bounds: dict | None = None,
+    width: int = 10,
+    height: int = 10,
+    schema_version: str = "1",
+    **overrides,
+) -> bytes:
+    """Build a .wplace JSON file as bytes."""
+    if png_data is None:
+        png_data = _make_test_png(width, height)
+    if bounds is None:
+        from pixel_hawk.models.geometry import GeoPoint
+
+        nw = GeoPoint.from_pixel(500_000, 600_000)
+        se = GeoPoint.from_pixel(500_000 + width, 600_000 + height)
+        bounds = {"north": nw.latitude, "south": se.latitude, "west": nw.longitude, "east": se.longitude}
+    doc = {
+        "id": "test-uuid",
+        "schemaVersion": schema_version,
+        "name": name,
+        "image": {"data": base64.b64encode(png_data).decode(), "width": width, "height": height},
+        "bounds": bounds,
+        **overrides,
+    }
+    return json.dumps(doc).encode()
+
+
+class TestParseWplace:
+    def test_valid_wplace(self):
+        data = _make_wplace()
+        name, image_data, point = parse_wplace(data)
+        assert name == "Test Project"
+        assert image_data.startswith(b"\x89PNG")
+        assert point.x == 500_000
+        assert point.y == 600_000
+
+    def test_nikos_dream_sample(self):
+        bounds = {"north": 43.83972529738362, "south": 43.7788362466409, "west": -78.37189453125, "east": -78.25939453125}
+        data = _make_wplace(name="Niko's Dream", bounds=bounds, width=640, height=480)
+        name, _, point = parse_wplace(data)
+        assert name == "Niko's Dream"
+        assert point.x == 578_151
+        assert point.y == 745_959
+
+    def test_extracts_name(self):
+        data = _make_wplace(name="Niko's Dream")
+        name, _, _ = parse_wplace(data)
+        assert name == "Niko's Dream"
+
+    def test_invalid_json(self):
+        with pytest.raises(ErrorMsg, match="Invalid .wplace file"):
+            parse_wplace(b"not json")
+
+    def test_missing_name(self):
+        data = _make_wplace(name="")
+        with pytest.raises(ErrorMsg, match="Missing project name"):
+            parse_wplace(data)
+
+    def test_missing_image(self):
+        doc = json.dumps({"name": "test", "bounds": {"north": 0, "west": 0}}).encode()
+        with pytest.raises(ErrorMsg, match="Missing image"):
+            parse_wplace(doc)
+
+    def test_missing_image_data(self):
+        doc = json.dumps({"name": "test", "image": {"width": 10}, "bounds": {"north": 0, "west": 0}}).encode()
+        with pytest.raises(ErrorMsg, match="Missing image data"):
+            parse_wplace(doc)
+
+    def test_missing_bounds(self):
+        png = _make_test_png()
+        doc = json.dumps({"name": "test", "image": {"data": base64.b64encode(png).decode()}}).encode()
+        with pytest.raises(ErrorMsg, match="Missing bounds"):
+            parse_wplace(doc)
+
+    def test_missing_north(self):
+        png = _make_test_png()
+        doc = json.dumps({
+            "name": "test",
+            "image": {"data": base64.b64encode(png).decode()},
+            "bounds": {"south": 0, "west": 0},
+        }).encode()
+        with pytest.raises(ErrorMsg, match="Missing north/west"):
+            parse_wplace(doc)
+
+    def test_data_url_prefix_stripped(self):
+        from pixel_hawk.models.geometry import GeoPoint
+
+        png = _make_test_png()
+        b64 = "data:image/png;base64," + base64.b64encode(png).decode()
+        nw = GeoPoint.from_pixel(500_000, 600_000)
+        se = GeoPoint.from_pixel(500_010, 600_010)
+        doc = json.dumps({
+            "name": "test",
+            "image": {"data": b64, "width": 10, "height": 10},
+            "bounds": {"north": nw.latitude, "south": se.latitude, "west": nw.longitude, "east": se.longitude},
+        }).encode()
+        name, image_data, point = parse_wplace(doc)
+        assert image_data.startswith(b"\x89PNG")
+
+    def test_invalid_base64(self):
+        doc = json.dumps({
+            "name": "test",
+            "image": {"data": "!!!not-base64!!!"},
+            "bounds": {"north": 0, "west": 0},
+        }).encode()
+        with pytest.raises(ErrorMsg, match="Invalid image data"):
+            parse_wplace(doc)
+
+    def test_unknown_schema_version_warns(self, caplog):
+        data = _make_wplace(schema_version="99")
+        # Should still parse successfully, just log a warning
+        name, image_data, point = parse_wplace(data)
+        assert name == "Test Project"
+
+    def test_bounds_image_size_mismatch(self):
+        from pixel_hawk.models.geometry import GeoPoint
+
+        # Bounds say 10x10 but declared image size is 20x20
+        nw = GeoPoint.from_pixel(500_000, 600_000)
+        se = GeoPoint.from_pixel(500_010, 600_010)
+        bounds = {"north": nw.latitude, "south": se.latitude, "west": nw.longitude, "east": se.longitude}
+        data = _make_wplace(bounds=bounds, width=20, height=20)
+        with pytest.raises(ErrorMsg, match="Bounds size.*doesn't match.*declared image size"):
+            parse_wplace(data)
+
+    def test_bounds_image_size_match(self):
+        # Should pass without error when bounds and declared size agree
+        data = _make_wplace(width=50, height=30)
+        name, image_data, point = parse_wplace(data)
+        assert name == "Test Project"

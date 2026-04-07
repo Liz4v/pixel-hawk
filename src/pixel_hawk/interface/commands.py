@@ -6,6 +6,8 @@ Parsing filenames/coordinates.
 """
 
 import asyncio
+import base64
+import json
 import os
 import re
 import time
@@ -15,7 +17,7 @@ from PIL import Image
 
 from ..models.config import get_config
 from ..models.entities import DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState
-from ..models.geometry import Point, Rectangle, Size
+from ..models.geometry import GeoPoint, Point, Rectangle, Size
 from ..models.palette import PALETTE
 from ..watcher.projects import Project, count_cached_tiles
 from .access import ErrorMsg
@@ -56,6 +58,68 @@ def parse_filename(filename: str) -> tuple[str | None, tuple[int, int, int, int]
             name = m.groupdict().get("name")
             return name, (tx, ty, px, py)
     return stem or None, None
+
+
+KNOWN_WPLACE_VERSIONS = ("1",)
+
+
+def parse_wplace(data: bytes) -> tuple[str, bytes, Point]:
+    """Parse a .wplace project file. Returns (name, png_bytes, top_left_point)."""
+    try:
+        doc = json.loads(data)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise ErrorMsg("Invalid .wplace file.")
+
+    version = doc.get("schemaVersion", "")
+    if version not in KNOWN_WPLACE_VERSIONS:
+        logger.warning(f".wplace schemaVersion '{version}' is not recognized (known: {', '.join(KNOWN_WPLACE_VERSIONS)})")
+
+    name = doc.get("name", "")
+    if not name:
+        raise ErrorMsg("Missing project name in .wplace file.")
+
+    image_obj = doc.get("image")
+    if not isinstance(image_obj, dict):
+        raise ErrorMsg("Missing image in .wplace file.")
+    image_b64 = image_obj.get("data", "")
+    if not image_b64:
+        raise ErrorMsg("Missing image data in .wplace file.")
+
+    # Strip data URL prefix if present (e.g. "data:image/png;base64,...")
+    if "," in image_b64[:64]:
+        image_b64 = image_b64.split(",", 1)[1]
+
+    try:
+        image_data = base64.b64decode(image_b64)
+    except Exception:
+        raise ErrorMsg("Invalid image data in .wplace file.")
+
+    bounds = doc.get("bounds")
+    if not isinstance(bounds, dict):
+        raise ErrorMsg("Missing bounds in .wplace file.")
+    north = bounds.get("north")
+    south = bounds.get("south")
+    west = bounds.get("west")
+    east = bounds.get("east")
+    if north is None or west is None:
+        raise ErrorMsg("Missing north/west bounds in .wplace file.")
+
+    nw = GeoPoint(north, west).to_pixel()
+
+    if south is not None and east is not None:
+        se = GeoPoint(south, east).to_pixel()
+        declared_w = image_obj.get("width")
+        declared_h = image_obj.get("height")
+        bounds_w = se.x - nw.x
+        bounds_h = se.y - nw.y
+        if declared_w is not None and declared_h is not None:
+            if bounds_w != declared_w or bounds_h != declared_h:
+                raise ErrorMsg(
+                    f"Bounds size ({bounds_w}x{bounds_h}) doesn't match "
+                    f"declared image size ({declared_w}x{declared_h})."
+                )
+
+    return name, image_data, nw
 
 
 def _parse_coords(coords_str: str) -> tuple[int, int, int, int]:
