@@ -50,7 +50,7 @@ def compare_snapshots(current_data: bytes, prev_data: bytes, target_data: bytes)
 
 def update_completion(info: ProjectInfo, num_remaining: int, percent_complete: float, timestamp: int) -> None:
     """Update max completion if improved."""
-    if info.max_completion_pixels == 0 or num_remaining < info.max_completion_pixels:
+    if info.max_completion_time == 0 or num_remaining < info.max_completion_pixels:
         info.max_completion_pixels = num_remaining
         info.max_completion_percent = percent_complete
         info.max_completion_time = timestamp

@@ -274,6 +274,19 @@ async def test_update_completion_no_improvement(test_person):
     assert info.max_completion_time == 1000
 
 
+async def test_update_completion_stays_locked_at_zero(test_person):
+    """Test that completion time doesn't update once project reaches 0 remaining."""
+    info = ProjectInfo(owner=test_person, name="comp_lock")
+    await info.save_as_new()
+
+    metadata.update_completion(info, 0, 100.0, 1000)
+    assert info.max_completion_pixels == 0
+    assert info.max_completion_time == 1000
+
+    metadata.update_completion(info, 0, 100.0, 9999)
+    assert info.max_completion_time == 1000
+
+
 async def test_update_regress_new_record(test_person):
     """Test updating largest regress event."""
     info = ProjectInfo(owner=test_person, name="reg_new")
