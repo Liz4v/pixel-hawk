@@ -11,6 +11,7 @@ import json
 import os
 import re
 import time
+import uuid
 
 from loguru import logger
 from PIL import Image
@@ -31,6 +32,7 @@ _COORDS_RES = (
 )
 _POSITIVE_INT_RE = re.compile(r"\d+")
 _LINKED_STATES = (ProjectState.ACTIVE, ProjectState.PASSIVE)
+_PROJECT_NAMESPACE = uuid.UUID("07e7e79e-a311-5c4c-bda2-f70758b10d6e")
 
 
 _command_prefix: str | None = None
@@ -67,12 +69,14 @@ def parse_wplace(data: bytes) -> tuple[str, bytes, Point, Size]:
     """Parse a .wplace project file. Returns (name, png_bytes, top_left_point, bounds_size)."""
     try:
         doc = json.loads(data)
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    except json.JSONDecodeError, UnicodeDecodeError:
         raise ErrorMsg("Invalid .wplace file.")
 
     version = doc.get("schemaVersion", "")
     if version not in KNOWN_WPLACE_VERSIONS:
-        logger.warning(f".wplace schemaVersion '{version}' is not recognized (known: {', '.join(KNOWN_WPLACE_VERSIONS)})")
+        logger.warning(
+            f".wplace schemaVersion '{version}' is not recognized (known: {', '.join(KNOWN_WPLACE_VERSIONS)})"
+        )
 
     name = doc.get("name", "")
     if not name:
@@ -225,9 +229,7 @@ async def _check_quotas(
             )
 
 
-async def new_project(
-    discord_id: int, image_data: bytes, filename: str, *, wplace_size: Size = Size()
-) -> str | None:
+async def new_project(discord_id: int, image_data: bytes, filename: str, *, wplace_size: Size = Size()) -> str | None:
     """Create a new project from an uploaded image. Returns None if no Person linked."""
     person = await Person.filter(discord_id=discord_id).first()
     if person is None:
@@ -461,6 +463,7 @@ async def export_wplace(discord_id: int, project_id: int) -> tuple[bytes, str]:
     se = GeoPoint.from_pixel(rect.right, rect.bottom)
 
     doc = {
+        "id": str(uuid.uuid5(_PROJECT_NAMESPACE, project_id.to_bytes(16))),
         "schemaVersion": "1",
         "name": info.name,
         "image": {"dataUrl": f"data:image/png;base64,{b64}", "width": rect.size.w, "height": rect.size.h},

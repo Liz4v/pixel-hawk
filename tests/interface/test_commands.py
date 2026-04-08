@@ -3,6 +3,7 @@
 import base64
 import json
 import time
+import uuid
 from io import BytesIO
 from pathlib import Path
 
@@ -1129,3 +1130,38 @@ class TestExportWplace:
         assert info.state == ProjectState.CREATING
         with pytest.raises(ErrorMsg, match="no coordinates"):
             await export_wplace(70005, info.id)
+
+    async def test_export_has_valid_uuid(self):
+        """Exported .wplace file should contain a valid UUID in the 'id' field."""
+        await Person.create(name="UuidCheck", discord_id=70006)
+        await new_project(70006, _make_test_png(20, 15), "Art 1.2.0.0.png")
+        info = await ProjectInfo.filter(owner_id=(await Person.get(discord_id=70006)).id).first()
+
+        wplace_bytes, _ = await export_wplace(70006, info.id)
+        doc = json.loads(wplace_bytes)
+        parsed = uuid.UUID(doc["id"])
+        assert parsed.version == 5
+
+    async def test_export_id_is_deterministic(self):
+        """Same project should always produce the same UUID."""
+        await Person.create(name="Deterministic", discord_id=70007)
+        await new_project(70007, _make_test_png(10, 10), "Stable 3.4.0.0.png")
+        info = await ProjectInfo.filter(owner_id=(await Person.get(discord_id=70007)).id).first()
+
+        bytes_a, _ = await export_wplace(70007, info.id)
+        bytes_b, _ = await export_wplace(70007, info.id)
+        id_a = json.loads(bytes_a)["id"]
+        id_b = json.loads(bytes_b)["id"]
+        assert id_a == id_b
+
+    async def test_export_different_projects_different_ids(self):
+        """Different projects should produce different UUIDs."""
+        await Person.create(name="TwoProjects", discord_id=70008)
+        await new_project(70008, _make_test_png(10, 10), "First 5.6.0.0.png")
+        await new_project(70008, _make_test_png(10, 10), "Second 7.8.0.0.png")
+        projects = await ProjectInfo.filter(owner_id=(await Person.get(discord_id=70008)).id).all()
+        assert len(projects) == 2
+
+        bytes_a, _ = await export_wplace(70008, projects[0].id)
+        bytes_b, _ = await export_wplace(70008, projects[1].id)
+        assert json.loads(bytes_a)["id"] != json.loads(bytes_b)["id"]

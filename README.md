@@ -56,7 +56,7 @@ echo "HAWK_BOT_TOKEN=paste-your-token-here" > .env
 Then start the bot:
 
 ```bash
-hawk
+uv run hawk
 ```
 
 That's it! Pixel Hawk will initialize its database, connect to Discord, and start syncing its slash commands. Give it a few seconds to appear online in your server.
