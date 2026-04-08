@@ -157,7 +157,7 @@ class QueueSystem:
         """
         # Fetch all tiles eligible for temperature queues:
         # heat > 0 excludes inactive; last_update > 0 excludes never-checked burning
-        temp_tiles = await TileInfo.filter(heat__gt=0, last_update__gt=0).order_by("-last_update").all()
+        temp_tiles = await TileInfo.filter_for_redistribution()
 
         if not temp_tiles:
             self.num_queues = 0
@@ -184,7 +184,7 @@ class QueueSystem:
 
         total_updated = 0
         for target_heat, tile_ids in updates.items():
-            await TileInfo.filter(id__in=tile_ids).update(heat=target_heat)
+            await TileInfo.bulk_update_heat(tile_ids, target_heat)
             total_updated += len(tile_ids)
 
         logger.debug(f"Redistributed: {self.num_queues} queues, {len(temp_tiles)} tiles, {total_updated} updated")
@@ -192,7 +192,7 @@ class QueueSystem:
     async def _try_select(self) -> TileInfo | None:
         """Advance the iterator, querying each queue for the least recently checked tile."""
         for heat in self.queue_iterator:
-            tile_info = await TileInfo.filter(heat=heat).order_by("last_checked").first()
+            tile_info = await TileInfo.select_from_queue(heat)
             if tile_info:
                 logger.debug(f"Using queue heat={heat}")
                 return tile_info

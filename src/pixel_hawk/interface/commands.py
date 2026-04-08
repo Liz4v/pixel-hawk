@@ -152,9 +152,9 @@ async def _try_initial_diff(info: ProjectInfo) -> str | None:
     cached, total = await count_cached_tiles(info.rectangle)
     if cached == 0:
         return None
-    await info.fetch_related("owner")
+    await info.fetch_related_owner()
     change = await Project(info).run_diff()
-    if not change.pk:
+    if change.id == 0:
         await change.save()
     status = _format_project(info, change, 0, 0)
     if cached < total:
@@ -191,10 +191,9 @@ async def _validate_image(image_data: bytes, *, wplace_size: Size = Size()) -> t
 
 async def _check_coord_conflict(owner_id: int, x: int, y: int, *, exclude_id: int | None = None) -> None:
     """Raise ErrorMsg if another non-INACTIVE project exists at these coordinates for this owner."""
-    q = ProjectInfo.filter(owner_id=owner_id, x=x, y=y).exclude(state=ProjectState.INACTIVE)
-    if exclude_id is not None:
-        q = q.exclude(id=exclude_id)
-    existing = await q.first()
+    existing = await ProjectInfo.filter_by_coords(
+        owner_id, x, y, exclude_id=exclude_id or 0, exclude_state=ProjectState.INACTIVE
+    )
     if existing:
         prefix = get_command_prefix()
         raise ErrorMsg(
@@ -212,13 +211,13 @@ async def _check_quotas(
 ) -> None:
     """Pre-check per-user quotas. Raises ErrorMsg if the operation would exceed limits."""
     if is_new_project:
-        total = await person.projects.all().count()
+        total = await ProjectInfo.count_by_owner(person.id)
         if total >= person.max_active_projects:
             raise ErrorMsg(f"You've reached your limit of {person.max_active_projects} projects.")
 
     if rect is not None:
-        tiles = set()
-        for project in await person.projects.filter(state=ProjectState.ACTIVE).all():
+        tiles: set = set()
+        for project in await ProjectInfo.filter_by_owner(person.id, state=ProjectState.ACTIVE):
             if project.id == exclude_project_id:
                 continue
             tiles.update(project.rectangle.tiles)
@@ -231,7 +230,8 @@ async def _check_quotas(
 
 async def new_project(discord_id: int, image_data: bytes, filename: str, *, wplace_size: Size = Size()) -> str | None:
     """Create a new project from an uploaded image. Returns None if no Person linked."""
-    person = await Person.filter(discord_id=discord_id).first()
+    persons = await Person.filter(discord_id=discord_id)
+    person = persons[0] if persons else None
     if person is None:
         return None
 
@@ -263,7 +263,7 @@ async def new_project(discord_id: int, image_data: bytes, filename: str, *, wpla
     await info.save_as_new()
 
     resolved_name = inferred_name or f"Project {info.id:04}"
-    existing = await ProjectInfo.filter(owner_id=person.id, name=resolved_name).exclude(id=info.id).first()
+    existing = await ProjectInfo.filter_by_owner_name(person.id, resolved_name, exclude_id=info.id)
     if existing:
         await info.delete()
         raise ErrorMsg(f"You already have a project named '{resolved_name}' (project {existing.id:04}).")
@@ -304,11 +304,12 @@ async def edit_project(
     wplace_size: Size = Size(),
 ) -> str | None:
     """Edit an existing project. Returns None if no Person linked."""
-    person = await Person.filter(discord_id=discord_id).first()
+    persons = await Person.filter(discord_id=discord_id)
+    person = persons[0] if persons else None
     if person is None:
         return None
 
-    info = await ProjectInfo.filter(id=project_id).prefetch_related("owner").first()
+    info = await ProjectInfo.get_by_id_with_owner(project_id)
     if info is None:
         raise ErrorMsg(f"Project {project_id:04} not found.")
     if info.owner.id != person.id:
@@ -372,7 +373,7 @@ async def edit_project(
 
     # --- Name change ---
     if name is not None:
-        existing = await ProjectInfo.filter(owner_id=person.id, name=name).exclude(id=project_id).first()
+        existing = await ProjectInfo.filter_by_owner_name(person.id, name, exclude_id=project_id)
         if existing:
             raise ErrorMsg(f"You already have a project named '{name}'.")
         info.name = name
@@ -415,11 +416,12 @@ async def edit_project(
 
 async def delete_project(discord_id: int, project_id: int) -> str | None:
     """Delete a project and all associated files. Returns None if no Person linked."""
-    person = await Person.filter(discord_id=discord_id).first()
+    persons = await Person.filter(discord_id=discord_id)
+    person = persons[0] if persons else None
     if person is None:
         return None
 
-    info = await ProjectInfo.filter(id=project_id).prefetch_related("owner").first()
+    info = await ProjectInfo.get_by_id_with_owner(project_id)
     if info is None:
         raise ErrorMsg(f"Project {project_id:04} not found.")
     if info.owner.id != person.id:
@@ -442,11 +444,12 @@ async def delete_project(discord_id: int, project_id: int) -> str | None:
 
 async def export_wplace(discord_id: int, project_id: int) -> tuple[bytes, str]:
     """Export a project as a .wplace file. Returns (wplace_bytes, filename)."""
-    person = await Person.filter(discord_id=discord_id).first()
+    persons = await Person.filter(discord_id=discord_id)
+    person = persons[0] if persons else None
     if person is None:
         raise ErrorMsg("No linked account found.")
 
-    info = await ProjectInfo.filter(id=project_id).prefetch_related("owner").first()
+    info = await ProjectInfo.get_by_id_with_owner(project_id)
     if info is None:
         raise ErrorMsg(f"Project {project_id:04} not found.")
     if info.owner.id != person.id:
@@ -525,11 +528,12 @@ async def list_projects(discord_id: int) -> str | None:
 
     Returns a formatted string of projects, or None if no Person is linked.
     """
-    person = await Person.filter(discord_id=discord_id).first()
+    persons = await Person.filter(discord_id=discord_id)
+    person = persons[0] if persons else None
     if person is None:
         return None
 
-    projects = await ProjectInfo.filter(owner=person).order_by("-last_snapshot").all()
+    projects = await ProjectInfo.filter_by_owner(person.id, order_by="last_snapshot DESC")
     if not projects:
         return "You have no projects."
 
@@ -537,11 +541,12 @@ async def list_projects(discord_id: int) -> str | None:
     entries: list[str] = []
 
     for i, info in enumerate(projects):
-        changes_24h = await HistoryChange.filter(project=info, timestamp__gte=cutoff).order_by("-timestamp").all()
+        changes_24h = await HistoryChange.filter_by_project(info.id, since=cutoff)
         if changes_24h:
             latest = changes_24h[0]
         else:
-            latest = await HistoryChange.filter(project=info).order_by("-timestamp").first()
+            latest_list = await HistoryChange.filter_by_project(info.id, limit=1)
+            latest = latest_list[0] if latest_list else None
         progress_24h = sum(c.progress_pixels for c in changes_24h)
         regress_24h = sum(c.regress_pixels for c in changes_24h)
         entry = _format_project(info, latest, progress_24h, regress_24h)

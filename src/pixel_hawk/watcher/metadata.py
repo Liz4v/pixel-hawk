@@ -100,6 +100,7 @@ def process_diff(info: ProjectInfo, current_data: bytes, target_data: bytes, pre
         info.last_log_message = f"{info.owner.name}/{info.name}: Not started"
         return HistoryChange(
             project=info,
+            project_id=info.id,
             timestamp=timestamp,
             status=DiffStatus.NOT_STARTED,
             num_remaining=0,
@@ -137,6 +138,7 @@ def process_diff(info: ProjectInfo, current_data: bytes, target_data: bytes, pre
         )
         return HistoryChange(
             project=info,
+            project_id=info.id,
             timestamp=timestamp,
             status=DiffStatus.COMPLETE,
             num_remaining=0,
@@ -168,6 +170,7 @@ def process_diff(info: ProjectInfo, current_data: bytes, target_data: bytes, pre
     info.last_log_message = " ".join(status_parts)
     return HistoryChange(
         project=info,
+        project_id=info.id,
         timestamp=timestamp,
         status=DiffStatus.IN_PROGRESS,
         num_remaining=num_remaining,

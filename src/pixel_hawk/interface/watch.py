@@ -41,8 +41,11 @@ async def format_watch_message(info: ProjectInfo) -> str:
 
     # Query recent changes first; derive latest from there when possible (saves a query)
     cutoff = round(time.time()) - 86400
-    changes_24h = await HistoryChange.filter(project=info, timestamp__gte=cutoff).order_by("-timestamp").all()
-    latest = changes_24h[0] if changes_24h else await HistoryChange.filter(project=info).order_by("-timestamp").first()
+    changes_24h = await HistoryChange.filter_by_project(info.id, since=cutoff)
+    latest = changes_24h[0] if changes_24h else None
+    if not latest:
+        latest_list = await HistoryChange.filter_by_project(info.id, limit=1)
+        latest = latest_list[0] if latest_list else None
 
     if latest and latest.status == DiffStatus.COMPLETE:
         lines.append(f"\u2705 **Complete** since <t:{info.max_completion_time}:R>")
@@ -132,17 +135,18 @@ async def create_watch(discord_id: int, project_id: int, channel_id: int, guild_
     with the resulting message_id. The ProjectInfo is returned so the caller
     can build image attachments via ``get_watch_image_paths()``.
     """
-    person = await Person.filter(discord_id=discord_id).first()
+    persons = await Person.filter(discord_id=discord_id)
+    person = persons[0] if persons else None
     if person is None:
         raise ErrorMsg("No linked account found.")
 
-    info = await ProjectInfo.filter(id=project_id).prefetch_related("owner").first()
+    info = await ProjectInfo.get_by_id_with_owner(project_id)
     if info is None:
         raise ErrorMsg(f"Project {project_id:04} not found.")
     if info.owner.id != person.id:
         raise ErrorMsg(f"Project {project_id:04} is not yours.")
 
-    existing = await WatchMessage.filter(project_id=project_id, channel_id=channel_id).first()
+    existing = await WatchMessage.get_by_project_channel(project_id, channel_id)
     if existing:
         guild_part = str(guild_id) if guild_id else "@me"
         link = f"https://discord.com/channels/{guild_part}/{existing.channel_id}/{existing.message_id}"
@@ -160,17 +164,18 @@ async def save_watch_message(project_id: int, channel_id: int, message_id: int) 
 
 async def remove_watch(discord_id: int, project_id: int, channel_id: int) -> int:
     """Remove a watch for a project in a channel. Returns message_id for deletion."""
-    person = await Person.filter(discord_id=discord_id).first()
+    persons = await Person.filter(discord_id=discord_id)
+    person = persons[0] if persons else None
     if person is None:
         raise ErrorMsg("No linked account found.")
 
-    info = await ProjectInfo.filter(id=project_id).prefetch_related("owner").first()
+    info = await ProjectInfo.get_by_id_with_owner(project_id)
     if info is None:
         raise ErrorMsg(f"Project {project_id:04} not found.")
     if info.owner.id != person.id:
         raise ErrorMsg(f"Project {project_id:04} is not yours.")
 
-    watch = await WatchMessage.filter(project_id=project_id, channel_id=channel_id).first()
+    watch = await WatchMessage.get_by_project_channel(project_id, channel_id)
     if watch is None:
         raise ErrorMsg(f"Project {project_id:04} is not being watched in this channel.")
 
@@ -184,12 +189,12 @@ async def get_watches_for_projects(project_ids: list[int]) -> list[WatchMessage]
     """Batch-query all WatchMessage records for the given project IDs."""
     if not project_ids:
         return []
-    return await WatchMessage.filter(project_id__in=project_ids).prefetch_related("project__owner").all()
+    return await WatchMessage.filter_by_projects_with_owner(project_ids)
 
 
 async def delete_watches_for_project(project_id: int) -> int:
     """Delete all WatchMessage records for a project. Returns count deleted."""
-    deleted = await WatchMessage.filter(project_id=project_id).delete()
+    deleted = await WatchMessage.delete_by_project(project_id)
     if deleted:
         logger.info(f"Deleted {deleted} watch message(s) for project {project_id:04}")
     return deleted

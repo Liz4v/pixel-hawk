@@ -26,7 +26,7 @@ from loguru import logger
 from PIL import UnidentifiedImageError
 
 from ..models.config import get_config
-from ..models.entities import ProjectInfo, ProjectState, TileInfo
+from ..models.entities import ProjectInfo, TileInfo
 from ..models.geometry import Point
 from ..models.griefing import GriefReport, Painter
 from ..models.palette import PALETTE, ColorsNotInPalette
@@ -57,11 +57,7 @@ class TileChecker:
 
     async def _get_projects_for_tile(self, tile_info: TileInfo) -> list[Project]:
         """Query database for projects affected by a tile, returning Project objects."""
-        infos = await ProjectInfo.filter(
-            project_tiles__tile_id=tile_info.id,
-            state__in=[ProjectState.ACTIVE, ProjectState.PASSIVE],
-        ).prefetch_related("owner")
-
+        infos = await ProjectInfo(id=0).get_projects_for_tile(tile_info.id)
         return [Project(info) for info in infos]
 
     async def check_next_tile(self) -> list[Project]:

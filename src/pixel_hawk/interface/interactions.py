@@ -16,7 +16,7 @@ import discord
 from discord import app_commands
 from loguru import logger
 
-from ..models.entities import Person, ProjectInfo, ProjectState
+from ..models.entities import ProjectInfo, ProjectState
 from ..models.geometry import Size
 from ..watcher.projects import Project
 from .access import (
