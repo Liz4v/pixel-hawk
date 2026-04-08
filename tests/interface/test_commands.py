@@ -15,6 +15,7 @@ from pixel_hawk.interface.commands import (
     _parse_coords,
     delete_project,
     edit_project,
+    export_wplace,
     get_command_prefix,
     list_projects,
     new_project,
@@ -24,7 +25,7 @@ from pixel_hawk.interface.commands import (
 from pixel_hawk.models.config import get_config
 from pixel_hawk.models.entities import DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState, TileProject
 from pixel_hawk.models.geometry import Point, Rectangle, Size
-from pixel_hawk.models.palette import PALETTE, ColorsNotInPalette
+from pixel_hawk.models.palette import PALETTE
 from pixel_hawk.watcher import projects
 
 # list_projects tests
@@ -309,7 +310,7 @@ class TestNewProject:
 
     async def test_bad_palette_raises(self):
         await Person.create(name="Carol", discord_id=10003)
-        with pytest.raises(ColorsNotInPalette):
+        with pytest.raises(ErrorMsg, match="not in the palette"):
             await new_project(10003, _make_bad_png(), "test.png")
 
     async def test_plain_filename_creates_creating_project(self):
@@ -993,7 +994,7 @@ def _make_wplace(
 class TestParseWplace:
     def test_valid_wplace(self):
         data = _make_wplace()
-        name, image_data, point = parse_wplace(data)
+        name, image_data, point, _ = parse_wplace(data)
         assert name == "Test Project"
         assert image_data.startswith(b"\x89PNG")
         assert point.x == 500_000
@@ -1001,14 +1002,14 @@ class TestParseWplace:
 
     def test_rue_portrait(self):
         data = (Path(__file__).parent / "rue.wplace").read_bytes()
-        name, image_data, point = parse_wplace(data)
+        name, image_data, point, _ = parse_wplace(data)
         assert name == "Rue portrait"
         assert point.x == 574_678
         assert point.y == 747_319
 
     def test_extracts_name(self):
         data = _make_wplace(name="Niko's Dream")
-        name, _, _ = parse_wplace(data)
+        name, _, _, _ = parse_wplace(data)
         assert name == "Niko's Dream"
 
     def test_invalid_json(self):
@@ -1062,7 +1063,7 @@ class TestParseWplace:
                 "bounds": {"north": nw.latitude, "south": se.latitude, "west": nw.longitude, "east": se.longitude},
             }
         ).encode()
-        name, image_data, point = parse_wplace(doc)
+        name, image_data, point, _ = parse_wplace(doc)
         assert image_data.startswith(b"\x89PNG")
 
     def test_invalid_base64(self):
@@ -1079,22 +1080,52 @@ class TestParseWplace:
     def test_unknown_schema_version_warns(self, caplog):
         data = _make_wplace(schema_version="99")
         # Should still parse successfully, just log a warning
-        name, image_data, point = parse_wplace(data)
+        name, image_data, point, _ = parse_wplace(data)
         assert name == "Test Project"
 
-    def test_bounds_image_size_mismatch(self):
-        from pixel_hawk.models.geometry import GeoPoint
 
-        # Bounds say 10x10 but declared image size is 20x20
-        nw = GeoPoint.from_pixel(500_000, 600_000)
-        se = GeoPoint.from_pixel(500_010, 600_010)
-        bounds = {"north": nw.latitude, "south": se.latitude, "west": nw.longitude, "east": se.longitude}
-        data = _make_wplace(bounds=bounds, width=20, height=20)
-        with pytest.raises(ErrorMsg, match="Bounds size.*doesn't match.*declared image size"):
-            parse_wplace(data)
+# export_wplace tests
 
-    def test_bounds_image_size_match(self):
-        # Should pass without error when bounds and declared size agree
-        data = _make_wplace(width=50, height=30)
-        name, image_data, point = parse_wplace(data)
-        assert name == "Test Project"
+
+class TestExportWplace:
+    async def test_export_roundtrips(self):
+        """Export a project and re-import — coordinates and name should match."""
+        person = await Person.create(name="Exporter", discord_id=70001)
+        msg = await new_project(70001, _make_test_png(20, 15), "Cool Art 500.600.0.0.png")
+        assert msg is not None
+        info = await ProjectInfo.filter(owner=person).first()
+        assert info is not None
+
+        wplace_bytes, filename = await export_wplace(70001, info.id)
+        assert filename.endswith(".wplace")
+
+        name, image_data, point, _ = parse_wplace(wplace_bytes)
+        assert name == "Cool Art"
+        assert point.x == 500_000
+        assert point.y == 600_000
+        assert image_data.startswith(b"\x89PNG")
+
+    async def test_export_unknown_person(self):
+        with pytest.raises(ErrorMsg, match="No linked account"):
+            await export_wplace(99999, 1)
+
+    async def test_export_not_found(self):
+        await Person.create(name="Nobody", discord_id=70002)
+        with pytest.raises(ErrorMsg, match="not found"):
+            await export_wplace(70002, 9999)
+
+    async def test_export_not_owner(self):
+        person = await Person.create(name="Owner", discord_id=70003)
+        await Person.create(name="Other", discord_id=70004)
+        await new_project(70003, _make_test_png(), "5.7.0.0.png")
+        info = await ProjectInfo.filter(owner=person).first()
+        with pytest.raises(ErrorMsg, match="not yours"):
+            await export_wplace(70004, info.id)
+
+    async def test_export_creating_project(self):
+        await Person.create(name="Creator", discord_id=70005)
+        await new_project(70005, _make_test_png(), "no_coords.png")
+        info = await ProjectInfo.filter(owner_id=(await Person.get(discord_id=70005)).id).first()
+        assert info.state == ProjectState.CREATING
+        with pytest.raises(ErrorMsg, match="no coordinates"):
+            await export_wplace(70005, info.id)

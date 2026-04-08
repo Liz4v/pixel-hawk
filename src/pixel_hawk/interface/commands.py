@@ -18,7 +18,7 @@ from PIL import Image
 from ..models.config import get_config
 from ..models.entities import DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState
 from ..models.geometry import GeoPoint, Point, Rectangle, Size
-from ..models.palette import PALETTE
+from ..models.palette import PALETTE, ColorsNotInPalette
 from ..watcher.projects import Project, count_cached_tiles
 from .access import ErrorMsg
 from .watch import delete_watches_for_project
@@ -63,8 +63,8 @@ def parse_filename(filename: str) -> tuple[str | None, tuple[int, int, int, int]
 KNOWN_WPLACE_VERSIONS = ("1",)
 
 
-def parse_wplace(data: bytes) -> tuple[str, bytes, Point]:
-    """Parse a .wplace project file. Returns (name, png_bytes, top_left_point)."""
+def parse_wplace(data: bytes) -> tuple[str, bytes, Point, Size]:
+    """Parse a .wplace project file. Returns (name, png_bytes, top_left_point, bounds_size)."""
     try:
         doc = json.loads(data)
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -108,18 +108,11 @@ def parse_wplace(data: bytes) -> tuple[str, bytes, Point]:
 
     if south is not None and east is not None:
         se = GeoPoint(south, east).to_pixel()
-        declared_w = image_obj.get("width")
-        declared_h = image_obj.get("height")
-        bounds_w = se.x - nw.x
-        bounds_h = se.y - nw.y
-        if declared_w is not None and declared_h is not None:
-            if bounds_w != declared_w or bounds_h != declared_h:
-                raise ErrorMsg(
-                    f"Bounds size ({bounds_w}x{bounds_h}) doesn't match "
-                    f"declared image size ({declared_w}x{declared_h})."
-                )
+        bounds_size = Size(se.x - nw.x, se.y - nw.y)
+    else:
+        bounds_size = Size(image_obj.get("width", 0), image_obj.get("height", 0))
 
-    return name, image_data, nw
+    return name, image_data, nw, bounds_size
 
 
 def _parse_coords(coords_str: str) -> tuple[int, int, int, int]:
@@ -168,17 +161,27 @@ async def _try_initial_diff(info: ProjectInfo) -> str | None:
 PNG_HEADER = b"\x89PNG\r\n\x1a\n"
 
 
-async def _validate_image(image_data: bytes) -> tuple[int, int]:
+YAWCC_HINT = "You can use [yawcc](https://yawcc.z1x.us) to resize and convert images."
+
+
+async def _validate_image(image_data: bytes, *, wplace_size: Size = Size()) -> tuple[int, int]:
     """Validate PNG data against palette and size limits. Returns (width, height)."""
     if not image_data.startswith(PNG_HEADER):
         raise ErrorMsg("Not a PNG file.")
     try:
         async with PALETTE.aopen_bytes(image_data) as image:
             width, height = image.size
+    except ColorsNotInPalette as e:
+        if wplace_size:
+            raise ErrorMsg(
+                f"Sorry, .wplace files store the original image before color conversion. {e}\n"
+                f"Target size: **{wplace_size}**\n\n{YAWCC_HINT}"
+            )
+        raise ErrorMsg(f"{e}\n\n{YAWCC_HINT}")
     except Image.DecompressionBombError:
-        raise ErrorMsg("Image too large. Maximum 1000px.")
+        raise ErrorMsg(f"Image too large. Maximum 1000px.\n\n{YAWCC_HINT}")
     if width > 1000 or height > 1000:
-        raise ErrorMsg(f"Image too large ({width}x{height}). Maximum 1000px.")
+        raise ErrorMsg(f"Image too large ({width}x{height}). Maximum 1000px.\n\n{YAWCC_HINT}")
     return width, height
 
 
@@ -222,13 +225,15 @@ async def _check_quotas(
             )
 
 
-async def new_project(discord_id: int, image_data: bytes, filename: str) -> str | None:
+async def new_project(
+    discord_id: int, image_data: bytes, filename: str, *, wplace_size: Size = Size()
+) -> str | None:
     """Create a new project from an uploaded image. Returns None if no Person linked."""
     person = await Person.filter(discord_id=discord_id).first()
     if person is None:
         return None
 
-    width, height = await _validate_image(image_data)
+    width, height = await _validate_image(image_data, wplace_size=wplace_size)
     inferred_name, inferred_coords = parse_filename(filename)
 
     if inferred_coords:
@@ -294,6 +299,7 @@ async def edit_project(
     name: str | None = None,
     coords: str | None = None,
     state: ProjectState | None = None,
+    wplace_size: Size = Size(),
 ) -> str | None:
     """Edit an existing project. Returns None if no Person linked."""
     person = await Person.filter(discord_id=discord_id).first()
@@ -325,7 +331,7 @@ async def edit_project(
 
     # --- Image replacement ---
     if image_data is not None:
-        width, height = await _validate_image(image_data)
+        width, height = await _validate_image(image_data, wplace_size=wplace_size)
 
         if new_point is not None:
             await _check_coord_conflict(person.id, new_point.x, new_point.y, exclude_id=info.id)
@@ -430,6 +436,45 @@ async def delete_project(discord_id: int, project_id: int) -> str | None:
 
     logger.info(f"{person.name}: Deleted project {project_id:04} '{project_name}'")
     return f"Project **{project_id:04}** ('{project_name}') deleted."
+
+
+async def export_wplace(discord_id: int, project_id: int) -> tuple[bytes, str]:
+    """Export a project as a .wplace file. Returns (wplace_bytes, filename)."""
+    person = await Person.filter(discord_id=discord_id).first()
+    if person is None:
+        raise ErrorMsg("No linked account found.")
+
+    info = await ProjectInfo.filter(id=project_id).prefetch_related("owner").first()
+    if info is None:
+        raise ErrorMsg(f"Project {project_id:04} not found.")
+    if info.owner.id != person.id:
+        raise ErrorMsg(f"Project {project_id:04} is not yours.")
+    if info.state == ProjectState.CREATING:
+        raise ErrorMsg("Cannot export a project that has no coordinates yet.")
+
+    project_path = get_config().projects_dir / str(person.id) / info.filename
+    png_data = await asyncio.to_thread(project_path.read_bytes)
+    b64 = base64.b64encode(png_data).decode()
+
+    rect = info.rectangle
+    nw = GeoPoint.from_pixel(rect.left, rect.top)
+    se = GeoPoint.from_pixel(rect.right, rect.bottom)
+
+    doc = {
+        "schemaVersion": "1",
+        "name": info.name,
+        "image": {"dataUrl": f"data:image/png;base64,{b64}", "width": rect.size.w, "height": rect.size.h},
+        "bounds": {
+            "north": nw.latitude,
+            "south": se.latitude,
+            "west": nw.longitude,
+            "east": se.longitude,
+        },
+    }
+    wplace_bytes = json.dumps(doc, indent=2).encode()
+    safe_name = re.sub(r"[^\w\s-]", "", info.name).strip().replace(" ", "-") or f"project-{info.id:04}"
+    filename = f"{safe_name}.wplace"
+    return wplace_bytes, filename
 
 
 DISCORD_MESSAGE_LIMIT = 2000

@@ -7,8 +7,9 @@ import discord
 from pixel_hawk.interface.access import ErrorMsg
 from pixel_hawk.interface.interactions import HawkBot, maybe_bot
 from pixel_hawk.models.entities import Person, ProjectState, WatchMessage
+from pixel_hawk.models.geometry import Size
 from pixel_hawk.models.griefing import GriefReport, Painter
-from pixel_hawk.models.palette import ColorsNotInPalette
+
 from pixel_hawk.watcher.projects import Project
 
 
@@ -439,13 +440,13 @@ class TestNewHandler:
             patch(
                 "pixel_hawk.interface.interactions.new_project",
                 new_callable=AsyncMock,
-                side_effect=ColorsNotInPalette({0x010203: 1}),
+                side_effect=ErrorMsg("Found 1 pixels not in the palette (#010203)\n\nyawcc"),
             ),
         ):
             await bot._new(interaction, attachment)
 
         msg = interaction.followup.send.call_args
-        assert "not in" in msg.args[0].lower() or "palette" in msg.args[0].lower() or "(1, 2, 3)" in msg.args[0]
+        assert "not in" in msg.args[0].lower() or "palette" in msg.args[0].lower()
 
     async def test_unexpected_error(self):
         bot = HawkBot("hawk")
@@ -501,6 +502,7 @@ class TestEditHandler:
             name="new name",
             coords=None,
             state=None,
+            wplace_size=Size(),
         )
         msg = interaction.followup.send.call_args
         assert msg.args[0] == "Updated!"
@@ -528,6 +530,7 @@ class TestEditHandler:
             name=None,
             coords=None,
             state=None,
+            wplace_size=Size(),
         )
 
     async def test_with_state_choice(self):
@@ -552,6 +555,7 @@ class TestEditHandler:
             name=None,
             coords=None,
             state=ProjectState.PASSIVE,
+            wplace_size=Size(),
         )
 
     async def test_error_msg(self):

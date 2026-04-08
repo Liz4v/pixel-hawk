@@ -10,13 +10,14 @@ Dispatches slash commands to service functions in commands.py and watch.py.
 import asyncio
 import contextlib
 import os
+from io import BytesIO
 
 import discord
 from discord import app_commands
 from loguru import logger
 
 from ..models.entities import Person, ProjectInfo, ProjectState
-from ..models.palette import ColorsNotInPalette
+from ..models.geometry import Size
 from ..watcher.projects import Project
 from .access import (
     ErrorMsg,
@@ -27,7 +28,7 @@ from .access import (
     set_guild_role,
     set_user_quotas,
 )
-from .commands import delete_project, edit_project, list_projects, new_project, parse_wplace
+from .commands import delete_project, edit_project, export_wplace, list_projects, new_project, parse_wplace
 from .watch import (
     create_watch,
     format_grief_message,
@@ -61,6 +62,7 @@ class HawkBot(discord.Client):
         hawk_group.command(name="new", description="Upload a new project image")(self._new)
         hawk_group.command(name="edit", description="Edit an existing project")(self._edit)
         hawk_group.command(name="delete", description="Delete a project")(self._delete)
+        hawk_group.command(name="export", description="Export a project as a .wplace file")(self._export)
         hawk_group.command(name="watch", description="Post a live-updating status message for a project")(self._watch)
         hawk_group.command(name="unwatch", description="Stop watching a project in this channel")(self._unwatch)
         hawk_group.command(name="help", description="Learn about Pixel Hawk and its commands")(self._help)
@@ -197,6 +199,7 @@ class HawkBot(discord.Client):
             f"- **/{p} new** — Upload a new project image (PNG or .wplace file)\n"
             f"- **/{p} edit** — Edit a project's image, name, coordinates, or state\n"
             f"- **/{p} delete** — Permanently delete a project\n"
+            f"- **/{p} export** — Export a project as a .wplace file\n"
             f"- **/{p} list** — List all your projects with current stats\n"
             f"- **/{p} watch** — Post a live-updating status message for a project\n"
             f"- **/{p} unwatch** — Remove a live status message from this channel\n"
@@ -222,14 +225,15 @@ class HawkBot(discord.Client):
         try:
             raw = await image.read()
             if image.filename.lower().endswith(".wplace"):
-                name, image_data, point = parse_wplace(raw)
+                name, image_data, point, wplace_size = parse_wplace(raw)
                 tx, ty, px, py = point.to4()
                 filename = f"{name} {tx}.{ty}.{px}.{py}.png"
             else:
                 image_data = raw
                 filename = image.filename
-            msg = await new_project(interaction.user.id, image_data, filename)
-        except (ErrorMsg, ColorsNotInPalette) as e:
+                wplace_size = Size()
+            msg = await new_project(interaction.user.id, image_data, filename, wplace_size=wplace_size)
+        except ErrorMsg as e:
             msg = str(e)
         except Exception as e:
             logger.exception(f"Error in /hawk new: {e}")
@@ -267,7 +271,7 @@ class HawkBot(discord.Client):
         try:
             if image and image.filename.lower().endswith(".wplace"):
                 raw = await image.read()
-                wplace_name, image_data, point = parse_wplace(raw)
+                wplace_name, image_data, point, wplace_size = parse_wplace(raw)
                 tx, ty, px, py = point.to4()
                 image_filename = f"{wplace_name} {tx}.{ty}.{px}.{py}.png"
                 if name is None:
@@ -275,6 +279,7 @@ class HawkBot(discord.Client):
             else:
                 image_data = await image.read() if image else None
                 image_filename = image.filename if image else None
+                wplace_size = Size()
             state_value = ProjectState(state.value) if state else None
             msg = await edit_project(
                 interaction.user.id,
@@ -284,8 +289,9 @@ class HawkBot(discord.Client):
                 name=name,
                 coords=coords,
                 state=state_value,
+                wplace_size=wplace_size,
             )
-        except (ErrorMsg, ColorsNotInPalette) as e:
+        except ErrorMsg as e:
             msg = str(e)
         except Exception as e:
             logger.exception(f"Error in /hawk edit: {e}")
@@ -310,6 +316,22 @@ class HawkBot(discord.Client):
 
     @app_commands.checks.cooldown(rate=1, per=10.0)
     @app_commands.describe(project_id="Project ID (4-digit number)")
+    async def _export(self, interaction: discord.Interaction, project_id: int) -> None:
+        """Handle /hawk export — export a project as a .wplace file."""
+        if await self._check_access(interaction) is None:
+            return
+        await interaction.response.defer(ephemeral=True)
+        try:
+            wplace_data, filename = await export_wplace(interaction.user.id, project_id)
+            await interaction.followup.send(file=discord.File(BytesIO(wplace_data), filename=filename), ephemeral=True)
+        except ErrorMsg as e:
+            await interaction.followup.send(str(e), ephemeral=True)
+        except Exception as e:
+            logger.exception(f"Error in /hawk export: {e}")
+            await interaction.followup.send("An error occurred while exporting the project.", ephemeral=True)
+
+    @app_commands.checks.cooldown(rate=1, per=10.0)
+    @app_commands.describe(project_id="Project ID (4-digit number)")
     async def _watch(self, interaction: discord.Interaction, project_id: int) -> None:
         """Handle /hawk watch — post a live-updating project status message."""
         if await self._check_access(interaction) is None:
@@ -317,9 +339,7 @@ class HawkBot(discord.Client):
         channel_id = interaction.channel_id
         assert channel_id is not None, "Commands must be used in a channel"
         try:
-            content, info = await create_watch(
-                interaction.user.id, project_id, channel_id, interaction.guild_id or 0
-            )
+            content, info = await create_watch(interaction.user.id, project_id, channel_id, interaction.guild_id or 0)
         except ErrorMsg as e:
             await interaction.response.send_message(str(e), ephemeral=True)
             return
@@ -346,7 +366,7 @@ class HawkBot(discord.Client):
             try:
                 msg = await channel.fetch_message(message_id)
                 await msg.delete()
-            except (discord.NotFound, discord.Forbidden):
+            except discord.NotFound, discord.Forbidden:
                 pass
         await interaction.response.send_message(
             f"Stopped watching project **{project_id:04}** in this channel.", ephemeral=True
@@ -387,7 +407,7 @@ class HawkBot(discord.Client):
         # Group watches by project ID
         watches_by_project: dict[int, list] = {}
         for watch in watches:
-            watches_by_project.setdefault(watch.project_id, []).append(watch)
+            watches_by_project.setdefault(watch.project_id, []).append(watch)  # type: ignore[reportAttributeAccessIssue]
         for proj in griefed:
             content = format_grief_message(proj)
             for watch in watches_by_project.get(proj.info.id, []):
