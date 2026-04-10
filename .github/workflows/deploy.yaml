@@ -55,10 +55,10 @@ jobs:
           ssh ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }}
           "cd ${{ vars.DEPLOY_DIR }} && ${UV_PYTHON_INSTALL_DIR:+UV_PYTHON_INSTALL_DIR=$UV_PYTHON_INSTALL_DIR} UV_PYTHON_PREFERENCE=only-system ${{ vars.UV_BIN }} sync --quiet"
 
-      - name: Ensure nest symlink and run migrations
+      - name: Ensure nest symlink
         run: >
           ssh ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }}
-          "cd ${{ vars.DEPLOY_DIR }} && ln -sfn ${{ vars.NEST_DIR }} nest && timeout 10 sudo -u ${{ vars.SERVICE_USER }} ${{ vars.UV_BIN }} run --cache-dir /var/cache/${{ vars.SERVICE_NAME }} --frozen aerich upgrade || true"
+          "cd ${{ vars.DEPLOY_DIR }} && ln -sfn ${{ vars.NEST_DIR }} nest"
 
       - name: Start service
         run: ssh ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }} "sudo systemctl start ${{ vars.SERVICE_NAME }}"
