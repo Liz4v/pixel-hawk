@@ -47,14 +47,14 @@ class TestFormatWatchMessage:
         person = await Person.create(name="Bob", discord_id=10001)
         info = ProjectInfo(owner_id=person.id, name="wip", state=ProjectState.CREATING, width=50, height=50)
         await info.save_as_new()
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         result = await format_watch_message(info)
         assert "CREATING" in result
         assert "wip" in result
 
     async def test_inactive_state(self):
         person, info = await _person_and_project(state=ProjectState.INACTIVE)
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         result = await format_watch_message(info)
         assert "INACTIVE" in result
         assert "not being monitored" in result.lower()
@@ -63,7 +63,7 @@ class TestFormatWatchMessage:
         person, info = await _person_and_project()
         info.last_check = 0
         await info.save()
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         result = await format_watch_message(info)
         assert "Not yet checked" in result
 
@@ -84,7 +84,7 @@ class TestFormatWatchMessage:
             progress_pixels=50,
             regress_pixels=3,
         )
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         result = await format_watch_message(info)
         assert "50.6%" in result
         assert "1,234" in result
@@ -108,7 +108,7 @@ class TestFormatWatchMessage:
             num_target=2500,
             completion_percent=100.0,
         )
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         result = await format_watch_message(info)
         assert "Complete" in result
         assert "2,500" in result
@@ -126,7 +126,7 @@ class TestFormatWatchMessage:
             num_target=1000,
             completion_percent=0.0,
         )
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         result = await format_watch_message(info)
         assert "Not started" in result
         assert "1,000" in result
@@ -145,7 +145,7 @@ class TestFormatWatchMessage:
             num_target=1000,
             completion_percent=50.0,
         )
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         result = await format_watch_message(info)
         assert "10.5 px/hr" in result
         assert "ETA:" in result
@@ -164,7 +164,7 @@ class TestFormatWatchMessage:
             num_target=1000,
             completion_percent=50.0,
         )
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         result = await format_watch_message(info)
         assert "-2.0 px/hr" in result
         assert "ETA:" not in result
@@ -184,7 +184,7 @@ class TestFormatWatchMessage:
             num_target=1000,
             completion_percent=70.0,
         )
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         result = await format_watch_message(info)
         assert "Best: 75.0%" in result
 
@@ -203,7 +203,7 @@ class TestFormatWatchMessage:
             num_target=1000,
             completion_percent=50.0,
         )
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         result = await format_watch_message(info)
         assert "Worst grief: 42 px" in result
 
@@ -233,7 +233,7 @@ class TestFormatWatchMessage:
             progress_pixels=100,
             regress_pixels=0,
         )
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         result = await format_watch_message(info)
         assert "Last 24h: +130 / -5" in result
 
@@ -285,7 +285,7 @@ class TestCreateWatch:
 async def test_save_watch_message():
     person, info = await _person_and_project()
     await save_watch_message(info.id, 300, 12345)
-    watch = await WatchMessage.filter(project_id=info.id, channel_id=300).first()
+    watch = await WatchMessage.get_by_project_channel(info.id, 300)
     assert watch is not None
     assert watch.message_id == 12345
 
@@ -320,7 +320,7 @@ class TestRemoveWatch:
         await WatchMessage.create(project_id=info.id, channel_id=100, message_id=555)
         message_id = await remove_watch(77777, info.id, 100)
         assert message_id == 555
-        assert await WatchMessage.filter(project_id=info.id, channel_id=100).count() == 0
+        assert await WatchMessage.get_by_project_channel(info.id, 100) is None
 
 
 # get_watches_for_projects tests
@@ -349,7 +349,7 @@ async def test_delete_watches_for_project():
     await WatchMessage.create(project_id=info.id, channel_id=200, message_id=222)
     deleted = await delete_watches_for_project(info.id)
     assert deleted == 2
-    assert await WatchMessage.filter(project_id=info.id).count() == 0
+    assert await WatchMessage.count_by_project(info.id) == 0
 
 
 async def test_delete_watches_for_project_none():
@@ -372,7 +372,7 @@ class TestFormatGriefMessage:
     async def test_with_discord_id(self):
         person = await Person.create(name="Victim", discord_id=12345)
         info = await ProjectInfo.from_rect(RECT, person.id, "my art")
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         painters = (Painter(user_id=99, user_name="Griefer", alliance_name="Bad", discord_id="", discord_name=""),)
         proj = _grief_project(info, GriefReport(regress_count=150, painters=painters))
         result = format_grief_message(proj)
@@ -386,7 +386,7 @@ class TestFormatGriefMessage:
     async def test_without_discord_id(self):
         person = await Person.create(name="NoDC")
         info = await ProjectInfo.from_rect(RECT, person.id, "project")
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         painters = (Painter(user_id=1, user_name="X", alliance_name="", discord_id="", discord_name=""),)
         proj = _grief_project(info, GriefReport(regress_count=200, painters=painters))
         result = format_grief_message(proj)
@@ -396,7 +396,7 @@ class TestFormatGriefMessage:
     async def test_multiple_painters(self):
         person = await Person.create(name="V", discord_id=55555)
         info = await ProjectInfo.from_rect(RECT, person.id, "art")
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         painters = (
             Painter(user_id=1, user_name="Alice", alliance_name="A", discord_id="", discord_name=""),
             Painter(user_id=2, user_name="Bob", alliance_name="B", discord_id="", discord_name=""),
@@ -417,12 +417,12 @@ class TestGetWatchImagePaths:
         person = await Person.create(name="Creator", discord_id=80001)
         info = ProjectInfo(owner_id=person.id, name="wip", state=ProjectState.CREATING, width=50, height=50)
         await info.save_as_new()
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         assert get_watch_image_paths(info) == {}
 
     async def test_returns_existing_paths(self, setup_config):
         person, info = await _person_and_project()
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         from pixel_hawk.models.config import get_config
 
         config = get_config()
@@ -444,7 +444,7 @@ class TestGetWatchImagePaths:
 
     async def test_only_goal_when_no_snapshot(self, setup_config):
         person, info = await _person_and_project()
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         from pixel_hawk.models.config import get_config
 
         config = get_config()
@@ -458,6 +458,6 @@ class TestGetWatchImagePaths:
 
     async def test_empty_when_no_files(self, setup_config):
         person, info = await _person_and_project()
-        await info.fetch_related("owner")
+        await info.fetch_related_owner()
         paths = get_watch_image_paths(info)
         assert paths == {}

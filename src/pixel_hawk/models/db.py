@@ -125,18 +125,20 @@ async def database(db_path: str | None = None):
     global _conn
     if db_path is None:
         db_path = str(get_config().data_dir / "pixel-hawk.db")
-    _conn = await aiosqlite.connect(db_path)
-    _conn.row_factory = sqlite3.Row
-    await _conn.execute("PRAGMA journal_mode=WAL")
-    await _conn.execute("PRAGMA foreign_keys=ON")
-    await _conn.executescript(SCHEMA)
-    await _conn.commit()
+    prior = _conn
+    conn = await aiosqlite.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    _conn = conn
+    await conn.execute("PRAGMA journal_mode=WAL")
+    await conn.execute("PRAGMA foreign_keys=ON")
+    await conn.executescript(SCHEMA)
+    await conn.commit()
     await _assert_db_writable()
     try:
         yield
     finally:
-        await _conn.close()
-        _conn = None
+        await conn.close()
+        _conn = prior
 
 
 async def execute(sql: str, params: tuple = ()) -> aiosqlite.Cursor:
@@ -165,13 +167,19 @@ async def fetch_all(sql: str, params: tuple = ()) -> list[sqlite3.Row]:
     """Fetch all rows."""
     conn = get_conn()
     cursor = await conn.execute(sql, params)
-    return await cursor.fetchall()
+    return list(await cursor.fetchall())
 
 
 async def fetch_val(sql: str, params: tuple = ()) -> int | float | str | None:
     """Fetch a single scalar value."""
     row = await fetch_one(sql, params)
     return row[0] if row else None
+
+
+async def fetch_int(sql: str, params: tuple = ()) -> int:
+    """Fetch a single integer value, returning 0 if no row or NULL."""
+    val = await fetch_val(sql, params)
+    return int(val) if val else 0
 
 
 async def _assert_db_writable() -> None:

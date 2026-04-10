@@ -57,7 +57,7 @@ class TileChecker:
 
     async def _get_projects_for_tile(self, tile_info: TileInfo) -> list[Project]:
         """Query database for projects affected by a tile, returning Project objects."""
-        infos = await ProjectInfo(id=0).get_projects_for_tile(tile_info.id)
+        infos = await ProjectInfo.get_projects_for_tile(tile_info.id)
         return [Project(info) for info in infos]
 
     async def check_next_tile(self) -> list[Project]:

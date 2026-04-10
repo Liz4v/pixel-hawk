@@ -431,8 +431,8 @@ async def test_full_check_cycle_multiple_graduates():
     assert checked > 0
 
     # After cycles complete, checked tiles should have graduated
-    graduated = await TileInfo.filter(heat__gte=1, heat__lte=998).count()
-    still_burning = await TileInfo.filter(heat=999).count()
+    graduated = await TileInfo.count_by_heat(heat_gte=1, heat_lte=998)
+    still_burning = await TileInfo.count_by_heat(heat_gte=999, heat_lte=999)
     assert graduated + still_burning == 10
     assert graduated > 0
     assert qs.num_queues >= 1

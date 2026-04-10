@@ -225,6 +225,7 @@ async def _create_project_with_tile(x: int, y: int, *, state: ProjectState = Pro
     person = await Person.create(name=f"tester-{x}-{y}")
     info = ProjectInfo(
         owner=person,
+        owner_id=person.id,
         name=f"project-{x}-{y}",
         state=state,
         x=x * 1000,
@@ -235,10 +236,7 @@ async def _create_project_with_tile(x: int, y: int, *, state: ProjectState = Pro
     )
     await info.save_as_new()
     tile_id = TileInfo.tile_id(x, y)
-    tile_info, _ = await TileInfo.get_or_create(
-        id=tile_id,
-        defaults={"x": x, "y": y, "heat": 999, "last_checked": 0, "last_update": 0},
-    )
+    tile_info, _ = await TileInfo.get_or_create(id=tile_id, x=x, y=y)
     await TileProject.create(tile=tile_info, project=info)
     return info
 

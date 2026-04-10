@@ -104,6 +104,12 @@ class Person:
         return cls._from_row(row)
 
     @classmethod
+    async def get_or_none(cls, **kwargs) -> Person | None:
+        where, params = _where_clause(kwargs)
+        row = await db.fetch_one(f"SELECT * FROM person WHERE {where}", params)
+        return cls._from_row(row) if row else None
+
+    @classmethod
     async def filter(cls, **kwargs) -> list[Person]:
         if not kwargs:
             return [cls._from_row(r) for r in await db.fetch_all("SELECT * FROM person")]
@@ -117,11 +123,9 @@ class Person:
     @classmethod
     async def count(cls, **kwargs) -> int:
         if not kwargs:
-            val = await db.fetch_val("SELECT COUNT(*) FROM person")
-        else:
-            where, params = _where_clause(kwargs)
-            val = await db.fetch_val(f"SELECT COUNT(*) FROM person WHERE {where}", params)
-        return val or 0
+            return await db.fetch_int("SELECT COUNT(*) FROM person")
+        where, params = _where_clause(kwargs)
+        return await db.fetch_int(f"SELECT COUNT(*) FROM person WHERE {where}", params)
 
     async def update_totals(self) -> None:
         """Recalculate and save watched tiles and active projects count."""
@@ -166,6 +170,10 @@ class ProjectInfo:
     recent_rate_window_start: int = 0
     has_missing_tiles: bool = True
     last_log_message: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.owner_id and self.owner.id:
+            self.owner_id = self.owner.id
 
     @classmethod
     def _from_row(cls, row, owner: Person | None = None) -> ProjectInfo:
@@ -291,10 +299,29 @@ class ProjectInfo:
 
     @classmethod
     async def get(cls, **kwargs) -> ProjectInfo:
-        where, params = _where_clause(kwargs, table_map={"owner": "owner_id"})
+        if "owner" in kwargs:
+            kwargs["owner_id"] = kwargs.pop("owner").id
+        where, params = _where_clause(kwargs)
         row = await db.fetch_one(f"SELECT * FROM project WHERE {where}", params)
         assert row is not None, f"ProjectInfo not found: {kwargs}"
         return cls._from_row(row)
+
+    @classmethod
+    async def get_or_none(cls, **kwargs) -> ProjectInfo | None:
+        if "owner" in kwargs:
+            kwargs["owner_id"] = kwargs.pop("owner").id
+        where, params = _where_clause(kwargs)
+        row = await db.fetch_one(f"SELECT * FROM project WHERE {where}", params)
+        return cls._from_row(row) if row else None
+
+    @classmethod
+    async def count(cls, **kwargs) -> int:
+        if "owner" in kwargs:
+            kwargs["owner_id"] = kwargs.pop("owner").id
+        if not kwargs:
+            return await db.fetch_int("SELECT COUNT(*) FROM project")
+        where, params = _where_clause(kwargs)
+        return await db.fetch_int(f"SELECT COUNT(*) FROM project WHERE {where}", params)
 
     @classmethod
     async def get_by_id(cls, project_id: int) -> ProjectInfo | None:
@@ -352,8 +379,7 @@ class ProjectInfo:
 
     @classmethod
     async def count_by_owner(cls, owner_id: int) -> int:
-        val = await db.fetch_val("SELECT COUNT(*) FROM project WHERE owner_id = ?", (owner_id,))
-        return val or 0
+        return await db.fetch_int("SELECT COUNT(*) FROM project WHERE owner_id = ?", (owner_id,))
 
     @classmethod
     async def from_rect(cls, rect: Rectangle, owner_id: int, name: str,
@@ -426,7 +452,8 @@ class ProjectInfo:
             if tile_info:
                 await tile_info.adjust_project_heat()
 
-    async def get_projects_for_tile(self, tile_id: int) -> list[ProjectInfo]:
+    @classmethod
+    async def get_projects_for_tile(cls, tile_id: int) -> list[ProjectInfo]:
         """Get all ACTIVE/PASSIVE projects linked to a tile, with owners."""
         rows = await db.fetch_all(
             "SELECT p.*, o.name AS owner_name, o.discord_id AS owner_discord_id, o.access AS owner_access, "
@@ -521,8 +548,7 @@ class HistoryChange:
 
     @classmethod
     async def count_by_project(cls, project_id: int) -> int:
-        val = await db.fetch_val("SELECT COUNT(*) FROM history_change WHERE project_id = ?", (project_id,))
-        return val or 0
+        return await db.fetch_int("SELECT COUNT(*) FROM history_change WHERE project_id = ?", (project_id,))
 
 
 @dataclass
@@ -635,8 +661,9 @@ class TileInfo:
 
     @classmethod
     async def count_by_heat(cls, *, heat_gte: int = 0, heat_lte: int = 999) -> int:
-        val = await db.fetch_val("SELECT COUNT(*) FROM tile WHERE heat >= ? AND heat <= ?", (heat_gte, heat_lte))
-        return val or 0
+        return await db.fetch_int(
+            "SELECT COUNT(*) FROM tile WHERE heat >= ? AND heat <= ?", (heat_gte, heat_lte)
+        )
 
     async def adjust_project_heat(self) -> None:
         """Verifies if heat 0 is consistent with the presence or absence of an ACTIVE project."""
@@ -687,6 +714,10 @@ class TileProject:
         return [cls._from_row(r) for r in await db.fetch_all(
             "SELECT * FROM tile_project WHERE project_id = ?", (project_id,)
         )]
+
+    @classmethod
+    async def count_by_project(cls, project_id: int) -> int:
+        return await db.fetch_int("SELECT COUNT(*) FROM tile_project WHERE project_id = ?", (project_id,))
 
 
 @dataclass
@@ -834,8 +865,7 @@ class WatchMessage:
 
     @classmethod
     async def count_by_project(cls, project_id: int) -> int:
-        val = await db.fetch_val("SELECT COUNT(*) FROM watch_message WHERE project_id = ?", (project_id,))
-        return val or 0
+        return await db.fetch_int("SELECT COUNT(*) FROM watch_message WHERE project_id = ?", (project_id,))
 
     @classmethod
     async def delete_by_project(cls, project_id: int) -> int:

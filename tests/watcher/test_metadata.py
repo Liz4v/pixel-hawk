@@ -450,7 +450,7 @@ class TestLinkTiles:
 
         from pixel_hawk.models.entities import TileProject
 
-        count = await TileProject.filter(project_id=info.id).count()
+        count = len(await TileProject.filter_by_project(info.id))
         assert count == linked
 
     async def test_idempotent(self, test_person):
@@ -481,7 +481,7 @@ class TestUnlinkTiles:
 
         from pixel_hawk.models.entities import TileProject
 
-        count = await TileProject.filter(project_id=info.id).count()
+        count = len(await TileProject.filter_by_project(info.id))
         assert count == 0
 
     async def test_no_records_returns_zero(self, test_person):

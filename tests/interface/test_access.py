@@ -43,7 +43,7 @@ class TestGrantAdmin:
         result = await grant_admin(99999, "NewUser")
         assert "NewUser" in result
 
-        person = await Person.filter(discord_id=99999).first()
+        person = await Person.get_or_none(discord_id=99999)
         assert person is not None
         assert person.name == "NewUser"
         assert person.access & BotAccess.ADMIN
@@ -54,7 +54,7 @@ class TestGrantAdmin:
         assert result is not None
 
         # Should not create a new person
-        count = await Person.filter(discord_id=88888).count()
+        count = await Person.count(discord_id=88888)
         assert count == 1
 
         # Should have admin access
@@ -95,7 +95,7 @@ class TestCoadmin:
         result = await coadmin(44003, 44004, "NewAdmin")
         assert "NewAdmin" in result
 
-        target = await Person.filter(discord_id=44004).first()
+        target = await Person.get_or_none(discord_id=44004)
         assert target is not None
         assert target.access & BotAccess.ADMIN
 
@@ -113,7 +113,7 @@ class TestCoadmin:
         result = await coadmin(44007, 44007, "SelfAdmin")
         assert "hatching_chick" in result
 
-        person = await Person.filter(discord_id=44007).first()
+        person = await Person.get_or_none(discord_id=44007)
         assert person is not None
         assert person.access & BotAccess.ADMIN
 
@@ -157,7 +157,7 @@ class TestPersonDiscordFields:
 class TestGuildConfig:
     async def test_create_and_retrieve(self):
         await GuildConfig.create(guild_id=100001, required_role="111")
-        config = await GuildConfig.filter(guild_id=100001).first()
+        config = await GuildConfig.get_by_guild(100001)
         assert config is not None
         assert config.required_role == "111"
 
