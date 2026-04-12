@@ -1,7 +1,9 @@
-"""Tests for TileInfo.adjust_project_heat, tile linking, and reverse relation annotations."""
+"""Tests for TileInfo.adjust_project_heat, tile linking, and query helpers."""
 
-from pixel_hawk.models.entities import Person, ProjectInfo, ProjectState, TileInfo, TileProject
 from pixel_hawk.models.geometry import Point, Rectangle, Size
+from pixel_hawk.models.person import Person
+from pixel_hawk.models.project import ProjectInfo, ProjectState
+from pixel_hawk.models.tile import TileInfo, TileProject
 
 
 async def _create_tile(x: int, y: int, *, heat: int = 999) -> TileInfo:
@@ -113,18 +115,18 @@ async def test_mixed_active_and_passive_keeps_heat():
     assert tile.heat == 5
 
 
-# --- Reverse relation: Person.projects ---
+# --- Person query helpers ---
 
 
-async def test_person_projects_empty():
-    """Person with no projects has empty reverse relation."""
+async def test_person_filter_empty():
+    """Person with no projects found via filter returns empty list for projects."""
     person = await Person.create(name="lonely")
-    projects = await person.projects.all()
+    projects = await ProjectInfo.filter_by_owner(person.id)
     assert projects == []
 
 
 async def test_person_projects_returns_owned():
-    """Person.projects returns only that person's projects."""
+    """filter_by_owner returns only that person's projects."""
     alice = await Person.create(name="Alice")
     bob = await Person.create(name="Bob")
     rect = Rectangle.from_point_size(Point(0, 0), Size(100, 100))
@@ -132,17 +134,17 @@ async def test_person_projects_returns_owned():
     alice_proj = await ProjectInfo.from_rect(rect, alice.id, "alice_proj")
     bob_proj = await ProjectInfo.from_rect(rect, bob.id, "bob_proj")
 
-    alice_projects = await alice.projects.all()
+    alice_projects = await ProjectInfo.filter_by_owner(alice.id)
     assert len(alice_projects) == 1
     assert alice_projects[0].id == alice_proj.id
 
-    bob_projects = await bob.projects.all()
+    bob_projects = await ProjectInfo.filter_by_owner(bob.id)
     assert len(bob_projects) == 1
     assert bob_projects[0].id == bob_proj.id
 
 
 async def test_person_projects_filter_by_state():
-    """Person.projects supports filtering by state."""
+    """filter_by_owner supports filtering by state."""
     person = await Person.create(name="tester")
     rect = Rectangle.from_point_size(Point(0, 0), Size(100, 100))
 
@@ -151,27 +153,27 @@ async def test_person_projects_filter_by_state():
     passive.state = ProjectState.PASSIVE
     await passive.save()
 
-    active_only = await person.projects.filter(state=ProjectState.ACTIVE).all()
+    active_only = await ProjectInfo.filter_by_owner(person.id, state=ProjectState.ACTIVE)
     assert len(active_only) == 1
     assert active_only[0].id == active.id
 
 
-# --- Reverse relation: TileInfo.tile_projects ---
+# --- TileProject queries ---
 
 
 async def test_tile_projects_empty():
-    """Tile with no linked projects has empty reverse relation."""
+    """Tile with no linked projects has empty query results."""
     tile = await _create_tile(5, 5)
-    links = await tile.tile_projects.all()
+    links = await TileProject.filter_by_tile(tile.id)
     assert links == []
 
 
 async def test_tile_projects_returns_links():
-    """TileInfo.tile_projects returns junction records for that tile."""
+    """TileProject.filter_by_tile returns junction records for that tile."""
     tile = await _create_tile(1, 1)
     info = await _link_project(tile)
 
-    links = await tile.tile_projects.all()
+    links = await TileProject.filter_by_tile(tile.id)
     assert len(links) == 1
     assert links[0].project_id == info.id
     assert links[0].tile_id == tile.id
@@ -189,31 +191,31 @@ async def test_tile_projects_multiple_projects():
     await TileProject.create(tile=tile, project=info1)
     await TileProject.create(tile=tile, project=info2)
 
-    links = await tile.tile_projects.all()
+    links = await TileProject.filter_by_tile(tile.id)
     assert len(links) == 2
     linked_ids = {link.project_id for link in links}
     assert linked_ids == {info1.id, info2.id}
 
 
-# --- Reverse relation: ProjectInfo.project_tiles ---
+# --- ProjectInfo.project_tiles ---
 
 
 async def test_project_tiles_empty():
-    """Project with no linked tiles has empty reverse relation."""
+    """Project with no linked tiles has empty query results."""
     person = await Person.create(name="tester")
     rect = Rectangle.from_point_size(Point(0, 0), Size(100, 100))
     info = await ProjectInfo.from_rect(rect, person.id, "proj")
 
-    links = await info.project_tiles.all()
+    links = await TileProject.filter_by_project(info.id)
     assert links == []
 
 
 async def test_project_tiles_returns_links():
-    """ProjectInfo.project_tiles returns junction records for that project."""
+    """TileProject.filter_by_project returns junction records for that project."""
     tile = await _create_tile(3, 3)
     info = await _link_project(tile)
 
-    links = await info.project_tiles.all()
+    links = await TileProject.filter_by_project(info.id)
     assert len(links) == 1
     assert links[0].tile_id == tile.id
     assert links[0].project_id == info.id
@@ -230,7 +232,7 @@ async def test_project_tiles_multiple_tiles():
     await TileProject.create(tile=tile_a, project=info)
     await TileProject.create(tile=tile_b, project=info)
 
-    links = await info.project_tiles.all()
+    links = await TileProject.filter_by_project(info.id)
     assert len(links) == 2
     linked_tile_ids = {link.tile_id for link in links}
     assert linked_tile_ids == {tile_a.id, tile_b.id}
@@ -342,7 +344,8 @@ async def test_link_tiles_creates_new_tile_at_zero_for_passive():
 
     await info.link_tiles()
     tile_id = TileInfo.tile_id(10, 10)
-    tile = await TileInfo.get(id=tile_id)
+    tile = await TileInfo.get_by_id(tile_id)
+    assert tile is not None
     assert tile.heat == 0
 
 
@@ -357,7 +360,8 @@ async def test_adjust_linked_tiles_heat_active_to_inactive():
     await info.link_tiles()
 
     tile_id = TileInfo.tile_id(11, 11)
-    tile = await TileInfo.get(id=tile_id)
+    tile = await TileInfo.get_by_id(tile_id)
+    assert tile is not None
     assert tile.heat == 999
 
     info.state = ProjectState.INACTIVE
@@ -381,7 +385,8 @@ async def test_adjust_linked_tiles_heat_inactive_to_active():
     await info.adjust_linked_tiles_heat()
 
     tile_id = TileInfo.tile_id(12, 12)
-    tile = await TileInfo.get(id=tile_id)
+    tile = await TileInfo.get_by_id(tile_id)
+    assert tile is not None
     assert tile.heat == 0
 
     # Reactivate

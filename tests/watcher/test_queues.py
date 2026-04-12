@@ -2,7 +2,7 @@
 
 import time
 
-from pixel_hawk.models.entities import TileInfo
+from pixel_hawk.models.tile import TileInfo
 from pixel_hawk.watcher.queues import QueueSystem, calculate_zipf_queue_sizes
 
 # --- calculate_zipf_queue_sizes (pure function, no DB) ---
@@ -241,15 +241,15 @@ async def test_redistribute_ignores_unchecked_burning_and_inactive():
     await qs.redistribute_queues()
 
     # Unchecked burning tile should still be 999
-    burning = await TileInfo.get(id=TileInfo.tile_id(0, 0))
+    burning = await TileInfo.get_by_id(TileInfo.tile_id(0, 0))
     assert burning.heat == 999
 
     # Inactive tile should still be 0
-    inactive = await TileInfo.get(id=TileInfo.tile_id(1, 0))
+    inactive = await TileInfo.get_by_id(TileInfo.tile_id(1, 0))
     assert inactive.heat == 0
 
     # Temperature tile should have a valid assignment
-    temp = await TileInfo.get(id=TileInfo.tile_id(2, 0))
+    temp = await TileInfo.get_by_id(TileInfo.tile_id(2, 0))
     assert 1 <= temp.heat <= qs.num_queues
 
 
@@ -270,11 +270,11 @@ async def test_redistribute_hottest_tiles_get_highest_temperature():
 
     if qs.num_queues > 1:
         # Newest tile should be in hottest queue (highest temperature)
-        newest = await TileInfo.get(id=TileInfo.tile_id(0, 0))
+        newest = await TileInfo.get_by_id(TileInfo.tile_id(0, 0))
         assert newest.heat == qs.num_queues
 
         # Oldest tile should be in a colder queue (lower temperature)
-        oldest = await TileInfo.get(id=TileInfo.tile_id(1, 0))
+        oldest = await TileInfo.get_by_id(TileInfo.tile_id(1, 0))
         assert oldest.heat <= newest.heat
 
 
@@ -431,8 +431,8 @@ async def test_full_check_cycle_multiple_graduates():
     assert checked > 0
 
     # After cycles complete, checked tiles should have graduated
-    graduated = await TileInfo.filter(heat__gte=1, heat__lte=998).count()
-    still_burning = await TileInfo.filter(heat=999).count()
+    graduated = await TileInfo.count_by_heat(heat_gte=1, heat_lte=998)
+    still_burning = await TileInfo.count_by_heat(heat_gte=999, heat_lte=999)
     assert graduated + still_burning == 10
     assert graduated > 0
     assert qs.num_queues >= 1

@@ -5,7 +5,8 @@ import pytest
 
 from pixel_hawk import main as main_mod
 from pixel_hawk.models.geometry import Point, Rectangle, Size
-from pixel_hawk.models.entities import Person, ProjectInfo
+from pixel_hawk.models.person import Person
+from pixel_hawk.models.project import ProjectInfo
 
 
 @pytest.fixture
@@ -31,7 +32,7 @@ async def test_watched_tiles_count_updated(setup_config, test_person):
     await m.start()
 
     # Reload person from DB
-    person = await Person.get(id=test_person.id)
+    person = await Person.get_by_id(test_person.id)
     # watched_tiles_count should be updated (overlapping tiles counted once)
     assert person.watched_tiles_count > 0
 
@@ -68,9 +69,9 @@ async def test_poll_once_updates_watches_on_nochange(setup_config, test_person):
     m = main_mod.Main()
     await m.start()
 
-    info1 = ProjectInfo(owner=test_person, name="p1")
+    info1 = ProjectInfo(owner_id=test_person.id, owner=test_person, name="p1")
     await info1.save_as_new()
-    info2 = ProjectInfo(owner=test_person, name="p2")
+    info2 = ProjectInfo(owner_id=test_person.id, owner=test_person, name="p2")
     await info2.save_as_new()
     projects = [Project(info1), Project(info2)]
 

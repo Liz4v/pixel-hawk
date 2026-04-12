@@ -16,7 +16,8 @@ import discord
 from discord import app_commands
 from loguru import logger
 
-from ..models.entities import Person, ProjectInfo, ProjectState
+from ..models.person import Person
+from ..models.project import ProjectInfo, ProjectState
 from ..models.geometry import Size
 from ..watcher.projects import Project
 from .access import (
@@ -376,26 +377,26 @@ class HawkBot(discord.Client):
         """Edit all watch messages for the given diffed projects with fresh stats."""
         watches = await get_watches_for_projects(project_ids)
         for watch in watches:
+            assert watch.project is not None, "get_watches_for_projects populates project"
+            info = watch.project
             try:
-                content = await format_watch_message(watch.project)
+                content = await format_watch_message(info)
                 channel = self.get_channel(watch.channel_id)
                 if not isinstance(channel, (discord.TextChannel, discord.DMChannel)):
                     channel = await self.fetch_channel(watch.channel_id)
                 assert isinstance(channel, (discord.TextChannel, discord.DMChannel))
                 msg = await channel.fetch_message(watch.message_id)
-                files = _make_watch_files(watch.project)
+                files = _make_watch_files(info)
                 await msg.edit(content=content, attachments=files)
-                logger.debug(f"Updated watch: project={watch.project.id:04} channel={watch.channel_id}")
+                logger.debug(f"Updated watch: project={info.id:04} channel={watch.channel_id}")
             except discord.NotFound:
-                logger.info(f"Watch message gone (404): project={watch.project.id:04} channel={watch.channel_id}")
+                logger.info(f"Watch message gone (404): project={info.id:04} channel={watch.channel_id}")
                 await watch.delete()
             except discord.Forbidden:
-                logger.info(
-                    f"Watch message inaccessible (403): project={watch.project.id:04} channel={watch.channel_id}"
-                )
+                logger.info(f"Watch message inaccessible (403): project={info.id:04} channel={watch.channel_id}")
                 await watch.delete()
             except Exception as e:
-                logger.warning(f"Failed to update watch for project {watch.project.id:04}: {e}")
+                logger.warning(f"Failed to update watch for project {info.id:04}: {e}")
 
     async def notify_griefs(self, projects: list[Project]) -> None:
         """Send grief alert messages to channels watching projects with grief reports."""
@@ -407,7 +408,7 @@ class HawkBot(discord.Client):
         # Group watches by project ID
         watches_by_project: dict[int, list] = {}
         for watch in watches:
-            watches_by_project.setdefault(watch.project_id, []).append(watch)  # type: ignore[reportAttributeAccessIssue]
+            watches_by_project.setdefault(watch.project_id, []).append(watch)
         for proj in griefed:
             content = format_grief_message(proj)
             for watch in watches_by_project.get(proj.info.id, []):

@@ -2,7 +2,8 @@
 
 import pytest
 
-from pixel_hawk.models.entities import DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState
+from pixel_hawk.models.person import Person
+from pixel_hawk.models.project import DiffStatus, HistoryChange, ProjectInfo, ProjectState
 from pixel_hawk.models.geometry import Point, Rectangle, Size
 
 
@@ -30,8 +31,8 @@ async def test_same_name_different_owners(person1, person2):
     info2 = await ProjectInfo.from_rect(rect, person2.id, "my_project")
 
     # Fetch owner relationships
-    await info1.fetch_related("owner")
-    await info2.fetch_related("owner")
+    await info1.fetch_related_owner()
+    await info2.fetch_related_owner()
 
     # Both should succeed (different owners)
     assert info1.name == "my_project"
@@ -72,8 +73,8 @@ async def test_owner_isolation_in_lookups(person1, person2):
     lookup2 = await ProjectInfo.get_or_create_from_rect(rect, person2.id, "shared_name")
 
     # Fetch owner relationships
-    await lookup1.fetch_related("owner")
-    await lookup2.fetch_related("owner")
+    await lookup1.fetch_related_owner()
+    await lookup2.fetch_related_owner()
 
     assert lookup1.id == info1.id
     assert lookup2.id == info2.id
@@ -108,8 +109,8 @@ async def test_history_change_fk_with_multiuser(person1, person2):
     )
 
     # Verify FK relationships work
-    changes1 = await HistoryChange.filter(project=info1).all()
-    changes2 = await HistoryChange.filter(project=info2).all()
+    changes1 = await HistoryChange.filter_by_project(info1.id)
+    changes2 = await HistoryChange.filter_by_project(info2.id)
 
     assert len(changes1) == 1
     assert len(changes2) == 1
@@ -133,7 +134,7 @@ async def test_watched_tiles_tracking(person1):
     await person1.update_totals()
 
     # Reload from DB
-    person = await Person.get(id=person1.id)
+    person = await Person.get_by_id(person1.id)
 
     # Both projects cover 1 tile each = 2 tiles total
     assert person.watched_tiles_count == 2
@@ -153,7 +154,7 @@ async def test_watched_tiles_overlapping_counted_once(person1):
     await person1.update_totals()
 
     # Reload from DB
-    person = await Person.get(id=person1.id)
+    person = await Person.get_by_id(person1.id)
 
     # Overlapping tiles should be counted only once
     assert person.watched_tiles_count > 0
@@ -271,8 +272,8 @@ async def test_multiple_owners_different_tiles(person1, person2):
     await person2.update_totals()
 
     # Each person should watch 2 tiles
-    person1_reloaded = await Person.get(id=person1.id)
-    person2_reloaded = await Person.get(id=person2.id)
+    person1_reloaded = await Person.get_by_id(person1.id)
+    person2_reloaded = await Person.get_by_id(person2.id)
 
     assert person1_reloaded.watched_tiles_count == 2
     assert person2_reloaded.watched_tiles_count == 2

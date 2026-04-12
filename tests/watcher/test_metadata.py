@@ -7,7 +7,8 @@ import pytest
 
 from pixel_hawk.watcher import metadata
 from pixel_hawk.models.geometry import Point, Rectangle, Size
-from pixel_hawk.models.entities import Person, ProjectInfo
+from pixel_hawk.models.person import Person
+from pixel_hawk.models.project import ProjectInfo
 
 
 @pytest.fixture
@@ -18,7 +19,7 @@ async def test_person():
 
 async def test_project_info_default_initialization(test_person):
     """Test ProjectInfo can be created with defaults via DB."""
-    info = ProjectInfo(owner=test_person, name="test")
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="test")
     await info.save_as_new()
 
     assert info.x == 0
@@ -96,6 +97,7 @@ async def test_get_or_create_from_rect_returns_existing(test_person):
 async def test_db_persistence_round_trip(test_person):
     """Test ProjectInfo saves to and loads from DB correctly."""
     info = ProjectInfo(
+        owner_id=test_person.id,
         owner=test_person,
         name="roundtrip",
         x=10,
@@ -111,7 +113,7 @@ async def test_db_persistence_round_trip(test_person):
     )
     await info.save_as_new()
 
-    loaded = await ProjectInfo.get(owner=test_person, name="roundtrip")
+    loaded = await ProjectInfo.get_by_owner_name(test_person.id, "roundtrip")
     assert loaded.x == 10
     assert loaded.y == 20
     assert loaded.width == 30
@@ -126,6 +128,7 @@ async def test_db_persistence_round_trip(test_person):
 async def test_numeric_fields_precision(test_person):
     """Test floating point precision in DB round-trip."""
     info = ProjectInfo(
+        owner_id=test_person.id,
         owner=test_person,
         name="precision",
         max_completion_percent=99.99999,
@@ -133,7 +136,7 @@ async def test_numeric_fields_precision(test_person):
     )
     await info.save_as_new()
 
-    loaded = await ProjectInfo.get(owner=test_person, name="precision")
+    loaded = await ProjectInfo.get_by_owner_name(test_person.id, "precision")
     assert loaded.max_completion_percent == info.max_completion_percent
     assert loaded.recent_rate_pixels_per_hour == info.recent_rate_pixels_per_hour
 
@@ -247,7 +250,7 @@ async def test_compare_snapshots_skips_transparent():
 
 async def test_update_completion_new_record(test_person):
     """Test updating max completion when improved."""
-    info = ProjectInfo(owner=test_person, name="comp_new")
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="comp_new")
     await info.save_as_new()
 
     metadata.update_completion(info, 100, 50.0, 1000)
@@ -263,7 +266,7 @@ async def test_update_completion_new_record(test_person):
 
 async def test_update_completion_no_improvement(test_person):
     """Test that completion doesn't downgrade."""
-    info = ProjectInfo(owner=test_person, name="comp_noimpr")
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="comp_noimpr")
     await info.save_as_new()
 
     metadata.update_completion(info, 50, 75.0, 1000)
@@ -276,7 +279,7 @@ async def test_update_completion_no_improvement(test_person):
 
 async def test_update_completion_stays_locked_at_zero(test_person):
     """Test that completion time doesn't update once project reaches 0 remaining."""
-    info = ProjectInfo(owner=test_person, name="comp_lock")
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="comp_lock")
     await info.save_as_new()
 
     metadata.update_completion(info, 0, 100.0, 1000)
@@ -289,7 +292,7 @@ async def test_update_completion_stays_locked_at_zero(test_person):
 
 async def test_update_regress_new_record(test_person):
     """Test updating largest regress event."""
-    info = ProjectInfo(owner=test_person, name="reg_new")
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="reg_new")
     await info.save_as_new()
 
     metadata.update_regress(info, 10, 1000)
@@ -303,7 +306,7 @@ async def test_update_regress_new_record(test_person):
 
 async def test_update_regress_not_larger(test_person):
     """Test that smaller regress doesn't update record."""
-    info = ProjectInfo(owner=test_person, name="reg_smaller")
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="reg_smaller")
     await info.save_as_new()
 
     metadata.update_regress(info, 20, 1000)
@@ -315,7 +318,7 @@ async def test_update_regress_not_larger(test_person):
 
 async def test_update_rate_new_window(test_person):
     """Test rate calculation starting new window."""
-    info = ProjectInfo(owner=test_person, name="rate_new")
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_new")
     await info.save_as_new()
 
     metadata.update_rate(info, 10, 2, 1000)
@@ -326,7 +329,7 @@ async def test_update_rate_new_window(test_person):
 
 async def test_update_rate_with_elapsed_time(test_person):
     """Test rate calculation with elapsed time."""
-    info = ProjectInfo(owner=test_person, name="rate_elapsed")
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_elapsed")
     await info.save_as_new()
 
     info.recent_rate_window_start = 1000
@@ -337,7 +340,7 @@ async def test_update_rate_with_elapsed_time(test_person):
 
 async def test_update_rate_window_reset(test_person):
     """Test rate window resets after 24 hours."""
-    info = ProjectInfo(owner=test_person, name="rate_reset")
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_reset")
     await info.save_as_new()
 
     info.recent_rate_window_start = 1000
@@ -351,7 +354,7 @@ async def test_update_rate_window_reset(test_person):
 
 async def test_update_rate_negative_net_change(test_person):
     """Test rate calculation with net regress."""
-    info = ProjectInfo(owner=test_person, name="rate_neg")
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_neg")
     await info.save_as_new()
 
     info.recent_rate_window_start = 1000
@@ -362,21 +365,21 @@ async def test_update_rate_negative_net_change(test_person):
 
 async def test_has_missing_tiles_default(test_person):
     """Test has_missing_tiles defaults to True."""
-    info = ProjectInfo(owner=test_person, name="miss_default")
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="miss_default")
     await info.save_as_new()
     assert info.has_missing_tiles is True
 
 
 async def test_has_missing_tiles_persistence(test_person):
     """Test has_missing_tiles persists through DB round-trip."""
-    info = ProjectInfo(owner=test_person, name="miss_persist", has_missing_tiles=False)
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="miss_persist", has_missing_tiles=False)
     await info.save_as_new()
-    loaded = await ProjectInfo.get(owner=test_person, name="miss_persist")
+    loaded = await ProjectInfo.get_by_owner_name(test_person.id, "miss_persist")
     assert loaded.has_missing_tiles is False
 
-    info2 = ProjectInfo(owner=test_person, name="miss_persist2", has_missing_tiles=True)
+    info2 = ProjectInfo(owner_id=test_person.id, owner=test_person, name="miss_persist2", has_missing_tiles=True)
     await info2.save_as_new()
-    loaded2 = await ProjectInfo.get(owner=test_person, name="miss_persist2")
+    loaded2 = await ProjectInfo.get_by_owner_name(test_person.id, "miss_persist2")
     assert loaded2.has_missing_tiles is True
 
 
@@ -385,18 +388,19 @@ async def test_has_missing_tiles_persistence(test_person):
 
 async def test_save_as_new_assigns_random_id(test_person):
     """Test that save_as_new assigns an ID in the valid range."""
-    info = ProjectInfo(owner=test_person, name="random_id")
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="random_id")
     await info.save_as_new()
 
     assert 1 <= info.id <= 9999
-    loaded = await ProjectInfo.get(id=info.id)
+    loaded = await ProjectInfo.get_by_id(info.id)
+    assert loaded is not None
     assert loaded.name == "random_id"
 
 
 async def test_save_as_new_retries_on_collision(test_person, monkeypatch):
     """Test that save_as_new retries when a random ID collides."""
     # Create a project that occupies ID 42
-    first = ProjectInfo(owner=test_person, name="occupier")
+    first = ProjectInfo(owner_id=test_person.id, owner=test_person, name="occupier")
     await first.save_as_new()
     occupied_id = first.id
 
@@ -413,7 +417,7 @@ async def test_save_as_new_retries_on_collision(test_person, monkeypatch):
 
     monkeypatch.setattr(random, "randint", rigged_randint)
 
-    second = ProjectInfo(owner=test_person, name="retried")
+    second = ProjectInfo(owner_id=test_person.id, owner=test_person, name="retried")
     await second.save_as_new()
 
     assert second.id != occupied_id
@@ -424,14 +428,14 @@ async def test_save_as_new_retries_on_collision(test_person, monkeypatch):
 async def test_save_as_new_exhaustion(test_person, monkeypatch):
     """Test that save_as_new raises RuntimeError on exhaustion."""
     # Create a project at ID 42
-    first = ProjectInfo(owner=test_person, name="blocker")
+    first = ProjectInfo(owner_id=test_person.id, owner=test_person, name="blocker")
     await first.save_as_new()
     occupied_id = first.id
 
     # Always return the same occupied ID
     monkeypatch.setattr(random, "randint", lambda a, b: occupied_id)
 
-    second = ProjectInfo(owner=test_person, name="exhausted")
+    second = ProjectInfo(owner_id=test_person.id, owner=test_person, name="exhausted")
     with pytest.raises(RuntimeError, match="Failed to save project with unique ID"):
         await second.save_as_new(max_attempts=5)
 
@@ -448,9 +452,9 @@ class TestLinkTiles:
         linked = await info.link_tiles()
         assert linked > 0
 
-        from pixel_hawk.models.entities import TileProject
+        from pixel_hawk.models.tile import TileProject
 
-        count = await TileProject.filter(project_id=info.id).count()
+        count = len(await TileProject.filter_by_project(info.id))
         assert count == linked
 
     async def test_idempotent(self, test_person):
@@ -464,9 +468,9 @@ class TestLinkTiles:
         info = await ProjectInfo.from_rect(TILE_RECT, test_person.id, "tileinfo-test")
         await info.link_tiles()
 
-        from pixel_hawk.models.entities import TileInfo
+        from pixel_hawk.models.tile import TileInfo
 
-        tile_info = await TileInfo.get(id=TileInfo.tile_id(5, 7))
+        tile_info = await TileInfo.get_by_id(TileInfo.tile_id(5, 7))
         assert tile_info.x == 5
         assert tile_info.y == 7
 
@@ -479,9 +483,9 @@ class TestUnlinkTiles:
         deleted = await info.unlink_tiles()
         assert deleted > 0
 
-        from pixel_hawk.models.entities import TileProject
+        from pixel_hawk.models.tile import TileProject
 
-        count = await TileProject.filter(project_id=info.id).count()
+        count = len(await TileProject.filter_by_project(info.id))
         assert count == 0
 
     async def test_no_records_returns_zero(self, test_person):

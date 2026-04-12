@@ -8,7 +8,9 @@ import httpx
 from pixel_hawk.models.griefing import GriefReport, Painter
 from pixel_hawk.watcher.ingest import TileChecker
 from pixel_hawk.watcher.projects import Project
-from pixel_hawk.models.entities import Person, ProjectInfo, ProjectState, TileInfo, TileProject
+from pixel_hawk.models.person import Person
+from pixel_hawk.models.project import ProjectInfo, ProjectState
+from pixel_hawk.models.tile import TileInfo, TileProject
 from pixel_hawk.models.geometry import Point, Rectangle, Size
 from pixel_hawk.models.palette import PALETTE
 
@@ -225,6 +227,7 @@ async def _create_project_with_tile(x: int, y: int, *, state: ProjectState = Pro
     person = await Person.create(name=f"tester-{x}-{y}")
     info = ProjectInfo(
         owner=person,
+        owner_id=person.id,
         name=f"project-{x}-{y}",
         state=state,
         x=x * 1000,
@@ -235,10 +238,7 @@ async def _create_project_with_tile(x: int, y: int, *, state: ProjectState = Pro
     )
     await info.save_as_new()
     tile_id = TileInfo.tile_id(x, y)
-    tile_info, _ = await TileInfo.get_or_create(
-        id=tile_id,
-        defaults={"x": x, "y": y, "heat": 999, "last_checked": 0, "last_update": 0},
-    )
+    tile_info, _ = await TileInfo.get_or_create(id=tile_id, x=x, y=y)
     await TileProject.create(tile=tile_info, project=info)
     return info
 
@@ -280,7 +280,7 @@ async def test_check_next_tile_unchanged_calls_run_nochange(setup_config):
     """When tile is unchanged (304), run_nochange is called on affected projects."""
     await _create_project_with_tile(0, 0)
     # Move tile out of burning queue so it's selectable as a temp tile
-    tile_info = await TileInfo.get(id=TileInfo.tile_id(0, 0))
+    tile_info = await TileInfo.get_by_id(TileInfo.tile_id(0, 0))
     tile_info.last_update = 1700052326
     tile_info.last_checked = 100
     tile_info.heat = 1
@@ -301,7 +301,7 @@ async def test_check_next_tile_unchanged_calls_run_nochange(setup_config):
 async def test_check_next_tile_unchanged_returns_projects(setup_config):
     """When tile is unchanged, check_next_tile still returns affected Projects for watch updates."""
     info = await _create_project_with_tile(0, 0)
-    tile_info = await TileInfo.get(id=TileInfo.tile_id(0, 0))
+    tile_info = await TileInfo.get_by_id(TileInfo.tile_id(0, 0))
     tile_info.last_update = 1700052326
     tile_info.last_checked = 100
     tile_info.heat = 1
@@ -376,7 +376,7 @@ async def test_check_next_tile_updates_database(setup_config):
         await checker.check_next_tile()
 
     # Verify TileInfo was updated
-    tile_info = await TileInfo.get(id=TileInfo.tile_id(0, 0))
+    tile_info = await TileInfo.get_by_id(TileInfo.tile_id(0, 0))
     assert tile_info.last_checked > 0
     assert tile_info.last_update == 1700052326
     assert tile_info.etag == '"new-etag"'
@@ -445,8 +445,10 @@ async def test_investigate_regression_stops_after_4_hits():
     checker = TileChecker()
     proj = _make_project_with_regressed_indices(list(range(200)))
 
-    with patch("pixel_hawk.watcher.ingest._HAWK_INVESTIGATE", True), \
-         patch.object(TileChecker, "investigate_pixel", mock_investigate):
+    with (
+        patch("pixel_hawk.watcher.ingest._HAWK_INVESTIGATE", True),
+        patch.object(TileChecker, "investigate_pixel", mock_investigate),
+    ):
         await checker.investigate_regression(proj)
 
     assert call_count == 4  # Stopped after 4 hits of same author
@@ -473,8 +475,10 @@ async def test_investigate_regression_deduplicates_authors():
     checker = TileChecker()
     proj = _make_project_with_regressed_indices(list(range(200)))
 
-    with patch("pixel_hawk.watcher.ingest._HAWK_INVESTIGATE", True), \
-         patch.object(TileChecker, "investigate_pixel", mock_investigate):
+    with (
+        patch("pixel_hawk.watcher.ingest._HAWK_INVESTIGATE", True),
+        patch.object(TileChecker, "investigate_pixel", mock_investigate),
+    ):
         await checker.investigate_regression(proj)
 
     assert call_idx == 7  # Stopped when Alice hit 4
@@ -496,8 +500,10 @@ async def test_investigate_regression_maps_indices_to_canvas_points():
     checker = TileChecker()
     proj = _make_project_with_regressed_indices([0, 105, 250])
 
-    with patch("pixel_hawk.watcher.ingest._HAWK_INVESTIGATE", True), \
-         patch.object(TileChecker, "investigate_pixel", mock_investigate):
+    with (
+        patch("pixel_hawk.watcher.ingest._HAWK_INVESTIGATE", True),
+        patch.object(TileChecker, "investigate_pixel", mock_investigate),
+    ):
         await checker.investigate_regression(proj)
 
     # Only 3 indices, single author doesn't reach threshold of 4 — all investigated
@@ -515,13 +521,17 @@ async def test_investigate_regression_exhausts_all_indices():
         nonlocal call_count
         call_count += 1
         # Each pixel has a unique author
-        return Painter(user_id=call_count, user_name=f"User{call_count}", alliance_name="", discord_id="", discord_name="")
+        return Painter(
+            user_id=call_count, user_name=f"User{call_count}", alliance_name="", discord_id="", discord_name=""
+        )
 
     checker = TileChecker()
     proj = _make_project_with_regressed_indices(list(range(5)))
 
-    with patch("pixel_hawk.watcher.ingest._HAWK_INVESTIGATE", True), \
-         patch.object(TileChecker, "investigate_pixel", mock_investigate):
+    with (
+        patch("pixel_hawk.watcher.ingest._HAWK_INVESTIGATE", True),
+        patch.object(TileChecker, "investigate_pixel", mock_investigate),
+    ):
         await checker.investigate_regression(proj)
 
     assert call_count == 5  # All indices checked, none hit 4
@@ -540,8 +550,10 @@ async def test_investigate_regression_aborts_on_falsy_painter():
     checker = TileChecker()
     proj = _make_project_with_regressed_indices(list(range(50)))
 
-    with patch("pixel_hawk.watcher.ingest._HAWK_INVESTIGATE", True), \
-         patch.object(TileChecker, "investigate_pixel", mock_investigate):
+    with (
+        patch("pixel_hawk.watcher.ingest._HAWK_INVESTIGATE", True),
+        patch.object(TileChecker, "investigate_pixel", mock_investigate),
+    ):
         await checker.investigate_regression(proj)
 
     assert call_count == 1  # Stopped after first falsy result
@@ -556,7 +568,12 @@ async def test_investigate_regression_aborts_on_falsy_painter():
 
 async def test_investigate_pixel_success():
     """Successful 200 response returns populated Painter from paintedBy payload."""
-    response = httpx.Response(200, json={"paintedBy": {"id": 42, "name": "Alice", "allianceName": "Cool", "discordId": "999", "discord": "alice#1"}})
+    response = httpx.Response(
+        200,
+        json={
+            "paintedBy": {"id": 42, "name": "Alice", "allianceName": "Cool", "discordId": "999", "discord": "alice#1"}
+        },
+    )
     checker = TileChecker()
     checker.client = MockClient(response)
 

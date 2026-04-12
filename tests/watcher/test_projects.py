@@ -7,7 +7,8 @@ from PIL import Image
 from pixel_hawk.watcher import projects
 from pixel_hawk.models.config import get_config
 from pixel_hawk.models.geometry import Point, Rectangle, Size
-from pixel_hawk.models.entities import HistoryChange, Person, ProjectInfo
+from pixel_hawk.models.person import Person
+from pixel_hawk.models.project import HistoryChange, ProjectInfo
 from pixel_hawk.models.palette import PALETTE, AsyncImage
 
 
@@ -47,7 +48,7 @@ async def _make_project(rect, owner_id, *, name="test", touch=False):
     instead of a valid paletted image.
     """
     info = await ProjectInfo.get_or_create_from_rect(rect, owner_id, name)
-    await info.fetch_related("owner")
+    await info.fetch_related_owner()
     path = get_config().projects_dir / str(info.owner.id) / info.filename
     path.parent.mkdir(parents=True, exist_ok=True)
     if touch:
@@ -83,7 +84,7 @@ async def test_from_info_valid_project(tmp_path, setup_config, test_person, monk
     monkeypatch.setattr(projects.Project, "run_diff", noop_run_diff)
 
     # Fetch owner relationship before loading project
-    await info.fetch_related("owner")
+    await info.fetch_related_owner()
 
     # Load project from info
     proj = await projects.Project.from_info(info)
@@ -98,7 +99,7 @@ async def test_from_info_missing_file(tmp_path, setup_config, test_person):
     info = await ProjectInfo.from_rect(rect, test_person.id, "missing_project")
 
     # Fetch owner relationship
-    await info.fetch_related("owner")
+    await info.fetch_related_owner()
 
     # Don't create the file - it should be missing
     proj = await projects.Project.from_info(info)
@@ -115,7 +116,7 @@ async def test_from_info_invalid_palette(tmp_path, setup_config, test_person):
     info = await ProjectInfo.from_rect(rect, test_person.id, "invalid_palette")
 
     # Fetch owner relationship
-    await info.fetch_related("owner")
+    await info.fetch_related_owner()
 
     # Create file with wrong colors
     path = person_dir / info.filename
@@ -280,7 +281,8 @@ async def test_project_info_save_and_load(test_person):
     await proj.info.save()
 
     # Load fresh from DB
-    loaded = await ProjectInfo.get(owner=test_person, name=proj.info.name)
+    loaded = await ProjectInfo.get_by_owner_name(test_person.id, proj.info.name)
+    assert loaded is not None
     assert loaded.max_completion_pixels == 42
     assert loaded.total_progress == 100
 
@@ -378,7 +380,7 @@ async def test_run_diff_creates_history_change(monkeypatch, test_person):
     await proj.run_diff()
 
     # Should have created a HistoryChange record (progress detected)
-    changes = await HistoryChange.filter(project=proj.info).all()
+    changes = await HistoryChange.filter_by_project(proj.info.id)
     assert len(changes) >= 1
     assert changes[0].num_target > 0
 
@@ -412,12 +414,12 @@ async def test_run_diff_skips_history_change_without_progress_or_regress(monkeyp
 
     # First diff: no previous snapshot, so progress=0, regress=0 → no HistoryChange saved
     await proj.run_diff()
-    changes = await HistoryChange.filter(project=proj.info).all()
+    changes = await HistoryChange.filter_by_project(proj.info.id)
     assert len(changes) == 0
 
     # Second diff: snapshot matches current exactly (no change) → still no HistoryChange
     await proj.run_diff()
-    changes = await HistoryChange.filter(project=proj.info).all()
+    changes = await HistoryChange.filter_by_project(proj.info.id)
     assert len(changes) == 0
 
 
@@ -451,7 +453,7 @@ async def test_run_diff_saves_history_change_with_progress(monkeypatch, test_per
     monkeypatch.setattr(projects, "stitch_tiles", fake_stitch)
 
     await proj.run_diff()
-    assert len(await HistoryChange.filter(project=proj.info).all()) == 0
+    assert len(await HistoryChange.filter_by_project(proj.info.id)) == 0
 
     # Second run: progress detected (pixel (1,1) now matches target)
     current2 = _paletted_image((4, 4), value=0)
@@ -461,7 +463,7 @@ async def test_run_diff_saves_history_change_with_progress(monkeypatch, test_per
     stitch_results = iter([current2])
     await proj.run_diff()
 
-    changes = await HistoryChange.filter(project=proj.info).all()
+    changes = await HistoryChange.filter_by_project(proj.info.id)
     assert len(changes) == 1
     assert changes[0].progress_pixels == 1
     assert changes[0].regress_pixels == 0
