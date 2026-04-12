@@ -317,7 +317,7 @@ async def test_update_regress_not_larger(test_person):
 
 
 async def test_update_rate_new_window(test_person):
-    """Test rate calculation starting new window."""
+    """First call with no prior timestamp just records the timestamp."""
     info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_new")
     await info.save_as_new()
 
@@ -327,40 +327,116 @@ async def test_update_rate_new_window(test_person):
     assert info.recent_rate_pixels_per_hour == 0.0
 
 
-async def test_update_rate_with_elapsed_time(test_person):
-    """Test rate calculation with elapsed time."""
-    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_elapsed")
+async def test_update_rate_bootstrap(test_person):
+    """Second call seeds rate directly from instant rate (no prior EMA to blend)."""
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_bootstrap")
     await info.save_as_new()
 
     info.recent_rate_window_start = 1000
-    metadata.update_rate(info, 10, 2, 1000 + 3600)
+    metadata.update_rate(info, 10, 2, 1000 + 3600)  # 8 net pixels in 1 hour
 
     assert info.recent_rate_pixels_per_hour == 8.0
 
 
-async def test_update_rate_window_reset(test_person):
-    """Test rate window resets after 24 hours."""
-    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_reset")
+async def test_update_rate_ema_smoothing(test_person):
+    """Third+ call blends instant rate with existing EMA."""
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_ema")
+    await info.save_as_new()
+
+    info.recent_rate_window_start = 1000
+    info.recent_rate_pixels_per_hour = 8.0
+
+    metadata.update_rate(info, 20, 0, 1000 + 3600)  # instant rate = 20 px/hr
+
+    import math
+    decay = math.exp(-1.0 / metadata.RATE_HALF_LIFE_HOURS)
+    expected = decay * 8.0 + (1 - decay) * 20.0
+    assert info.recent_rate_pixels_per_hour == pytest.approx(expected, abs=0.01)
+    assert info.recent_rate_window_start == 1000 + 3600
+
+
+async def test_update_rate_steady_convergence(test_person):
+    """Steady painting at 132 px/hr converges the EMA toward 132."""
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_converge")
+    await info.save_as_new()
+
+    # Bootstrap
+    info.recent_rate_window_start = 1000
+    metadata.update_rate(info, 132, 0, 1000 + 3600)
+    assert info.recent_rate_pixels_per_hour == 132.0
+
+    # 50 more updates at ~97s intervals, each delivering 132 * (97/3600) ~ 3.56 pixels
+    interval = 97
+    pixels_per_interval = 132.0 * interval / 3600.0
+    t = 1000 + 3600
+    for _ in range(50):
+        t += interval
+        metadata.update_rate(info, round(pixels_per_interval), 0, t)
+
+    assert info.recent_rate_pixels_per_hour == pytest.approx(132.0, rel=0.05)
+
+
+async def test_update_rate_stale_reset(test_person):
+    """Rate resets to 0 after 7 days of inactivity."""
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_stale")
     await info.save_as_new()
 
     info.recent_rate_window_start = 1000
     info.recent_rate_pixels_per_hour = 100.0
 
-    metadata.update_rate(info, 5, 0, 1000 + 86401)
+    metadata.update_rate(info, 5, 0, 1000 + 604801)
 
-    assert info.recent_rate_window_start == 1000 + 86401
+    assert info.recent_rate_window_start == 1000 + 604801
     assert info.recent_rate_pixels_per_hour == 0.0
 
 
 async def test_update_rate_negative_net_change(test_person):
-    """Test rate calculation with net regress."""
+    """Grief exceeding progress produces negative instant rate, lowering the EMA."""
     info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_neg")
     await info.save_as_new()
 
+    # Bootstrap with positive rate
     info.recent_rate_window_start = 1000
-    metadata.update_rate(info, 2, 10, 1000 + 3600)
+    metadata.update_rate(info, 10, 2, 1000 + 3600)  # seeds at 8.0
+    assert info.recent_rate_pixels_per_hour == 8.0
 
-    assert info.recent_rate_pixels_per_hour == -8.0
+    # Next diff has net regress
+    metadata.update_rate(info, 2, 10, 2000 + 3600)  # instant = -8.0
+    assert info.recent_rate_pixels_per_hour < 8.0
+
+
+async def test_update_rate_long_gap_decay(test_person):
+    """A 48-hour gap heavily decays the old rate."""
+    import math
+
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_decay")
+    await info.save_as_new()
+
+    info.recent_rate_window_start = 1000
+    info.recent_rate_pixels_per_hour = 100.0
+
+    gap_hours = 48.0
+    metadata.update_rate(info, 10, 0, 1000 + round(gap_hours * 3600))
+
+    decay = math.exp(-gap_hours / metadata.RATE_HALF_LIFE_HOURS)
+    instant_rate = 10.0 / gap_hours
+    expected = decay * 100.0 + (1 - decay) * instant_rate
+    assert info.recent_rate_pixels_per_hour == pytest.approx(expected, abs=0.01)
+    assert decay < 0.02  # old rate nearly gone
+
+
+async def test_update_rate_zero_elapsed(test_person):
+    """Same timestamp as last update is a no-op."""
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_zero")
+    await info.save_as_new()
+
+    info.recent_rate_window_start = 1000
+    info.recent_rate_pixels_per_hour = 50.0
+
+    metadata.update_rate(info, 10, 0, 1000)
+
+    assert info.recent_rate_pixels_per_hour == 50.0
+    assert info.recent_rate_window_start == 1000
 
 
 async def test_has_missing_tiles_default(test_person):
