@@ -2,7 +2,7 @@
 
 import time
 
-from pixel_hawk.models.entities import TileInfo
+from pixel_hawk.models.tile import TileInfo
 from pixel_hawk.watcher.queues import QueueSystem, calculate_zipf_queue_sizes
 
 # --- calculate_zipf_queue_sizes (pure function, no DB) ---
@@ -241,15 +241,15 @@ async def test_redistribute_ignores_unchecked_burning_and_inactive():
     await qs.redistribute_queues()
 
     # Unchecked burning tile should still be 999
-    burning = await TileInfo.get(id=TileInfo.tile_id(0, 0))
+    burning = await TileInfo.get_by_id(TileInfo.tile_id(0, 0))
     assert burning.heat == 999
 
     # Inactive tile should still be 0
-    inactive = await TileInfo.get(id=TileInfo.tile_id(1, 0))
+    inactive = await TileInfo.get_by_id(TileInfo.tile_id(1, 0))
     assert inactive.heat == 0
 
     # Temperature tile should have a valid assignment
-    temp = await TileInfo.get(id=TileInfo.tile_id(2, 0))
+    temp = await TileInfo.get_by_id(TileInfo.tile_id(2, 0))
     assert 1 <= temp.heat <= qs.num_queues
 
 
@@ -270,11 +270,11 @@ async def test_redistribute_hottest_tiles_get_highest_temperature():
 
     if qs.num_queues > 1:
         # Newest tile should be in hottest queue (highest temperature)
-        newest = await TileInfo.get(id=TileInfo.tile_id(0, 0))
+        newest = await TileInfo.get_by_id(TileInfo.tile_id(0, 0))
         assert newest.heat == qs.num_queues
 
         # Oldest tile should be in a colder queue (lower temperature)
-        oldest = await TileInfo.get(id=TileInfo.tile_id(1, 0))
+        oldest = await TileInfo.get_by_id(TileInfo.tile_id(1, 0))
         assert oldest.heat <= newest.heat
 
 

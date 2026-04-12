@@ -6,7 +6,8 @@ and guild access checks.
 
 from loguru import logger
 
-from ..models.entities import BotAccess, GuildConfig, Person
+from ..models.guild import GuildConfig
+from ..models.person import BotAccess, Person
 
 
 class ErrorMsg(Exception):
@@ -18,7 +19,7 @@ async def imprint(discord_id: int, display_name: str) -> str:
 
     Only works when no Person records exist. Creates the caller as an admin.
     """
-    count = await Person.count()
+    count = await Person.count_all()
     if count > 0:
         raise ErrorMsg(":wing: I won't fall for _that_ one again...")
     await grant_admin(discord_id, display_name)
@@ -29,8 +30,7 @@ async def coadmin(admin_discord_id: int, target_discord_id: int, target_display_
     """Grant admin access to another user. Caller must be an admin."""
     if admin_discord_id == target_discord_id:
         return await imprint(target_discord_id, target_display_name)
-    persons = await Person.filter(discord_id=admin_discord_id)
-    person = persons[0] if persons else None
+    person = await Person.get_or_none_by_discord_id(admin_discord_id)
     if person is None or not (person.access & BotAccess.ADMIN):
         raise ErrorMsg("Admin access required.")
     return await grant_admin(target_discord_id, target_display_name)
@@ -42,8 +42,7 @@ async def grant_admin(discord_id: int, display_name: str) -> str:
     Callers are responsible for authorization (no token flow — intended for
     manual use or a future installation flow).
     """
-    persons = await Person.filter(discord_id=discord_id)
-    person = persons[0] if persons else None
+    person = await Person.get_or_none_by_discord_id(discord_id)
     if person is None:
         person = await Person.create(name=display_name, discord_id=discord_id)
         logger.info(f"Created new person '{display_name}' (discord_id={discord_id})")
@@ -57,8 +56,7 @@ async def grant_admin(discord_id: int, display_name: str) -> str:
 
 async def set_guild_role(discord_id: int, guild_id: int, role_id: str) -> str:
     """Set the required role for a guild. Caller must be an admin."""
-    persons = await Person.filter(discord_id=discord_id)
-    person = persons[0] if persons else None
+    person = await Person.get_or_none_by_discord_id(discord_id)
     if person is None or not (person.access & BotAccess.ADMIN):
         raise ErrorMsg("Admin access required.")
 
@@ -69,8 +67,7 @@ async def set_guild_role(discord_id: int, guild_id: int, role_id: str) -> str:
 
 async def get_user_quotas(discord_id: int) -> str:
     """Format current quota usage for a Discord user. Raises ErrorMsg if not found."""
-    persons = await Person.filter(discord_id=discord_id)
-    person = persons[0] if persons else None
+    person = await Person.get_or_none_by_discord_id(discord_id)
     if person is None:
         raise ErrorMsg("User not found.")
     return (
@@ -91,13 +88,11 @@ async def set_user_quotas(
     if projects is None and tiles is None:
         return await get_user_quotas(target_discord_id)
 
-    admins = await Person.filter(discord_id=admin_discord_id)
-    admin = admins[0] if admins else None
+    admin = await Person.get_or_none_by_discord_id(admin_discord_id)
     if admin is None or not (admin.access & BotAccess.ADMIN):
         raise ErrorMsg("Admin access required.")
 
-    persons = await Person.filter(discord_id=target_discord_id)
-    person = persons[0] if persons else None
+    person = await Person.get_or_none_by_discord_id(target_discord_id)
     if person is None:
         raise ErrorMsg("User not found.")
 
@@ -141,8 +136,7 @@ async def set_guild_quotas(admin_discord_id: int, guild_id: int, *, projects: in
     if projects is None and tiles is None:
         return await get_guild_quotas(guild_id)
 
-    admins = await Person.filter(discord_id=admin_discord_id)
-    admin = admins[0] if admins else None
+    admin = await Person.get_or_none_by_discord_id(admin_discord_id)
     if admin is None or not (admin.access & BotAccess.ADMIN):
         raise ErrorMsg("Admin access required.")
 
@@ -168,8 +162,7 @@ async def check_dm_access(discord_id: int) -> Person:
 
     Raises ErrorMsg if the user has no Person record or insufficient access.
     """
-    persons = await Person.filter(discord_id=discord_id)
-    person = persons[0] if persons else None
+    person = await Person.get_or_none_by_discord_id(discord_id)
     if person is None or not (person.access & (BotAccess.ADMIN | BotAccess.ALLOWED)):
         raise ErrorMsg("Use a hawk command in a server first to get access.")
     return person
@@ -180,8 +173,7 @@ async def check_guild_access(guild_id: int, discord_id: int, display_name: str, 
 
     Raises ErrorMsg if access is denied.
     """
-    persons = await Person.filter(discord_id=discord_id)
-    person = persons[0] if persons else None
+    person = await Person.get_or_none_by_discord_id(discord_id)
     if person and person.access & BotAccess.ADMIN:
         return person
 

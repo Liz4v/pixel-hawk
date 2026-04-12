@@ -7,7 +7,8 @@ from PIL import Image
 from pixel_hawk.watcher import projects
 from pixel_hawk.models.config import get_config
 from pixel_hawk.models.geometry import Point, Rectangle, Size
-from pixel_hawk.models.entities import HistoryChange, Person, ProjectInfo
+from pixel_hawk.models.person import Person
+from pixel_hawk.models.project import HistoryChange, ProjectInfo
 from pixel_hawk.models.palette import PALETTE, AsyncImage
 
 
@@ -280,7 +281,8 @@ async def test_project_info_save_and_load(test_person):
     await proj.info.save()
 
     # Load fresh from DB
-    loaded = await ProjectInfo.get(owner_id=test_person.id, name=proj.info.name)
+    loaded = await ProjectInfo.get_by_owner_name(test_person.id, proj.info.name)
+    assert loaded is not None
     assert loaded.max_completion_pixels == 42
     assert loaded.total_progress == 100
 

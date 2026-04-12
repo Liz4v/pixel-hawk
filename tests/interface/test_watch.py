@@ -15,14 +15,9 @@ from pixel_hawk.interface.watch import (
     remove_watch,
     save_watch_message,
 )
-from pixel_hawk.models.entities import (
-    DiffStatus,
-    HistoryChange,
-    Person,
-    ProjectInfo,
-    ProjectState,
-    WatchMessage,
-)
+from pixel_hawk.models.person import Person
+from pixel_hawk.models.project import DiffStatus, HistoryChange, ProjectInfo, ProjectState
+from pixel_hawk.models.watch import WatchMessage
 from pixel_hawk.models.geometry import Point, Rectangle, Size
 from pixel_hawk.models.griefing import GriefReport, Painter
 from pixel_hawk.watcher.projects import Project

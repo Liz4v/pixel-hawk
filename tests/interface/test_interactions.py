@@ -6,7 +6,9 @@ import discord
 
 from pixel_hawk.interface.access import ErrorMsg
 from pixel_hawk.interface.interactions import HawkBot, maybe_bot
-from pixel_hawk.models.entities import Person, ProjectState, WatchMessage
+from pixel_hawk.models.person import Person
+from pixel_hawk.models.project import ProjectState
+from pixel_hawk.models.watch import WatchMessage
 from pixel_hawk.models.geometry import Size
 from pixel_hawk.models.griefing import GriefReport, Painter
 
@@ -754,9 +756,7 @@ class TestWatchHandler:
                 return_value=("Stats here", mock_info),
             ),
             patch("pixel_hawk.interface.interactions._make_watch_files", return_value=[]),
-            patch(
-                "pixel_hawk.interface.interactions.save_watch_message", new_callable=AsyncMock
-            ) as mock_save,
+            patch("pixel_hawk.interface.interactions.save_watch_message", new_callable=AsyncMock) as mock_save,
         ):
             await bot._watch(interaction, 42)
 
@@ -1034,9 +1034,7 @@ class TestNotifyGriefs:
         bot = HawkBot("hawk")
         proj = _grief_proj(grief=False)
 
-        with patch(
-            "pixel_hawk.interface.interactions.get_watches_for_projects", new_callable=AsyncMock
-        ) as mock_get:
+        with patch("pixel_hawk.interface.interactions.get_watches_for_projects", new_callable=AsyncMock) as mock_get:
             await bot.notify_griefs([proj])
 
         mock_get.assert_not_awaited()

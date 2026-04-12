@@ -10,10 +10,10 @@ process_diff() creates and returns a HistoryChange object for the caller to pers
 import time
 from typing import TYPE_CHECKING
 
-from ..models.entities import DiffStatus, HistoryChange
+from ..models.project import DiffStatus, HistoryChange
 
 if TYPE_CHECKING:
-    from ..models.entities import ProjectInfo
+    from ..models.project import ProjectInfo
 
 
 def find_regressed_indices(current_data: bytes, prev_data: bytes, target_data: bytes) -> list[int]:
@@ -83,9 +83,13 @@ def update_rate(info: ProjectInfo, progress_pixels: int, regress_pixels: int, ti
 def process_diff(info: ProjectInfo, current_data: bytes, target_data: bytes, prev_data: bytes) -> HistoryChange:
     """Process a project diff: count pixels, compare snapshots, update metadata, build log message.
 
+    Requires info.owner to be prefetched.
+
     Returns:
         HistoryChange object (not yet saved to DB - caller must await change.save()).
     """
+    assert info.owner is not None
+    owner = info.owner
     # Update last check timestamp
     info.last_check = timestamp = round(time.time())
 
@@ -97,7 +101,7 @@ def process_diff(info: ProjectInfo, current_data: bytes, target_data: bytes, pre
 
     # Check if project not started (all target pixels remain, and no previous snapshot)
     if not prev_data and remaining == target_data:
-        info.last_log_message = f"{info.owner.name}/{info.name}: Not started"
+        info.last_log_message = f"{owner.name}/{info.name}: Not started"
         return HistoryChange(
             project=info,
             project_id=info.id,
@@ -134,7 +138,7 @@ def process_diff(info: ProjectInfo, current_data: bytes, target_data: bytes, pre
     # Check for completion
     if max(remaining) == 0:
         info.last_log_message = (
-            f"{info.owner.name}/{info.name}: Complete! {num_target} pixels total. {info.rectangle.to_link()}"
+            f"{owner.name}/{info.name}: Complete! {num_target} pixels total. {info.rectangle.to_link()}"
         )
         return HistoryChange(
             project=info,
@@ -157,7 +161,7 @@ def process_diff(info: ProjectInfo, current_data: bytes, target_data: bytes, pre
     when = time.strftime("%b %d %H:%M", time.localtime(time.time() + seconds_to_go))
 
     status_parts = [
-        f"{info.owner.name}/{info.name}:",
+        f"{owner.name}/{info.name}:",
         f"{num_remaining}px remaining ({percent_complete:.2f}% complete)",
     ]
 

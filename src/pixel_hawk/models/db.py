@@ -6,6 +6,7 @@ Uses aiosqlite for async access and dataclass conversion at the boundary.
 """
 
 import sqlite3
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 
 import aiosqlite
@@ -15,6 +16,11 @@ from .config import get_config
 
 # Module-level connection, set by database() context manager
 _conn: aiosqlite.Connection | None = None
+_in_transaction: bool = False
+
+# Migration functions are applied in order. Append new entries to add a migration.
+# Each migration runs inside db.transaction() and bumps PRAGMA user_version on success.
+MIGRATIONS: list[Callable[[aiosqlite.Connection], Awaitable[None]]] = []
 
 SCHEMA = """\
 CREATE TABLE IF NOT EXISTS person (
@@ -122,31 +128,69 @@ async def database(db_path: str | None = None):
             # ... use query helpers ...
         # Connection automatically closed
     """
-    global _conn
+    global _conn, _in_transaction
     if db_path is None:
         db_path = str(get_config().data_dir / "pixel-hawk.db")
-    prior = _conn
+    prior_conn = _conn
+    prior_tx = _in_transaction
     conn = await aiosqlite.connect(db_path)
     conn.row_factory = sqlite3.Row
     _conn = conn
+    _in_transaction = False
     await conn.execute("PRAGMA journal_mode=WAL")
     await conn.execute("PRAGMA foreign_keys=ON")
     await conn.executescript(SCHEMA)
     await conn.commit()
     await _assert_db_writable()
+    await _run_migrations(conn)
     try:
         yield
     finally:
         await conn.close()
-        _conn = prior
+        _conn = prior_conn
+        _in_transaction = prior_tx
 
 
 async def execute(sql: str, params: tuple = ()) -> aiosqlite.Cursor:
-    """Execute a write query (INSERT, UPDATE, DELETE) and auto-commit."""
+    """Execute a write query (INSERT, UPDATE, DELETE).
+
+    Auto-commits unless running inside a db.transaction() block, in which case
+    the enclosing transaction controls the commit/rollback boundary.
+    """
     conn = get_conn()
     cursor = await conn.execute(sql, params)
-    await conn.commit()
+    if not _in_transaction:
+        await conn.commit()
     return cursor
+
+
+@asynccontextmanager
+async def transaction():
+    """Async context manager for atomic multi-statement mutations.
+
+    Issues BEGIN IMMEDIATE on entry, COMMIT on clean exit, ROLLBACK on exception.
+    While active, db.execute() skips its own commit so all statements land atomically.
+
+    Nest-safe: a transaction() nested inside another is a no-op — SQLite does not
+    support true nested transactions without savepoints, and we don't need those
+    semantics here. The outermost transaction() controls the boundary.
+    """
+    global _in_transaction
+    conn = get_conn()
+    if _in_transaction:
+        yield
+        return
+    await conn.execute("BEGIN IMMEDIATE")
+    _in_transaction = True
+    try:
+        yield
+    except BaseException:
+        await conn.rollback()
+        raise
+    else:
+        await conn.commit()
+    finally:
+        _in_transaction = False
 
 
 async def execute_insert(sql: str, params: tuple = ()) -> int:
@@ -186,9 +230,45 @@ async def _assert_db_writable() -> None:
     """Write to the database to verify we own the SQLite lock.
 
     Raises OperationalError ("database is locked") if another process holds it.
+    Writes and then restores PRAGMA user_version so the migration runner sees
+    the true schema version.
     """
+    conn = get_conn()
     try:
-        await execute("PRAGMA user_version = 1")
+        cursor = await conn.execute("PRAGMA user_version")
+        row = await cursor.fetchone()
+        current = row[0] if row else 0
+        await conn.execute(f"PRAGMA user_version = {int(current)}")
+        await conn.commit()
     except Exception:
         logger.critical("Cannot acquire database write lock — is another pixel-hawk instance running?")
         raise
+
+
+async def _run_migrations(conn: aiosqlite.Connection) -> None:
+    """Apply pending migrations and stamp PRAGMA user_version.
+
+    Bootstrap rule: if user_version == 0 and a `person` table already exists
+    (via CREATE TABLE IF NOT EXISTS in SCHEMA), stamp to len(MIGRATIONS) without
+    running anything. This silently adopts a pre-migration-system prod DB.
+
+    Otherwise, for each migration at index >= version, run it inside
+    db.transaction() and bump user_version after each success.
+    """
+    cursor = await conn.execute("PRAGMA user_version")
+    row = await cursor.fetchone()
+    version = row[0] if row else 0
+
+    if version == 0:
+        bootstrap = await conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='person'")
+        if await bootstrap.fetchone() is not None:
+            await conn.execute(f"PRAGMA user_version = {len(MIGRATIONS)}")
+            await conn.commit()
+            return
+
+    for idx in range(version, len(MIGRATIONS)):
+        migration = MIGRATIONS[idx]
+        logger.info(f"Applying migration {idx}: {getattr(migration, '__name__', '?')}")
+        async with transaction():
+            await migration(conn)
+            await conn.execute(f"PRAGMA user_version = {idx + 1}")

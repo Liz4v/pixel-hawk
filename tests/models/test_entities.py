@@ -1,7 +1,9 @@
 """Tests for TileInfo.adjust_project_heat, tile linking, and query helpers."""
 
-from pixel_hawk.models.entities import Person, ProjectInfo, ProjectState, TileInfo, TileProject
 from pixel_hawk.models.geometry import Point, Rectangle, Size
+from pixel_hawk.models.person import Person
+from pixel_hawk.models.project import ProjectInfo, ProjectState
+from pixel_hawk.models.tile import TileInfo, TileProject
 
 
 async def _create_tile(x: int, y: int, *, heat: int = 999) -> TileInfo:
@@ -342,7 +344,8 @@ async def test_link_tiles_creates_new_tile_at_zero_for_passive():
 
     await info.link_tiles()
     tile_id = TileInfo.tile_id(10, 10)
-    tile = await TileInfo.get(id=tile_id)
+    tile = await TileInfo.get_by_id(tile_id)
+    assert tile is not None
     assert tile.heat == 0
 
 
@@ -357,7 +360,8 @@ async def test_adjust_linked_tiles_heat_active_to_inactive():
     await info.link_tiles()
 
     tile_id = TileInfo.tile_id(11, 11)
-    tile = await TileInfo.get(id=tile_id)
+    tile = await TileInfo.get_by_id(tile_id)
+    assert tile is not None
     assert tile.heat == 999
 
     info.state = ProjectState.INACTIVE
@@ -381,7 +385,8 @@ async def test_adjust_linked_tiles_heat_inactive_to_active():
     await info.adjust_linked_tiles_heat()
 
     tile_id = TileInfo.tile_id(12, 12)
-    tile = await TileInfo.get(id=tile_id)
+    tile = await TileInfo.get_by_id(tile_id)
+    assert tile is not None
     assert tile.heat == 0
 
     # Reactivate

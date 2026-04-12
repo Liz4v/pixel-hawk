@@ -15,7 +15,7 @@ from loguru import logger
 from .interface.interactions import maybe_bot
 from .models.config import get_config
 from .models.db import database
-from .models.entities import Person
+from .models.person import Person
 from .watcher.ingest import TileChecker
 
 # Polling cycle period: 60φ = 30(1 + √5) ≈ 97.08 seconds
@@ -66,7 +66,7 @@ class Main:
                 logger.debug(f"Cycle complete, sleeping for {POLLING_CYCLE_SECONDS:.1f} seconds...")
                 try:
                     await asyncio.sleep(POLLING_CYCLE_SECONDS)
-                except (KeyboardInterrupt, asyncio.CancelledError):
+                except KeyboardInterrupt, asyncio.CancelledError:
                     logger.info("Exiting due to user interrupt.")
                     return
 

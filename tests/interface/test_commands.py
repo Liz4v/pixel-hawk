@@ -24,7 +24,9 @@ from pixel_hawk.interface.commands import (
     parse_wplace,
 )
 from pixel_hawk.models.config import get_config
-from pixel_hawk.models.entities import DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState, TileProject
+from pixel_hawk.models.person import Person
+from pixel_hawk.models.project import DiffStatus, HistoryChange, ProjectInfo, ProjectState
+from pixel_hawk.models.tile import TileProject
 from pixel_hawk.models.geometry import Point, Rectangle, Size
 from pixel_hawk.models.palette import PALETTE
 from pixel_hawk.watcher import projects
@@ -322,7 +324,7 @@ class TestNewProject:
         assert "created" in result
         assert f"/{get_command_prefix()} edit" in result
 
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
         assert info is not None
         assert info.state == ProjectState.CREATING
         assert info.name == "image"
@@ -338,7 +340,7 @@ class TestNewProject:
         assert result is not None
         assert "activated" in result
 
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
         assert info is not None
         assert info.state == ProjectState.ACTIVE
         assert info.x == 5000
@@ -356,7 +358,7 @@ class TestNewProject:
         person = await Person.create(name="Fay", discord_id=10006)
         await new_project(10006, _make_test_png(), "sonic_5_7_0_0.png")
 
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
         assert info is not None
         assert info.name == "sonic"
         assert info.state == ProjectState.ACTIVE
@@ -365,7 +367,7 @@ class TestNewProject:
         person = await Person.create(name="Gina", discord_id=10007)
         await new_project(10007, _make_test_png(), "5_7_0_0.png")
 
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
         tile_links = await TileProject.count_by_project(info.id)
         assert tile_links > 0
 
@@ -373,7 +375,7 @@ class TestNewProject:
         person = await Person.create(name="Hank", discord_id=10008)
         await new_project(10008, _make_test_png(), "image.png")
 
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
         tile_links = await TileProject.count_by_project(info.id)
         assert tile_links == 0
 
@@ -407,7 +409,7 @@ class TestEditProject:
         assert result is not None
         assert "new name" in result
 
-        reloaded = await ProjectInfo.get(id=info.id)
+        reloaded = await ProjectInfo.get_by_id(info.id)
         assert reloaded.name == "new name"
 
     async def test_duplicate_name_raises(self):
@@ -421,7 +423,7 @@ class TestEditProject:
     async def test_set_coords_renames_pending_file(self):
         person = await Person.create(name="Dave", discord_id=20006)
         await new_project(20006, _make_test_png(), "image.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
 
         pending = get_config().projects_dir / str(person.id) / f"new_{info.id}.png"
         assert pending.exists()
@@ -431,7 +433,7 @@ class TestEditProject:
         assert "5_7_0_0" in result
 
         assert not pending.exists()
-        reloaded = await ProjectInfo.get(id=info.id)
+        reloaded = await ProjectInfo.get_by_id(info.id)
         assert reloaded.state == ProjectState.ACTIVE  # auto-transitioned from CREATING
         canonical = get_config().projects_dir / str(person.id) / reloaded.filename
         assert canonical.exists()
@@ -439,7 +441,7 @@ class TestEditProject:
     async def test_set_coords_creates_tile_links(self):
         person = await Person.create(name="Eve", discord_id=20007)
         await new_project(20007, _make_test_png(), "image.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
 
         await edit_project(20007, info.id, coords="5_7_0_0")
 
@@ -449,7 +451,7 @@ class TestEditProject:
     async def test_change_coords_relinks_tiles(self):
         person = await Person.create(name="Fay", discord_id=20008)
         await new_project(20008, _make_test_png(), "image.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
 
         await edit_project(20008, info.id, coords="5_7_0_0")
 
@@ -458,14 +460,14 @@ class TestEditProject:
         # Should have tile links (old ones deleted, new ones created)
         assert await TileProject.count_by_project(info.id) > 0
 
-        reloaded = await ProjectInfo.get(id=info.id)
+        reloaded = await ProjectInfo.get_by_id(info.id)
         assert reloaded.x == 10000
         assert reloaded.y == 20000
 
     async def test_activate_requires_coords(self):
         person = await Person.create(name="Gina", discord_id=20009)
         await new_project(20009, _make_test_png(), "image.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
 
         with pytest.raises(ErrorMsg, match="set coordinates first"):
             await edit_project(20009, info.id, state=ProjectState.ACTIVE)
@@ -473,14 +475,14 @@ class TestEditProject:
     async def test_activate_with_coords(self):
         person = await Person.create(name="Hank", discord_id=20010)
         await new_project(20010, _make_test_png(), "image.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
 
         await edit_project(20010, info.id, coords="5_7_0_0")
         result = await edit_project(20010, info.id, state=ProjectState.ACTIVE)
 
         assert result is not None
         assert "ACTIVE" in result
-        reloaded = await ProjectInfo.get(id=info.id)
+        reloaded = await ProjectInfo.get_by_id(info.id)
         assert reloaded.state == ProjectState.ACTIVE
 
     async def test_no_changes_raises(self):
@@ -493,7 +495,7 @@ class TestEditProject:
     async def test_all_at_once(self):
         person = await Person.create(name="Jack", discord_id=20012)
         await new_project(20012, _make_test_png(), "image.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
 
         result = await edit_project(20012, info.id, name="sonic", coords="5_7_0_0", state=ProjectState.ACTIVE)
 
@@ -502,7 +504,7 @@ class TestEditProject:
         assert "5_7_0_0" in result
         assert "ACTIVE" in result
 
-        reloaded = await ProjectInfo.get(id=info.id)
+        reloaded = await ProjectInfo.get_by_id(info.id)
         assert reloaded.name == "sonic"
         assert reloaded.state == ProjectState.ACTIVE
         assert reloaded.x == 5000
@@ -522,7 +524,7 @@ class TestCoordConflict:
     async def test_new_project_allows_inactive_coords(self):
         person = await Person.create(name="Bob", discord_id=60002)
         await new_project(60002, _make_test_png(), "5_7_0_0.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
         info.state = ProjectState.INACTIVE
         await info.save()
 
@@ -543,7 +545,7 @@ class TestCoordConflict:
         person = await Person.create(name="Eve", discord_id=60005)
         await new_project(60005, _make_test_png(), "5_7_0_0.png")
         await new_project(60005, _make_test_png(), "10_20_0_0.png")
-        info2 = await ProjectInfo.get_or_none(owner_id=person.id, x=10000, y=20000)
+        info2 = await ProjectInfo.filter_by_coords(person.id, 10000, 20000)
 
         with pytest.raises(ErrorMsg, match="already have project"):
             await edit_project(60005, info2.id, coords="5_7_0_0")
@@ -563,7 +565,7 @@ class TestEditProjectImage:
     async def test_image_replaces_file(self):
         person = await Person.create(name="Alice", discord_id=70001)
         await new_project(70001, _make_test_png(10, 10), "5_7_0_0.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
 
         # Use a different size so the PNG bytes are guaranteed to differ
         new_png = _make_test_png(10, 8)
@@ -577,7 +579,7 @@ class TestEditProjectImage:
     async def test_image_resets_tracking(self):
         person = await Person.create(name="Bob", discord_id=70002)
         await new_project(70002, _make_test_png(), "5_7_0_0.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
 
         info.max_completion_percent = 42.0
         info.max_completion_pixels = 100
@@ -588,7 +590,7 @@ class TestEditProjectImage:
 
         await edit_project(70002, info.id, image_data=_make_test_png(), image_filename="x.png")
 
-        reloaded = await ProjectInfo.get(id=info.id)
+        reloaded = await ProjectInfo.get_by_id(info.id)
         assert reloaded.max_completion_percent == 0.0
         assert reloaded.max_completion_pixels == 0
         assert reloaded.last_check == 0
@@ -599,7 +601,7 @@ class TestEditProjectImage:
     async def test_image_with_coord_change(self):
         person = await Person.create(name="Carol", discord_id=70003)
         await new_project(70003, _make_test_png(), "5_7_0_0.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
 
         result = await edit_project(70003, info.id, image_data=_make_test_png(20, 20), image_filename="10_20_0_0.png")
 
@@ -607,7 +609,7 @@ class TestEditProjectImage:
         assert "Coords" in result
         assert "Image" in result
 
-        reloaded = await ProjectInfo.get(id=info.id)
+        reloaded = await ProjectInfo.get_by_id(info.id)
         assert reloaded.x == 10000
         assert reloaded.y == 20000
         assert reloaded.width == 20
@@ -619,13 +621,13 @@ class TestEditProjectImage:
     async def test_image_on_creating_with_coords_activates(self):
         person = await Person.create(name="Dave", discord_id=70004)
         await new_project(70004, _make_test_png(), "image.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
         assert info.state == ProjectState.CREATING
 
         result = await edit_project(70004, info.id, image_data=_make_test_png(15, 15), image_filename="5_7_0_0.png")
 
         assert result is not None
-        reloaded = await ProjectInfo.get(id=info.id)
+        reloaded = await ProjectInfo.get_by_id(info.id)
         assert reloaded.state == ProjectState.ACTIVE
         assert reloaded.width == 15
         assert reloaded.height == 15
@@ -636,14 +638,14 @@ class TestEditProjectImage:
     async def test_image_dimension_change_relinks_tiles(self):
         person = await Person.create(name="Eve", discord_id=70005)
         await new_project(70005, _make_test_png(10, 10), "5_7_0_0.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
 
         old_tile_count = await TileProject.count_by_project(info.id)
 
         # Larger image spans more tiles
         await edit_project(70005, info.id, image_data=_make_test_png(500, 500), image_filename="same.png")
 
-        reloaded = await ProjectInfo.get(id=info.id)
+        reloaded = await ProjectInfo.get_by_id(info.id)
         assert reloaded.width == 500
         assert reloaded.height == 500
         new_tile_count = await TileProject.count_by_project(info.id)
@@ -652,21 +654,21 @@ class TestEditProjectImage:
     async def test_image_explicit_coords_override_filename(self):
         person = await Person.create(name="Fay", discord_id=70006)
         await new_project(70006, _make_test_png(), "5_7_0_0.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
 
         # Filename says 10_20, explicit coords say 30_40
         await edit_project(
             70006, info.id, image_data=_make_test_png(), image_filename="10_20_0_0.png", coords="30_40_0_0"
         )
 
-        reloaded = await ProjectInfo.get(id=info.id)
+        reloaded = await ProjectInfo.get_by_id(info.id)
         assert reloaded.x == 30000
         assert reloaded.y == 40000
 
     async def test_image_deletes_snapshot(self):
         person = await Person.create(name="Gina", discord_id=70007)
         await new_project(70007, _make_test_png(), "5_7_0_0.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
 
         snapshot_dir = get_config().snapshots_dir / str(person.id)
         snapshot_dir.mkdir(parents=True, exist_ok=True)
@@ -702,7 +704,7 @@ class TestDeleteProject:
     async def test_deletes_active_project(self):
         person = await Person.create(name="Bob", discord_id=80004)
         await new_project(80004, _make_test_png(), "5_7_0_0.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
         project_id = info.id
 
         project_file = get_config().projects_dir / str(person.id) / info.filename
@@ -713,7 +715,7 @@ class TestDeleteProject:
         assert "deleted" in result.lower()
 
         # DB records gone
-        assert await ProjectInfo.count(id=project_id) == 0
+        assert await ProjectInfo.get_by_id(project_id) is None
         assert await TileProject.count_by_project(project_id) == 0
 
         # File gone
@@ -722,17 +724,17 @@ class TestDeleteProject:
     async def test_deletes_creating_project(self):
         person = await Person.create(name="Carol", discord_id=80005)
         await new_project(80005, _make_test_png(), "image.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
         project_id = info.id
 
         result = await delete_project(80005, project_id)
         assert result is not None
-        assert await ProjectInfo.count(id=project_id) == 0
+        assert await ProjectInfo.get_by_id(project_id) is None
 
     async def test_deletes_snapshot(self):
         person = await Person.create(name="Dave", discord_id=80006)
         await new_project(80006, _make_test_png(), "5_7_0_0.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
 
         snapshot_dir = get_config().snapshots_dir / str(person.id)
         snapshot_dir.mkdir(parents=True, exist_ok=True)
@@ -745,14 +747,14 @@ class TestDeleteProject:
     async def test_updates_person_totals(self):
         person = await Person.create(name="Eve", discord_id=80007)
         await new_project(80007, _make_test_png(), "5_7_0_0.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
 
-        person = await Person.get(id=person.id)
+        person = await Person.get_by_id(person.id)
         assert person.active_projects_count == 1
 
         await delete_project(80007, info.id)
 
-        person = await Person.get(id=person.id)
+        person = await Person.get_by_id(person.id)
         assert person.active_projects_count == 0
 
 
@@ -848,7 +850,7 @@ class TestInitialDiffEditProject:
         _patch_diff(monkeypatch)
         person = await Person.create(name="EditDiff", discord_id=30004)
         await new_project(30004, _make_test_png(), "image.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
 
         (setup_config.tiles_dir / "tile-10_20.png").touch()
 
@@ -862,7 +864,7 @@ class TestInitialDiffEditProject:
         """Editing coords without tiles cached -> no diff."""
         person = await Person.create(name="EditNoDiff", discord_id=30005)
         await new_project(30005, _make_test_png(), "image.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
 
         result = await edit_project(30005, info.id, coords="10_20_0_0")
 
@@ -925,8 +927,8 @@ class TestQuotaEnforcement:
     async def test_edit_creating_to_active_exceeds_tile_limit(self):
         await Person.create(name="Limited", discord_id=90006, max_active_projects=50, max_watched_tiles=0)
         await new_project(90006, _make_test_png(), "image.png")
-        p = await Person.get(discord_id=90006)
-        info = await ProjectInfo.get_or_none(owner_id=p.id)
+        p = await Person.get_by_discord_id(90006)
+        info = await ProjectInfo.get_or_none_by_owner(p.id)
 
         with pytest.raises(ErrorMsg, match="watched tiles"):
             await edit_project(90006, info.id, coords="5_7_0_0")
@@ -934,7 +936,7 @@ class TestQuotaEnforcement:
     async def test_edit_coords_change_exceeds_tile_limit(self):
         person = await Person.create(name="Limited", discord_id=90007, max_active_projects=50, max_watched_tiles=1)
         await new_project(90007, _make_test_png(), "5_7_0_0.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
 
         # Change to coords spanning more tiles than allowed
         with pytest.raises(ErrorMsg, match="watched tiles"):
@@ -951,13 +953,13 @@ class TestQuotaEnforcement:
         person = await Person.create(name="User", discord_id=90009)
         await new_project(90009, _make_test_png(), "5_7_0_0.png")
 
-        person = await Person.get(id=person.id)
+        person = await Person.get_by_id(person.id)
         assert person.active_projects_count == 1
 
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
         await edit_project(90009, info.id, state=ProjectState.INACTIVE)
 
-        person = await Person.get(id=person.id)
+        person = await Person.get_by_id(person.id)
         assert person.active_projects_count == 0
 
 
@@ -1095,7 +1097,7 @@ class TestExportWplace:
         person = await Person.create(name="Exporter", discord_id=70001)
         msg = await new_project(70001, _make_test_png(20, 15), "Cool Art 500.600.0.0.png")
         assert msg is not None
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
         assert info is not None
 
         wplace_bytes, filename = await export_wplace(70001, info.id)
@@ -1120,14 +1122,14 @@ class TestExportWplace:
         person = await Person.create(name="Owner", discord_id=70003)
         await Person.create(name="Other", discord_id=70004)
         await new_project(70003, _make_test_png(), "5.7.0.0.png")
-        info = await ProjectInfo.get_or_none(owner_id=person.id)
+        info = await ProjectInfo.get_or_none_by_owner(person.id)
         with pytest.raises(ErrorMsg, match="not yours"):
             await export_wplace(70004, info.id)
 
     async def test_export_creating_project(self):
         await Person.create(name="Creator", discord_id=70005)
         await new_project(70005, _make_test_png(), "no_coords.png")
-        info = await ProjectInfo.get_or_none(owner_id=(await Person.get(discord_id=70005)).id)
+        info = await ProjectInfo.get_or_none_by_owner((await Person.get_by_discord_id(70005)).id)
         assert info.state == ProjectState.CREATING
         with pytest.raises(ErrorMsg, match="no coordinates"):
             await export_wplace(70005, info.id)
@@ -1136,7 +1138,7 @@ class TestExportWplace:
         """Exported .wplace file should contain a valid UUID in the 'id' field."""
         await Person.create(name="UuidCheck", discord_id=70006)
         await new_project(70006, _make_test_png(20, 15), "Art 1.2.0.0.png")
-        info = await ProjectInfo.get_or_none(owner_id=(await Person.get(discord_id=70006)).id)
+        info = await ProjectInfo.get_or_none_by_owner((await Person.get_by_discord_id(70006)).id)
 
         wplace_bytes, _ = await export_wplace(70006, info.id)
         doc = json.loads(wplace_bytes)
@@ -1147,7 +1149,7 @@ class TestExportWplace:
         """Same project should always produce the same UUID."""
         await Person.create(name="Deterministic", discord_id=70007)
         await new_project(70007, _make_test_png(10, 10), "Stable 3.4.0.0.png")
-        info = await ProjectInfo.get_or_none(owner_id=(await Person.get(discord_id=70007)).id)
+        info = await ProjectInfo.get_or_none_by_owner((await Person.get_by_discord_id(70007)).id)
 
         bytes_a, _ = await export_wplace(70007, info.id)
         bytes_b, _ = await export_wplace(70007, info.id)
@@ -1160,7 +1162,7 @@ class TestExportWplace:
         await Person.create(name="TwoProjects", discord_id=70008)
         await new_project(70008, _make_test_png(10, 10), "First 5.6.0.0.png")
         await new_project(70008, _make_test_png(10, 10), "Second 7.8.0.0.png")
-        projects = await ProjectInfo.filter_by_owner((await Person.get(discord_id=70008)).id)
+        projects = await ProjectInfo.filter_by_owner((await Person.get_by_discord_id(70008)).id)
         assert len(projects) == 2
 
         bytes_a, _ = await export_wplace(70008, projects[0].id)

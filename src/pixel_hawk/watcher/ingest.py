@@ -26,7 +26,8 @@ from loguru import logger
 from PIL import UnidentifiedImageError
 
 from ..models.config import get_config
-from ..models.entities import ProjectInfo, TileInfo
+from ..models.project import ProjectInfo
+from ..models.tile import TileInfo
 from ..models.geometry import Point
 from ..models.griefing import GriefReport, Painter
 from ..models.palette import PALETTE, ColorsNotInPalette
@@ -168,6 +169,8 @@ class TileChecker:
             proj.grief_report = GriefReport(len(proj.regressed_indices))
             return
 
+        assert proj.info.owner is not None
+        owner_name = proj.info.owner.name
         rect = proj.rect
         w = rect.size.w
         random.shuffle(proj.regressed_indices)
@@ -179,7 +182,7 @@ class TileChecker:
             point = Point(rect.point.x + idx % w, rect.point.y + idx // w)
             painter = await self.investigate_pixel(point)
             if not painter:
-                logger.debug(f"{proj.info.owner.name}/{proj.info.name}: Pixel API unavailable, aborting investigation")
+                logger.debug(f"{owner_name}/{proj.info.name}: Pixel API unavailable, aborting investigation")
                 break
             uid = painter.user_id
             authors[uid] += 1
@@ -189,7 +192,7 @@ class TileChecker:
 
         sorted_painters = tuple(painters[uid] for uid, _ in authors.most_common())
         names = ", ".join(f"~{p.user_name}" for p in sorted_painters)
-        logger.warning(f"{proj.info.owner.name}/{proj.info.name}: {len(proj.regressed_indices)}px regressed by {names}")
+        logger.warning(f"{owner_name}/{proj.info.name}: {len(proj.regressed_indices)}px regressed by {names}")
         proj.grief_report = GriefReport(regress_count=len(proj.regressed_indices), painters=sorted_painters)
 
     async def investigate_pixel(self, point: Point) -> Painter:

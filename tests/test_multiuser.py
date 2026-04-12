@@ -2,7 +2,8 @@
 
 import pytest
 
-from pixel_hawk.models.entities import DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState
+from pixel_hawk.models.person import Person
+from pixel_hawk.models.project import DiffStatus, HistoryChange, ProjectInfo, ProjectState
 from pixel_hawk.models.geometry import Point, Rectangle, Size
 
 
@@ -133,7 +134,7 @@ async def test_watched_tiles_tracking(person1):
     await person1.update_totals()
 
     # Reload from DB
-    person = await Person.get(id=person1.id)
+    person = await Person.get_by_id(person1.id)
 
     # Both projects cover 1 tile each = 2 tiles total
     assert person.watched_tiles_count == 2
@@ -153,7 +154,7 @@ async def test_watched_tiles_overlapping_counted_once(person1):
     await person1.update_totals()
 
     # Reload from DB
-    person = await Person.get(id=person1.id)
+    person = await Person.get_by_id(person1.id)
 
     # Overlapping tiles should be counted only once
     assert person.watched_tiles_count > 0
@@ -271,8 +272,8 @@ async def test_multiple_owners_different_tiles(person1, person2):
     await person2.update_totals()
 
     # Each person should watch 2 tiles
-    person1_reloaded = await Person.get(id=person1.id)
-    person2_reloaded = await Person.get(id=person2.id)
+    person1_reloaded = await Person.get_by_id(person1.id)
+    person2_reloaded = await Person.get_by_id(person2.id)
 
     assert person1_reloaded.watched_tiles_count == 2
     assert person2_reloaded.watched_tiles_count == 2

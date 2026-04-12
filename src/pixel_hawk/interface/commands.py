@@ -17,7 +17,8 @@ from loguru import logger
 from PIL import Image
 
 from ..models.config import get_config
-from ..models.entities import DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState
+from ..models.person import Person
+from ..models.project import DiffStatus, HistoryChange, ProjectInfo, ProjectState
 from ..models.geometry import GeoPoint, Point, Rectangle, Size
 from ..models.palette import PALETTE, ColorsNotInPalette
 from ..watcher.projects import Project, count_cached_tiles
@@ -230,8 +231,7 @@ async def _check_quotas(
 
 async def new_project(discord_id: int, image_data: bytes, filename: str, *, wplace_size: Size = Size()) -> str | None:
     """Create a new project from an uploaded image. Returns None if no Person linked."""
-    persons = await Person.filter(discord_id=discord_id)
-    person = persons[0] if persons else None
+    person = await Person.get_or_none_by_discord_id(discord_id)
     if person is None:
         return None
 
@@ -304,14 +304,14 @@ async def edit_project(
     wplace_size: Size = Size(),
 ) -> str | None:
     """Edit an existing project. Returns None if no Person linked."""
-    persons = await Person.filter(discord_id=discord_id)
-    person = persons[0] if persons else None
+    person = await Person.get_or_none_by_discord_id(discord_id)
     if person is None:
         return None
 
     info = await ProjectInfo.get_by_id_with_owner(project_id)
     if info is None:
         raise ErrorMsg(f"Project {project_id:04} not found.")
+    assert info.owner is not None
     if info.owner.id != person.id:
         raise ErrorMsg(f"Project {project_id:04} is not yours.")
 
@@ -416,14 +416,14 @@ async def edit_project(
 
 async def delete_project(discord_id: int, project_id: int) -> str | None:
     """Delete a project and all associated files. Returns None if no Person linked."""
-    persons = await Person.filter(discord_id=discord_id)
-    person = persons[0] if persons else None
+    person = await Person.get_or_none_by_discord_id(discord_id)
     if person is None:
         return None
 
     info = await ProjectInfo.get_by_id_with_owner(project_id)
     if info is None:
         raise ErrorMsg(f"Project {project_id:04} not found.")
+    assert info.owner is not None
     if info.owner.id != person.id:
         raise ErrorMsg(f"Project {project_id:04} is not yours.")
 
@@ -444,14 +444,14 @@ async def delete_project(discord_id: int, project_id: int) -> str | None:
 
 async def export_wplace(discord_id: int, project_id: int) -> tuple[bytes, str]:
     """Export a project as a .wplace file. Returns (wplace_bytes, filename)."""
-    persons = await Person.filter(discord_id=discord_id)
-    person = persons[0] if persons else None
+    person = await Person.get_or_none_by_discord_id(discord_id)
     if person is None:
         raise ErrorMsg("No linked account found.")
 
     info = await ProjectInfo.get_by_id_with_owner(project_id)
     if info is None:
         raise ErrorMsg(f"Project {project_id:04} not found.")
+    assert info.owner is not None
     if info.owner.id != person.id:
         raise ErrorMsg(f"Project {project_id:04} is not yours.")
     if info.state == ProjectState.CREATING:
@@ -528,8 +528,7 @@ async def list_projects(discord_id: int) -> str | None:
 
     Returns a formatted string of projects, or None if no Person is linked.
     """
-    persons = await Person.filter(discord_id=discord_id)
-    person = persons[0] if persons else None
+    person = await Person.get_or_none_by_discord_id(discord_id)
     if person is None:
         return None
 

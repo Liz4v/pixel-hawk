@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from ..models.config import get_config
-from ..models.entities import HistoryChange, ProjectInfo
+from ..models.project import HistoryChange, ProjectInfo
 from ..models.geometry import Rectangle, Size
 from ..models.griefing import GriefReport
 from ..models.palette import PALETTE, AsyncImage, ColorsNotInPalette
@@ -43,6 +43,7 @@ class Project:
 
         Derives path and rect from info. Requires info.owner to be prefetched.
         """
+        assert info.owner is not None, "info.owner must be prefetched"
         self.info = info
         self.rect = info.rectangle
         self.path = get_config().projects_dir / str(info.owner.id) / info.filename
@@ -64,31 +65,24 @@ class Project:
     @classmethod
     async def from_info(cls, info: ProjectInfo) -> Project | None:
         """Load a project from ProjectInfo record. Returns None if file missing or invalid."""
-        # Construct path from owner ID and filename
-        # Note: owner should be prefetched before calling this method
-        path = get_config().projects_dir / str(info.owner.id) / info.filename
+        assert info.owner is not None, "info.owner must be prefetched"
+        owner = info.owner
+        path = get_config().projects_dir / str(owner.id) / info.filename
 
         try:
             async with PALETTE.aopen_file(path) as image:
                 size = Size(*image.size)
         except FileNotFoundError:
-            # File missing - log warning but don't fail
-            if not info.owner.id:
-                await info.fetch_related_owner()
-            logger.warning(f"{info.owner.name}/{info.name}: File not found at {path}")
+            logger.warning(f"{owner.name}/{info.name}: File not found at {path}")
             return None
         except ColorsNotInPalette as e:
-            if not info.owner.id:
-                await info.fetch_related_owner()
-            logger.error(f"{info.owner.name}/{info.name}: Invalid palette: {e}")
+            logger.error(f"{owner.name}/{info.name}: Invalid palette: {e}")
             return None
 
         rect = info.rectangle
         # Verify size matches database record
         if rect.size != size:
-            if not info.owner.id:
-                await info.fetch_related_owner()
-            logger.error(f"{info.owner.name}/{info.name}: Size mismatch - DB says {rect.size}, file is {size}")
+            logger.error(f"{owner.name}/{info.name}: Size mismatch - DB says {rect.size}, file is {size}")
             return None
 
         new = cls(info)
@@ -107,6 +101,7 @@ class Project:
 
         Uses same subfolder structure as projects: snapshots/{owner_id}/{filename}.
         """
+        assert self.info.owner is not None
         return get_config().snapshots_dir / str(self.info.owner.id) / self.info.filename
 
     async def save_snapshot(self, image) -> None:

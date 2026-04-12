@@ -10,7 +10,9 @@ from pathlib import Path
 from loguru import logger
 
 from ..models.config import get_config
-from ..models.entities import DiffStatus, HistoryChange, Person, ProjectInfo, ProjectState, WatchMessage
+from ..models.person import Person
+from ..models.project import DiffStatus, HistoryChange, ProjectInfo, ProjectState
+from ..models.watch import WatchMessage
 from ..watcher.projects import Project
 from .access import ErrorMsg
 
@@ -95,6 +97,7 @@ def format_grief_message(project: Project) -> str:
     """Format a grief alert message for Discord, mentioning the project owner."""
     info = project.info
     report = project.grief_report
+    assert info.owner is not None
     mention = f"<@{info.owner.discord_id}>" if info.owner.discord_id else info.owner.name
     lines = [
         f"**Grief alert** — `{info.id:04}` {info.name} (-{report.regress_count:,}px) "
@@ -113,6 +116,7 @@ def get_watch_image_paths(info: ProjectInfo) -> dict[str, Path]:
     if ProjectState(info.state) == ProjectState.CREATING:
         return {}
     config = get_config()
+    assert info.owner is not None
     owner_id = str(info.owner.id)
     filename = info.filename
     paths: dict[str, Path] = {}
@@ -135,14 +139,14 @@ async def create_watch(discord_id: int, project_id: int, channel_id: int, guild_
     with the resulting message_id. The ProjectInfo is returned so the caller
     can build image attachments via ``get_watch_image_paths()``.
     """
-    persons = await Person.filter(discord_id=discord_id)
-    person = persons[0] if persons else None
+    person = await Person.get_or_none_by_discord_id(discord_id)
     if person is None:
         raise ErrorMsg("No linked account found.")
 
     info = await ProjectInfo.get_by_id_with_owner(project_id)
     if info is None:
         raise ErrorMsg(f"Project {project_id:04} not found.")
+    assert info.owner is not None
     if info.owner.id != person.id:
         raise ErrorMsg(f"Project {project_id:04} is not yours.")
 
@@ -164,14 +168,14 @@ async def save_watch_message(project_id: int, channel_id: int, message_id: int) 
 
 async def remove_watch(discord_id: int, project_id: int, channel_id: int) -> int:
     """Remove a watch for a project in a channel. Returns message_id for deletion."""
-    persons = await Person.filter(discord_id=discord_id)
-    person = persons[0] if persons else None
+    person = await Person.get_or_none_by_discord_id(discord_id)
     if person is None:
         raise ErrorMsg("No linked account found.")
 
     info = await ProjectInfo.get_by_id_with_owner(project_id)
     if info is None:
         raise ErrorMsg(f"Project {project_id:04} not found.")
+    assert info.owner is not None
     if info.owner.id != person.id:
         raise ErrorMsg(f"Project {project_id:04} is not yours.")
 
