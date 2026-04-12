@@ -43,7 +43,6 @@ class Project:
 
         Derives path and rect from info. Requires info.owner to be prefetched.
         """
-        assert info.owner is not None, "info.owner must be prefetched"
         self.info = info
         self.rect = info.rectangle
         self.path = get_config().projects_dir / str(info.owner.id) / info.filename
@@ -65,7 +64,6 @@ class Project:
     @classmethod
     async def from_info(cls, info: ProjectInfo) -> Project | None:
         """Load a project from ProjectInfo record. Returns None if file missing or invalid."""
-        assert info.owner is not None, "info.owner must be prefetched"
         owner = info.owner
         path = get_config().projects_dir / str(owner.id) / info.filename
 
@@ -101,7 +99,6 @@ class Project:
 
         Uses same subfolder structure as projects: snapshots/{owner_id}/{filename}.
         """
-        assert self.info.owner is not None
         return get_config().snapshots_dir / str(self.info.owner.id) / self.info.filename
 
     async def save_snapshot(self, image) -> None:

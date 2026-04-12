@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import IntFlag
 
 from . import db
-from ._sql import _columns
+from .db import columns
 from .geometry import Point, Rectangle, Size, Tile
 
 
@@ -31,9 +31,12 @@ class Person:
     watched_tiles_count: int = 0
     active_projects_count: int = 0
 
+    def __bool__(self) -> bool:
+        return bool(self.id)
+
     @classmethod
     def _from_row(cls, row) -> Person:
-        kwargs = {col: row[col] for col in _columns(cls)}
+        kwargs = {col: row[col] for col in columns(cls)}
         return cls(**kwargs)
 
     @classmethod
@@ -64,7 +67,7 @@ class Person:
         if update_fields:
             fields = update_fields
         else:
-            fields = [c for c in _columns(type(self)) if c != "id"]
+            fields = [c for c in columns(type(self)) if c != "id"]
         sets = ", ".join(f"{f} = ?" for f in fields)
         vals = tuple(getattr(self, f) for f in fields)
         await db.execute(f"UPDATE person SET {sets} WHERE id = ?", (*vals, self.id))

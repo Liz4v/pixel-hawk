@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from . import db
-from ._sql import _columns
+from .db import columns
 
 
 @dataclass
@@ -17,7 +17,7 @@ class GuildConfig:
 
     @classmethod
     def _from_row(cls, row) -> GuildConfig:
-        kwargs = {col: row[col] for col in _columns(cls)}
+        kwargs = {col: row[col] for col in columns(cls)}
         return cls(**kwargs)
 
     @classmethod
@@ -42,7 +42,7 @@ class GuildConfig:
         return cls._from_row(row) if row else None
 
     async def save(self) -> None:
-        fields = [c for c in _columns(type(self)) if c != "guild_id"]
+        fields = [c for c in columns(type(self)) if c != "guild_id"]
         sets = ", ".join(f"{f} = ?" for f in fields)
         vals = tuple(getattr(self, f) for f in fields)
         await db.execute(f"UPDATE guild_config SET {sets} WHERE guild_id = ?", (*vals, self.guild_id))

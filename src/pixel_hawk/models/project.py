@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 
 from . import db
-from ._sql import _columns
+from .db import columns
 from .geometry import Point, Rectangle, Size
 from .person import Person
 from .tile import TileInfo
@@ -69,12 +69,12 @@ class ProjectInfo:
     recent_rate_window_start: int = 0
     has_missing_tiles: bool = True
     last_log_message: str = ""
-    owner: Person | None = field(default=None)
+    owner: Person = field(default_factory=Person)
 
     @classmethod
     def _from_row(cls, row) -> ProjectInfo:
         kwargs = {}
-        for col in _columns(cls):
+        for col in columns(cls):
             val = row[col]
             adapter = _PROJECT_ADAPTERS.get(col)
             kwargs[col] = adapter(val) if adapter else val
@@ -136,7 +136,7 @@ class ProjectInfo:
 
     async def save_as_new(self, max_attempts: int = 50) -> None:
         """Save this instance as a new record with a random ID."""
-        cols = _columns(type(self))
+        cols = columns(type(self))
         col_list = ", ".join(cols)
         placeholders = ", ".join("?" * len(cols))
         for _ in range(max_attempts):
@@ -153,7 +153,7 @@ class ProjectInfo:
 
     async def save(self) -> None:
         """Update this record in the database."""
-        fields = [c for c in _columns(type(self)) if c != "id"]
+        fields = [c for c in columns(type(self)) if c != "id"]
         sets = ", ".join(f"{f} = ?" for f in fields)
         vals = self._column_values(fields)
         await db.execute(f"UPDATE project SET {sets} WHERE id = ?", (*vals, self.id))
@@ -366,12 +366,12 @@ class HistoryChange:
     completion_percent: float = 0.0
     progress_pixels: int = 0
     regress_pixels: int = 0
-    project: ProjectInfo | None = None
+    project: ProjectInfo = field(default_factory=ProjectInfo)
 
     @classmethod
     def _from_row(cls, row) -> HistoryChange:
         kwargs = {}
-        for col in _columns(cls):
+        for col in columns(cls):
             val = row[col]
             adapter = _HISTORY_ADAPTERS.get(col)
             kwargs[col] = adapter(val) if adapter else val
@@ -428,7 +428,7 @@ class HistoryChange:
 
     async def save(self) -> None:
         """Insert this record if new (id=0), or update if existing."""
-        cols = _columns(type(self))
+        cols = columns(type(self))
         if self.id == 0:
             insert_cols = tuple(c for c in cols if c != "id")
             col_list = ", ".join(insert_cols)

@@ -169,7 +169,6 @@ class TileChecker:
             proj.grief_report = GriefReport(len(proj.regressed_indices))
             return
 
-        assert proj.info.owner is not None
         owner_name = proj.info.owner.name
         rect = proj.rect
         w = rect.size.w

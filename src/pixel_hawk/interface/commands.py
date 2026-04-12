@@ -311,7 +311,6 @@ async def edit_project(
     info = await ProjectInfo.get_by_id_with_owner(project_id)
     if info is None:
         raise ErrorMsg(f"Project {project_id:04} not found.")
-    assert info.owner is not None
     if info.owner.id != person.id:
         raise ErrorMsg(f"Project {project_id:04} is not yours.")
 
@@ -423,7 +422,6 @@ async def delete_project(discord_id: int, project_id: int) -> str | None:
     info = await ProjectInfo.get_by_id_with_owner(project_id)
     if info is None:
         raise ErrorMsg(f"Project {project_id:04} not found.")
-    assert info.owner is not None
     if info.owner.id != person.id:
         raise ErrorMsg(f"Project {project_id:04} is not yours.")
 
@@ -451,7 +449,6 @@ async def export_wplace(discord_id: int, project_id: int) -> tuple[bytes, str]:
     info = await ProjectInfo.get_by_id_with_owner(project_id)
     if info is None:
         raise ErrorMsg(f"Project {project_id:04} not found.")
-    assert info.owner is not None
     if info.owner.id != person.id:
         raise ErrorMsg(f"Project {project_id:04} is not yours.")
     if info.state == ProjectState.CREATING:

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from . import db
-from ._sql import _columns
+from .db import columns
 from .geometry import Tile
 
 
@@ -21,7 +21,7 @@ class TileInfo:
 
     @classmethod
     def _from_row(cls, row) -> TileInfo:
-        kwargs = {col: row[col] for col in _columns(cls)}
+        kwargs = {col: row[col] for col in columns(cls)}
         return cls(**kwargs)
 
     @staticmethod
@@ -78,7 +78,7 @@ class TileInfo:
         if update_fields:
             fields = update_fields
         else:
-            fields = [c for c in _columns(type(self)) if c != "id"]
+            fields = [c for c in columns(type(self)) if c != "id"]
         sets = ", ".join(f"{f} = ?" for f in fields)
         vals = tuple(getattr(self, f) for f in fields)
         await db.execute(f"UPDATE tile SET {sets} WHERE id = ?", (*vals, self.id))
@@ -156,7 +156,7 @@ class TileProject:
 
     @classmethod
     def _from_row(cls, row) -> TileProject:
-        kwargs = {col: row[col] for col in _columns(cls)}
+        kwargs = {col: row[col] for col in columns(cls)}
         return cls(**kwargs)
 
     @classmethod

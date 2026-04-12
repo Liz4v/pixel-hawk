@@ -97,7 +97,6 @@ def format_grief_message(project: Project) -> str:
     """Format a grief alert message for Discord, mentioning the project owner."""
     info = project.info
     report = project.grief_report
-    assert info.owner is not None
     mention = f"<@{info.owner.discord_id}>" if info.owner.discord_id else info.owner.name
     lines = [
         f"**Grief alert** — `{info.id:04}` {info.name} (-{report.regress_count:,}px) "
@@ -116,7 +115,6 @@ def get_watch_image_paths(info: ProjectInfo) -> dict[str, Path]:
     if ProjectState(info.state) == ProjectState.CREATING:
         return {}
     config = get_config()
-    assert info.owner is not None
     owner_id = str(info.owner.id)
     filename = info.filename
     paths: dict[str, Path] = {}
@@ -146,7 +144,6 @@ async def create_watch(discord_id: int, project_id: int, channel_id: int, guild_
     info = await ProjectInfo.get_by_id_with_owner(project_id)
     if info is None:
         raise ErrorMsg(f"Project {project_id:04} not found.")
-    assert info.owner is not None
     if info.owner.id != person.id:
         raise ErrorMsg(f"Project {project_id:04} is not yours.")
 
@@ -175,7 +172,6 @@ async def remove_watch(discord_id: int, project_id: int, channel_id: int) -> int
     info = await ProjectInfo.get_by_id_with_owner(project_id)
     if info is None:
         raise ErrorMsg(f"Project {project_id:04} not found.")
-    assert info.owner is not None
     if info.owner.id != person.id:
         raise ErrorMsg(f"Project {project_id:04} is not yours.")
 

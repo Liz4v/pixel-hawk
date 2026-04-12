@@ -88,7 +88,6 @@ def process_diff(info: ProjectInfo, current_data: bytes, target_data: bytes, pre
     Returns:
         HistoryChange object (not yet saved to DB - caller must await change.save()).
     """
-    assert info.owner is not None
     owner = info.owner
     # Update last check timestamp
     info.last_check = timestamp = round(time.time())

@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 
 from . import db
-from ._sql import _columns
+from .db import columns
 from .project import ProjectInfo
 
 
@@ -20,7 +20,7 @@ class WatchMessage:
 
     @classmethod
     def _from_row(cls, row, project: ProjectInfo | None = None) -> WatchMessage:
-        kwargs = {col: row[col] for col in _columns(cls)}
+        kwargs = {col: row[col] for col in columns(cls)}
         return cls(project=project, **kwargs)
 
     @classmethod

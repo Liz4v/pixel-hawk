@@ -5,6 +5,7 @@ Provides database() async context manager for application lifecycle.
 Uses aiosqlite for async access and dataclass conversion at the boundary.
 """
 
+import dataclasses
 import sqlite3
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -13,6 +14,16 @@ import aiosqlite
 from loguru import logger
 
 from .config import get_config
+
+
+def columns(cls: type) -> tuple[str, ...]:
+    """Persistent column names for a dataclass entity.
+
+    Fields listed in the class attribute `_EXCLUDE_COLUMNS` (a `frozenset[str]`)
+    are skipped — used for in-memory-only fields such as `ProjectInfo.owner`.
+    """
+    excluded: frozenset[str] = getattr(cls, "_EXCLUDE_COLUMNS", frozenset())
+    return tuple(f.name for f in dataclasses.fields(cls) if f.name not in excluded)
 
 # Module-level connection, set by database() context manager
 _conn: aiosqlite.Connection | None = None
