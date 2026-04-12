@@ -148,13 +148,13 @@ async def database(db_path: str | None = None):
     conn.row_factory = sqlite3.Row
     _conn = conn
     _in_transaction = False
-    await conn.execute("PRAGMA journal_mode=WAL")
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await conn.executescript(SCHEMA)
-    await conn.commit()
-    await _assert_db_writable()
-    await _run_migrations(conn)
     try:
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await conn.executescript(SCHEMA)
+        await conn.commit()
+        await _assert_db_writable()
+        await _run_migrations(conn)
         yield
     finally:
         await conn.close()

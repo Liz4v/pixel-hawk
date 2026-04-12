@@ -136,6 +136,7 @@ This project embraces core principles from PEP 20 ("The Zen of Python"):
   - The project is fully async. Use `async def` for I/O-bound functions. Use `asyncio.to_thread` for blocking PIL/filesystem operations.
   - HTTP requests use `httpx.AsyncClient` (owned by `TileChecker`).
   - `Main` uses two-phase init: sync `__init__` + `async start()` (avoids async `__init__` anti-pattern). `start()` initializes `TileChecker` and refreshes person statistics — no project loading.
+  - In `@asynccontextmanager` functions, all failable setup must go inside the `try` block, not before it. Code before `try/yield/finally` silently skips cleanup on failure — aiosqlite in particular leaks non-daemon threads that prevent process exit.
 - Image handling:
   - Use `PALETTE.ensure(image)` for conversion; no palette manipulation outside `palette.py`.
   - Always close PIL `Image` objects. In async code, prefer `async with PALETTE.aopen_file(path) as im:` or `async with PALETTE.aopen_bytes(data) as im:`. In sync code, prefer `with PALETTE.open_file(path) as im:`.
