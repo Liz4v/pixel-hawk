@@ -65,11 +65,16 @@ def update_regress(info: ProjectInfo, regress_pixels: int, timestamp: int) -> No
 
 
 RATE_HALF_LIFE_HOURS = 12.0
+RATE_MAX_INTERVAL = 7200  # 2 hours — skip rate updates for longer gaps (idle/sleep)
 RATE_STALE_THRESHOLD = 604800  # 7 days
 
 
 def update_rate(info: ProjectInfo, progress_pixels: int, regress_pixels: int, timestamp: int) -> None:
-    """Update completion rate using time-weighted exponential moving average."""
+    """Update completion rate using time-weighted exponential moving average.
+
+    Only intervals shorter than RATE_MAX_INTERVAL contribute to the rate,
+    so idle gaps (sleep, AFK) don't dilute the painting speed estimate.
+    """
     if info.recent_rate_window_start > 0:
         elapsed_seconds = timestamp - info.recent_rate_window_start
         if elapsed_seconds <= 0:
@@ -77,7 +82,7 @@ def update_rate(info: ProjectInfo, progress_pixels: int, regress_pixels: int, ti
 
         if elapsed_seconds > RATE_STALE_THRESHOLD:
             info.recent_rate_pixels_per_hour = 0.0
-        else:
+        elif elapsed_seconds <= RATE_MAX_INTERVAL:
             elapsed_hours = elapsed_seconds / 3600.0
             instant_rate = (progress_pixels - regress_pixels) / elapsed_hours
 

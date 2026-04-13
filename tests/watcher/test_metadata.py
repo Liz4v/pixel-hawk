@@ -405,24 +405,37 @@ async def test_update_rate_negative_net_change(test_person):
     assert info.recent_rate_pixels_per_hour < 8.0
 
 
-async def test_update_rate_long_gap_decay(test_person):
-    """A 48-hour gap heavily decays the old rate."""
-    import math
-
-    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_decay")
+async def test_update_rate_long_gap_skipped(test_person):
+    """Gaps longer than RATE_MAX_INTERVAL skip rate update but advance timestamp."""
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_gap")
     await info.save_as_new()
 
     info.recent_rate_window_start = 1000
     info.recent_rate_pixels_per_hour = 100.0
 
-    gap_hours = 48.0
-    metadata.update_rate(info, 10, 0, 1000 + round(gap_hours * 3600))
+    # 12-hour idle gap — rate should be preserved, timestamp should advance
+    metadata.update_rate(info, 26, 0, 1000 + 43200)
 
-    decay = math.exp(-gap_hours / metadata.RATE_HALF_LIFE_HOURS)
-    instant_rate = 10.0 / gap_hours
-    expected = decay * 100.0 + (1 - decay) * instant_rate
-    assert info.recent_rate_pixels_per_hour == pytest.approx(expected, abs=0.01)
-    assert decay < 0.02  # old rate nearly gone
+    assert info.recent_rate_pixels_per_hour == 100.0
+    assert info.recent_rate_window_start == 1000 + 43200
+
+
+async def test_update_rate_resumes_after_idle_gap(test_person):
+    """After an idle gap, the next short interval updates the rate normally."""
+    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_resume")
+    await info.save_as_new()
+
+    info.recent_rate_window_start = 1000
+    info.recent_rate_pixels_per_hour = 100.0
+
+    # 12-hour idle gap — skipped
+    t_after_gap = 1000 + 43200
+    metadata.update_rate(info, 26, 0, t_after_gap)
+    assert info.recent_rate_pixels_per_hour == 100.0
+
+    # Next poll 97s later — active interval, updates EMA
+    metadata.update_rate(info, 4, 0, t_after_gap + 97)
+    assert info.recent_rate_pixels_per_hour != 100.0  # EMA updated
 
 
 async def test_update_rate_zero_elapsed(test_person):
