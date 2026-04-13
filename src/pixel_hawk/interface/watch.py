@@ -41,10 +41,12 @@ async def format_watch_message(info: ProjectInfo) -> str:
         lines.append("*Not yet checked*")
         return "\n".join(lines)
 
-    # Query recent changes first; derive latest from there when possible (saves a query)
-    cutoff = round(time.time()) - 86400
-    changes_24h = await HistoryChange.filter_by_project(info.id, since=cutoff)
-    latest = changes_24h[0] if changes_24h else None
+    # Query rate window of history; derive 24h subset and latest from it
+    from ..watcher.metadata import RATE_WINDOW, compute_rate
+
+    now = round(time.time())
+    changes = await HistoryChange.filter_by_project(info.id, since=now - RATE_WINDOW)
+    latest = changes[0] if changes else None
     if not latest:
         latest_list = await HistoryChange.filter_by_project(info.id, limit=1)
         latest = latest_list[0] if latest_list else None
@@ -62,16 +64,18 @@ async def format_watch_message(info: ProjectInfo) -> str:
         if latest.progress_pixels or latest.regress_pixels:
             lines.append(f"Last diff: +{latest.progress_pixels:,} / -{latest.regress_pixels:,}")
 
-    # Rate and ETA
-    if info.recent_rate_pixels_per_hour and latest and latest.num_remaining > 0:
-        rate = info.recent_rate_pixels_per_hour
+    # Rate and ETA (calendar rate from history window)
+    if latest and latest.num_remaining > 0 and len(changes) >= 2:
+        rate = compute_rate(changes)
         if rate > 0:
             eta = round(time.time() + latest.num_remaining / rate * 3600)
-            lines.append(f"Rate: {rate:.1f} px/hr \u00b7 ETA: <t:{eta}:R> (<t:{eta}:f>)")
-        else:
-            lines.append(f"Rate: {rate:.1f} px/hr")
+            lines.append(f"Rate: {rate:.0f} px/hr \u00b7 ETA: <t:{eta}:R> (<t:{eta}:f>)")
+        elif rate < 0:
+            lines.append(f"Rate: {rate:.0f} px/hr")
 
     # 24h activity
+    cutoff_24h = now - 86400
+    changes_24h = [c for c in changes if c.timestamp >= cutoff_24h]
     if changes_24h:
         p24 = sum(c.progress_pixels for c in changes_24h)
         r24 = sum(c.regress_pixels for c in changes_24h)

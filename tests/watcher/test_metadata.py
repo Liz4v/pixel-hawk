@@ -8,7 +8,7 @@ import pytest
 from pixel_hawk.watcher import metadata
 from pixel_hawk.models.geometry import Point, Rectangle, Size
 from pixel_hawk.models.person import Person
-from pixel_hawk.models.project import ProjectInfo
+from pixel_hawk.models.project import HistoryChange, ProjectInfo
 
 
 @pytest.fixture
@@ -316,140 +316,58 @@ async def test_update_regress_not_larger(test_person):
     assert info.largest_regress_time == 1000
 
 
-async def test_update_rate_new_window(test_person):
-    """First call with no prior timestamp just records the timestamp."""
-    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_new")
-    await info.save_as_new()
-
-    metadata.update_rate(info, 10, 2, 1000)
-
-    assert info.recent_rate_window_start == 1000
-    assert info.recent_rate_pixels_per_hour == 0.0
+def _make_change(timestamp: int, progress: int = 0, regress: int = 0) -> HistoryChange:
+    """Build a minimal HistoryChange for rate tests."""
+    return HistoryChange(timestamp=timestamp, progress_pixels=progress, regress_pixels=regress)
 
 
-async def test_update_rate_bootstrap(test_person):
-    """Second call seeds rate directly from instant rate (no prior EMA to blend)."""
-    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_bootstrap")
-    await info.save_as_new()
-
-    info.recent_rate_window_start = 1000
-    metadata.update_rate(info, 10, 2, 1000 + 3600)  # 8 net pixels in 1 hour
-
-    assert info.recent_rate_pixels_per_hour == 8.0
-
-
-async def test_update_rate_ema_smoothing(test_person):
-    """Third+ call blends instant rate with existing EMA."""
-    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_ema")
-    await info.save_as_new()
-
-    info.recent_rate_window_start = 1000
-    info.recent_rate_pixels_per_hour = 8.0
-
-    metadata.update_rate(info, 20, 0, 1000 + 3600)  # instant rate = 20 px/hr
-
-    import math
-    decay = math.exp(-1.0 / metadata.RATE_HALF_LIFE_HOURS)
-    expected = decay * 8.0 + (1 - decay) * 20.0
-    assert info.recent_rate_pixels_per_hour == pytest.approx(expected, abs=0.01)
-    assert info.recent_rate_window_start == 1000 + 3600
+def test_compute_rate_basic():
+    """Steady painting over multiple intervals."""
+    changes = [
+        _make_change(1000),
+        _make_change(1000 + 3600, progress=132),
+        _make_change(1000 + 7200, progress=132),
+    ]
+    assert metadata.compute_rate(changes) == pytest.approx(132.0)
 
 
-async def test_update_rate_steady_convergence(test_person):
-    """Steady painting at 132 px/hr converges the EMA toward 132."""
-    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_converge")
-    await info.save_as_new()
-
-    # Bootstrap
-    info.recent_rate_window_start = 1000
-    metadata.update_rate(info, 132, 0, 1000 + 3600)
-    assert info.recent_rate_pixels_per_hour == 132.0
-
-    # 50 more updates at ~97s intervals, each delivering 132 * (97/3600) ~ 3.56 pixels
-    interval = 97
-    pixels_per_interval = 132.0 * interval / 3600.0
-    t = 1000 + 3600
-    for _ in range(50):
-        t += interval
-        metadata.update_rate(info, round(pixels_per_interval), 0, t)
-
-    assert info.recent_rate_pixels_per_hour == pytest.approx(132.0, rel=0.05)
+def test_compute_rate_includes_idle_time():
+    """Idle gaps are included in the denominator (calendar rate)."""
+    changes = [
+        _make_change(1000),
+        _make_change(1000 + 3600, progress=100),  # 1h active
+        _make_change(1000 + 3600 + 50000, progress=5),  # ~14h idle
+        _make_change(1000 + 3600 + 50000 + 3600, progress=100),  # 1h active
+    ]
+    rate = metadata.compute_rate(changes)
+    # 205 net over full span of ~15.2 hours
+    total_hours = (3600 + 50000 + 3600) / 3600.0
+    assert rate == pytest.approx(205 / total_hours)
 
 
-async def test_update_rate_stale_reset(test_person):
-    """Rate resets to 0 after 7 days of inactivity."""
-    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_stale")
-    await info.save_as_new()
-
-    info.recent_rate_window_start = 1000
-    info.recent_rate_pixels_per_hour = 100.0
-
-    metadata.update_rate(info, 5, 0, 1000 + 604801)
-
-    assert info.recent_rate_window_start == 1000 + 604801
-    assert info.recent_rate_pixels_per_hour == 0.0
+def test_compute_rate_handles_regress():
+    """Grief pixels are subtracted from the rate."""
+    changes = [
+        _make_change(1000),
+        _make_change(1000 + 3600, progress=100, regress=20),
+    ]
+    assert metadata.compute_rate(changes) == pytest.approx(80.0)
 
 
-async def test_update_rate_negative_net_change(test_person):
-    """Grief exceeding progress produces negative instant rate, lowering the EMA."""
-    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_neg")
-    await info.save_as_new()
-
-    # Bootstrap with positive rate
-    info.recent_rate_window_start = 1000
-    metadata.update_rate(info, 10, 2, 1000 + 3600)  # seeds at 8.0
-    assert info.recent_rate_pixels_per_hour == 8.0
-
-    # Next diff has net regress
-    metadata.update_rate(info, 2, 10, 2000 + 3600)  # instant = -8.0
-    assert info.recent_rate_pixels_per_hour < 8.0
+def test_compute_rate_too_few_entries():
+    """Returns 0 with fewer than 2 entries."""
+    assert metadata.compute_rate([]) == 0.0
+    assert metadata.compute_rate([_make_change(1000)]) == 0.0
 
 
-async def test_update_rate_long_gap_skipped(test_person):
-    """Gaps longer than RATE_MAX_INTERVAL skip rate update but advance timestamp."""
-    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_gap")
-    await info.save_as_new()
-
-    info.recent_rate_window_start = 1000
-    info.recent_rate_pixels_per_hour = 100.0
-
-    # 12-hour idle gap — rate should be preserved, timestamp should advance
-    metadata.update_rate(info, 26, 0, 1000 + 43200)
-
-    assert info.recent_rate_pixels_per_hour == 100.0
-    assert info.recent_rate_window_start == 1000 + 43200
-
-
-async def test_update_rate_resumes_after_idle_gap(test_person):
-    """After an idle gap, the next short interval updates the rate normally."""
-    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_resume")
-    await info.save_as_new()
-
-    info.recent_rate_window_start = 1000
-    info.recent_rate_pixels_per_hour = 100.0
-
-    # 12-hour idle gap — skipped
-    t_after_gap = 1000 + 43200
-    metadata.update_rate(info, 26, 0, t_after_gap)
-    assert info.recent_rate_pixels_per_hour == 100.0
-
-    # Next poll 97s later — active interval, updates EMA
-    metadata.update_rate(info, 4, 0, t_after_gap + 97)
-    assert info.recent_rate_pixels_per_hour != 100.0  # EMA updated
-
-
-async def test_update_rate_zero_elapsed(test_person):
-    """Same timestamp as last update is a no-op."""
-    info = ProjectInfo(owner_id=test_person.id, owner=test_person, name="rate_zero")
-    await info.save_as_new()
-
-    info.recent_rate_window_start = 1000
-    info.recent_rate_pixels_per_hour = 50.0
-
-    metadata.update_rate(info, 10, 0, 1000)
-
-    assert info.recent_rate_pixels_per_hour == 50.0
-    assert info.recent_rate_window_start == 1000
+def test_compute_rate_unsorted_input():
+    """Works regardless of input order."""
+    changes = [
+        _make_change(1000 + 7200, progress=132),
+        _make_change(1000),
+        _make_change(1000 + 3600, progress=132),
+    ]
+    assert metadata.compute_rate(changes) == pytest.approx(132.0)
 
 
 async def test_has_missing_tiles_default(test_person):

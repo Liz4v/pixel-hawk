@@ -7,7 +7,6 @@ All functions take ProjectInfo as the first parameter and mutate its fields in p
 process_diff() creates and returns a HistoryChange object for the caller to persist.
 """
 
-import math
 import time
 from typing import TYPE_CHECKING
 
@@ -64,35 +63,27 @@ def update_regress(info: ProjectInfo, regress_pixels: int, timestamp: int) -> No
         info.largest_regress_time = timestamp
 
 
-RATE_HALF_LIFE_HOURS = 12.0
-RATE_MAX_INTERVAL = 7200  # 2 hours — skip rate updates for longer gaps (idle/sleep)
-RATE_STALE_THRESHOLD = 604800  # 7 days
+RATE_WINDOW = 604800  # 7 days — history window for rate calculation
 
 
-def update_rate(info: ProjectInfo, progress_pixels: int, regress_pixels: int, timestamp: int) -> None:
-    """Update completion rate using time-weighted exponential moving average.
+def compute_rate(changes: list[HistoryChange]) -> float:
+    """Compute pixels-per-hour from history entries using a flat-weight moving average.
 
-    Only intervals shorter than RATE_MAX_INTERVAL contribute to the rate,
-    so idle gaps (sleep, AFK) don't dilute the painting speed estimate.
+    Uses the time span from the oldest to newest entry as the denominator,
+    giving a calendar-rate that naturally reflects how fast the project
+    progresses including idle time between painting sessions.
+
+    Entries may be in any order; only the first and last timestamps matter.
+    Returns 0.0 if there aren't enough entries.
     """
-    if info.recent_rate_window_start > 0:
-        elapsed_seconds = timestamp - info.recent_rate_window_start
-        if elapsed_seconds <= 0:
-            return
-
-        if elapsed_seconds > RATE_STALE_THRESHOLD:
-            info.recent_rate_pixels_per_hour = 0.0
-        elif elapsed_seconds <= RATE_MAX_INTERVAL:
-            elapsed_hours = elapsed_seconds / 3600.0
-            instant_rate = (progress_pixels - regress_pixels) / elapsed_hours
-
-            if info.recent_rate_pixels_per_hour == 0.0:
-                info.recent_rate_pixels_per_hour = instant_rate
-            else:
-                decay = math.exp(-elapsed_hours / RATE_HALF_LIFE_HOURS)
-                info.recent_rate_pixels_per_hour = decay * info.recent_rate_pixels_per_hour + (1 - decay) * instant_rate
-
-    info.recent_rate_window_start = timestamp
+    if len(changes) < 2:
+        return 0.0
+    by_time = sorted(changes, key=lambda c: c.timestamp)
+    total_seconds = by_time[-1].timestamp - by_time[0].timestamp
+    if total_seconds <= 0:
+        return 0.0
+    total_net = sum(c.progress_pixels - c.regress_pixels for c in by_time[1:])
+    return total_net / (total_seconds / 3600.0)
 
 
 def process_diff(info: ProjectInfo, current_data: bytes, target_data: bytes, prev_data: bytes) -> HistoryChange:
@@ -166,12 +157,8 @@ def process_diff(info: ProjectInfo, current_data: bytes, target_data: bytes, pre
             regress_pixels=regress_pixels,
         )
 
-    # Calculate rate (pixels per hour)
-    update_rate(info, progress_pixels, regress_pixels, timestamp)
-
     # Build log message for in-progress project
-    rate = info.recent_rate_pixels_per_hour
-    seconds_to_go = round(num_remaining / rate * 3600) if rate > 0 else 27 * num_remaining
+    seconds_to_go = 27 * num_remaining
     days, hours = divmod(round(seconds_to_go / 3600), 24)
     when = time.strftime("%b %d %H:%M", time.localtime(time.time() + seconds_to_go))
 
