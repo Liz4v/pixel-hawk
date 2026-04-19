@@ -53,7 +53,7 @@ jobs:
           UV_PYTHON_INSTALL_DIR: ${{ vars.UV_PYTHON_INSTALL_DIR }}
         run: >
           ssh ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }}
-          "cd ${{ vars.DEPLOY_DIR }} && ${UV_PYTHON_INSTALL_DIR:+UV_PYTHON_INSTALL_DIR=$UV_PYTHON_INSTALL_DIR} UV_PYTHON_PREFERENCE=only-system ${{ vars.UV_BIN }} sync --quiet"
+          "cd ${{ vars.DEPLOY_DIR }} && ${UV_PYTHON_INSTALL_DIR:+UV_PYTHON_INSTALL_DIR=$UV_PYTHON_INSTALL_DIR} ${{ vars.UV_BIN }} sync --quiet"
 
       - name: Ensure nest symlink
         run: >
